@@ -14,6 +14,7 @@ import { ToastContainer, useToast } from "./components/Toast";
 import { Loading } from "./components/Loading";
 import "./App.css";
 
+// 懒加载组件，优化首屏加载性能
 const StartPage = lazy(() => import("./components/StartPage"));
 const SharePanel = lazy(() => import("./components/SharePanel"));
 const TagPanel = lazy(() => import("./components/TagPanel"));
@@ -21,6 +22,10 @@ const DocTagSelector = lazy(() => import("./components/DocTagSelector"));
 const SearchPanel = lazy(() => import("./components/SearchPanel"));
 const VersionHistoryPanel = lazy(() => import("./components/VersionHistoryPanel"));
 
+/**
+ * 懒加载包装组件
+ * 为子组件提供加载状态的 fallback 显示
+ */
 type LazyLoaderProps = {
   children: React.ReactNode;
 };
@@ -37,13 +42,21 @@ function LazyLoader({ children }: LazyLoaderProps) {
   );
 }
 
+/**
+ * 最近浏览记录接口
+ */
 interface RecentView {
   docId: string;
   notebookId: string;
   viewedAt: string;
 }
 
+/**
+ * 主应用组件
+ * 包含笔记应用的完整界面布局和核心功能
+ */
 function App() {
+  // 从状态管理获取笔记数据和操作方法
   const {
     notebooks, 
     activeNotebookId, 
@@ -71,27 +84,30 @@ function App() {
     setSaveStatus,
   } = useNotesStore();
 
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [fontSize, setFontSize] = useState<string>("15px");
-  const [textStyle, setTextStyle] = useState<string>("正文");
-  const [showMoreOptions, setShowMoreOptions] = useState(false);
-  const [activeView, setActiveView] = useState<string>("notebooks");
-  const [activeLeftMenu, setActiveLeftMenu] = useState<string>("notebooks");
-  const [recentViews, setRecentViews] = useState<RecentView[]>([]);
-  const [notebooksExpanded, setNotebooksExpanded] = useState(true);
-  const [showSharePanel, setShowSharePanel] = useState(false);
-  const [showTagPanel, setShowTagPanel] = useState(false);
-  const [showSearchPanel, setShowSearchPanel] = useState(false);
-  const [showVersionHistory, setShowVersionHistory] = useState(false);
-  const [, setTagsUpdated] = useState(0);
-  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
-  const [recoveryDraftMeta, setRecoveryDraftMeta] = useState<{ timestamp: string; docTitle: string } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const dirtyRef = useRef(false);
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // UI 状态管理
+  const [showMoreMenu, setShowMoreMenu] = useState(false);         // 更多菜单显示状态
+  const [fontSize, setFontSize] = useState<string>("15px");        // 编辑器字体大小
+  const [textStyle, setTextStyle] = useState<string>("正文");      // 文本样式
+  const [showMoreOptions, setShowMoreOptions] = useState(false);   // 更多选项菜单
+  const [activeView, setActiveView] = useState<string>("notebooks"); // 当前视图类型
+  const [activeLeftMenu, setActiveLeftMenu] = useState<string>("notebooks"); // 左侧菜单激活项
+  const [recentViews, setRecentViews] = useState<RecentView[]>([]); // 最近浏览记录
+  const [notebooksExpanded, setNotebooksExpanded] = useState(true); // 知识库列表展开状态
+  const [showSharePanel, setShowSharePanel] = useState(false);     // 分享面板显示
+  const [showTagPanel, setShowTagPanel] = useState(false);         // 标签面板显示
+  const [showSearchPanel, setShowSearchPanel] = useState(false);   // 搜索面板显示
+  const [showVersionHistory, setShowVersionHistory] = useState(false); // 版本历史面板
+  const [, setTagsUpdated] = useState(0);                          // 标签更新触发器
+  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false); // 草稿恢复对话框
+  const [recoveryDraftMeta, setRecoveryDraftMeta] = useState<{ timestamp: string; docTitle: string } | null>(null); // 草稿元数据
+  const [isLoading, setIsLoading] = useState(true);                // 加载状态
+  const dirtyRef = useRef(false);                                  // 脏标记（用于跳过首次触发）
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 自动保存定时器
 
+  // Toast 通知钩子
   const { toasts, removeToast, error } = useToast();
 
+  // 右键菜单状态
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -104,6 +120,7 @@ function App() {
     notebookId: string;
   } | null>(null);
 
+  // 点击外部关闭右键菜单
   useEffect(() => {
     const handleClickOutside = () => {
       setContextMenu(null);
@@ -113,6 +130,10 @@ function App() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  /**
+   * 查看文档处理
+   * 更新最近浏览记录并切换到文档视图
+   */
   const handleViewDoc = (notebookId: string, docId: string) => {
     setRecentViews(prev => {
       const filtered = prev.filter(v => !(v.docId === docId && v.notebookId === notebookId));
@@ -124,6 +145,9 @@ function App() {
     setActiveLeftMenu("notebooks");
   };
 
+  /**
+   * 重命名文档
+   */
   const handleRename = (docId: string) => {
     const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
     if (!notebook) return;
@@ -138,11 +162,17 @@ function App() {
     setContextMenu(null);
   };
 
+  /**
+   * 复制文档链接到剪贴板
+   */
   const handleCopyLink = (docId: string) => {
     navigator.clipboard.writeText(`${window.location.origin}/doc/${docId}`);
     setContextMenu(null);
   };
 
+  /**
+   * 复制文档（创建副本）
+   */
   const handleCopy = (docId: string) => {
     const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
     if (!notebook) return;
@@ -158,6 +188,9 @@ function App() {
     setContextMenu(null);
   };
 
+  /**
+   * 删除文档到回收站
+   */
   const handleDelete = (docId: string) => {
     const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
     if (!notebook) return;
@@ -171,23 +204,36 @@ function App() {
     setContextMenu(null);
   };
 
+  /**
+   * 在新窗口中打开文档
+   */
   const handleOpenInNewWindow = (docId: string) => {
     window.open(`/doc/${docId}`, '_blank');
     setContextMenu(null);
   };
 
+  // 演示菜单状态
   const [showPresentationMenu, setShowPresentationMenu] = useState(false);
 
+  /**
+   * 开始演示
+   */
   const handleStartPresentation = () => {
     alert('演示功能已触发\n\n即将进入全屏演示模式');
     setShowPresentationMenu(false);
   };
 
+  /**
+   * 编辑演示分页
+   */
   const handleEditPresentation = () => {
     alert('演示分页编辑功能已触发\n\n您可以编辑演示的分页结构');
     setShowPresentationMenu(false);
   };
 
+  /**
+   * 从目录中移除文档（设为根目录）
+   */
   const handleRemoveFromDirectory = (docId: string) => {
     const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
     if (!notebook) return;
@@ -196,6 +242,9 @@ function App() {
     setContextMenu(null);
   };
 
+  /**
+   * 移动文档到指定位置
+   */
   const handleMove = (docId: string) => {
     const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
     if (!notebook) return;
@@ -233,6 +282,9 @@ function App() {
     setContextMenu(null);
   };
 
+  /**
+   * 导出文档为 Markdown 文件
+   */
   const handleExport = (docId: string) => {
     const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
     if (!notebook) return;
@@ -253,6 +305,9 @@ function App() {
     setContextMenu(null);
   };
 
+  /**
+   * 固定/取消固定文档
+   */
   const handlePin = (docId: string) => {
     const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
     if (!notebook) return;
@@ -264,26 +319,41 @@ function App() {
     setContextMenu(null);
   };
 
+  /**
+   * 从收藏中移除知识库（预留功能）
+   */
   const handleRemoveNotebookFromFavorites = (_notebookId: string) => {
     setNotebookContextMenu(null);
     alert('移出常用功能已触发');
   };
 
+  /**
+   * 设置知识库离线可用（预留功能）
+   */
   const handleSetNotebookOfflineAvailable = (_notebookId: string) => {
     setNotebookContextMenu(null);
     alert('设为离线可用功能已触发');
   };
 
+  /**
+   * 知识库权限设置（预留功能）
+   */
   const handleNotebookPermissions = (_notebookId: string) => {
     setNotebookContextMenu(null);
     alert('权限设置功能已触发');
   };
 
+  /**
+   * 知识库更多设置（预留功能）
+   */
   const handleNotebookMoreSettings = (_notebookId: string) => {
     setNotebookContextMenu(null);
     alert('更多设置功能已触发');
   };
 
+  /**
+   * 删除知识库
+   */
   const handleDeleteNotebook = (notebookId: string) => {
     const notebook = notebooks.find(nb => nb.id === notebookId);
     if (!notebook) return;
@@ -296,6 +366,9 @@ function App() {
     }
   };
 
+  /**
+   * 获取所有收藏的文档（按更新时间排序）
+   */
   const favoriteDocs = useMemo(() => {
     const favorites: { notebook: Notebook; doc: NoteDoc }[] = [];
     notebooks.forEach(notebook => {
@@ -308,12 +381,15 @@ function App() {
     return favorites.sort((a, b) => new Date(b.doc.updatedAt).getTime() - new Date(a.doc.updatedAt).getTime());
   }, [notebooks]);
 
+  /**
+   * 初始化加载笔记数据和草稿恢复检测
+   */
   useEffect(() => {
     const draft = loadLatestDraft();
 
     loadNotes().then(() => {
       setIsLoading(false);
-      // After loading from disk, check if there's a newer local draft (crash recovery)
+      // 加载完成后检查是否有更新的本地草稿（崩溃恢复）
       if (draft) {
         const current = useNotesStore.getState();
         const draftNotebooks = JSON.stringify(draft.data.notebooks);
@@ -336,6 +412,9 @@ function App() {
     });
   }, [error]);
 
+  /**
+   * 页面关闭前保存数据并清除草稿
+   */
   useEffect(() => {
     const handleBeforeUnload = () => {
       saveNotes();
@@ -347,9 +426,11 @@ function App() {
     };
   }, []);
 
-  // Auto-save: debounced save to disk + localStorage on data change
+  /**
+   * 自动保存：数据变化时延迟保存到磁盘和 localStorage
+   */
   useEffect(() => {
-    // Skip the initial mount trigger
+    // 跳过初始挂载触发
     if (!dirtyRef.current) {
       dirtyRef.current = true;
       return;
@@ -376,6 +457,9 @@ function App() {
     };
   }, [notebooks, trash, tags]);
 
+  /**
+   * 恢复草稿
+   */
   const handleRecoverDraft = useCallback(() => {
     const draft = loadLatestDraft();
     if (!draft) return;
@@ -383,7 +467,7 @@ function App() {
     const state = useNotesStore.getState();
     state.updateStore(draft.data);
 
-    // Re-select active doc if possible
+    // 如果可能，重新选择活动文档
     if (draft.data.notebooks.length > 0) {
       const nb = draft.data.notebooks[0];
       state.setActiveNotebookId(nb.id);
@@ -397,22 +481,36 @@ function App() {
     clearDrafts();
   }, [setSaveStatus]);
 
+  /**
+   * 丢弃草稿
+   */
   const handleDiscardDraft = useCallback(() => {
     clearDrafts();
     setShowRecoveryDialog(false);
   }, []);
 
+  /**
+   * 当前活动知识库
+   */
   const activeNotebook = useMemo(
     () => notebooks.find((item) => item.id === activeNotebookId) ?? null,
     [activeNotebookId, notebooks],
   );
+
+  /**
+   * 当前活动文档
+   */
   const activeDoc = useMemo(
     () => activeNotebook?.docs.find((item) => item.id === activeDocId) ?? null,
     [activeDocId, activeNotebook],
   );
 
+  // 编辑器文本域引用
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  /**
+   * 搜索结果文档列表
+   */
   const searchResultDocs = useMemo(() => {
     if (!activeNotebook || !searchText.trim()) return activeNotebook?.docs || [];
     const keyword = searchText.trim().toLowerCase();
@@ -422,6 +520,9 @@ function App() {
     });
   }, [activeNotebook, searchText]);
 
+  /**
+   * 文档层级映射（用于树形显示缩进）
+   */
   const docDepthMap = useMemo(() => {
     if (!activeNotebook) return new Map<string, number>();
     const map = new Map<string, number>();
@@ -439,16 +540,20 @@ function App() {
     return map;
   }, [activeNotebook]);
 
+  // 撤销/重做历史相关
   type DocSnapshot = { title: string; content: string; tags: string[]; time?: number };
-  const [pastSnapshots, setPastSnapshots] = useState<DocSnapshot[]>([]);
-  const [futureSnapshots, setFutureSnapshots] = useState<DocSnapshot[]>([]);
-  const historyLimit = 200;
-  const lastHistoryAtRef = useRef<number>(0);
-  const mergeWindow = 1000;
+  const [pastSnapshots, setPastSnapshots] = useState<DocSnapshot[]>([]); // 撤销历史
+  const [futureSnapshots, setFutureSnapshots] = useState<DocSnapshot[]>([]); // 重做历史
+  const historyLimit = 200; // 历史记录上限
+  const lastHistoryAtRef = useRef<number>(0); // 上次记录时间
+  const mergeWindow = 1000; // 合并窗口（毫秒）
 
   const canUndo = pastSnapshots.length > 0;
   const canRedo = futureSnapshots.length > 0;
 
+  /**
+   * 撤销操作
+   */
   const undo = () => {
     if (!activeDoc || !canUndo) return;
     const prev = pastSnapshots[pastSnapshots.length - 1];
@@ -457,6 +562,9 @@ function App() {
     updateDoc(activeNotebookId, activeDoc.id, { title: prev.title, content: prev.content, tags: prev.tags });
   };
 
+  /**
+   * 重做操作
+   */
   const redo = () => {
     if (!activeDoc || !canRedo) return;
     const next = futureSnapshots[futureSnapshots.length - 1];
@@ -465,12 +573,17 @@ function App() {
     updateDoc(activeNotebookId, activeDoc.id, { title: next.title, content: next.content, tags: next.tags });
   };
 
+  /**
+   * 全局键盘事件监听
+   * 处理快捷键：Ctrl+K 打开搜索、Ctrl+Z 撤销、Ctrl+Y/Shift+Ctrl+Z 重做
+   */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const meta = e.ctrlKey || e.metaKey;
       const target = e.target as HTMLElement;
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
       
+      // Ctrl/Cmd + K: 打开搜索面板
       if (meta && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setShowSearchPanel(true);
@@ -481,10 +594,13 @@ function App() {
       if (isInput) return;
       
       const key = e.key.toLowerCase();
+      // Ctrl/Cmd + Z: 撤销
       if (key === 'z') {
         e.preventDefault();
         undo();
-      } else if (key === 'y' || (e.shiftKey && key === 'z')) {
+      } 
+      // Ctrl/Cmd + Y 或 Ctrl/Cmd + Shift + Z: 重做
+      else if (key === 'y' || (e.shiftKey && key === 'z')) {
         e.preventDefault();
         redo();
       }
@@ -493,6 +609,10 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [canUndo, canRedo]);
 
+  /**
+   * 处理粘贴事件
+   * 支持粘贴图片
+   */
   const handlePaste = (ev: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = ev.clipboardData && ev.clipboardData.items;
     if (!items) return;
@@ -509,6 +629,9 @@ function App() {
     }
   };
 
+  /**
+   * 在选中文本周围插入包裹符
+   */
   const insertWrap = (prefix: string, suffix?: string) => {
     const ta = textareaRef.current;
     if (!ta || !activeDoc) return;
@@ -516,6 +639,9 @@ function App() {
     updateDocContent({ content: ta.value });
   };
 
+  /**
+   * 插入标题
+   */
   const insertHeadingFunc = (level: number) => {
     const ta = textareaRef.current;
     if (!ta || !activeDoc) return;
@@ -524,6 +650,9 @@ function App() {
     setTimeout(() => ta.focus(), 0);
   };
 
+  /**
+   * 插入链接
+   */
   const insertLinkFunc = () => {
     const ta = textareaRef.current;
     if (!ta || !activeDoc) return;
@@ -531,6 +660,9 @@ function App() {
     updateDocContent({ content: ta.value });
   };
 
+  /**
+   * 插入图片
+   */
   const insertImageFunc = async (file: File) => {
     if (!file || !activeDoc) return;
     const reader = new FileReader();
@@ -545,6 +677,7 @@ function App() {
           updateDocContent({ content: ta.value });
         }
       } catch (err) {
+        // 如果上传失败，使用 base64 数据
         const ta = textareaRef.current;
         if (ta) {
           utilsInsertImage(ta, data);
@@ -555,6 +688,9 @@ function App() {
     reader.readAsDataURL(file);
   };
 
+  /**
+   * 插入代码块
+   */
   const insertCodeBlockFunc = () => {
     const ta = textareaRef.current;
     if (!ta || !activeDoc) return;
@@ -562,6 +698,9 @@ function App() {
     updateDocContent({ content: ta.value });
   };
 
+  /**
+   * 插入引用
+   */
   const insertQuote = () => {
     const ta = textareaRef.current;
     if (ta) {
@@ -570,6 +709,9 @@ function App() {
     }
   };
 
+  /**
+   * 插入下划线
+   */
   const insertUnderline = () => {
     const ta = textareaRef.current;
     if (ta) {
@@ -578,6 +720,9 @@ function App() {
     }
   };
 
+  /**
+   * 插入无序列表
+   */
   const insertUnorderedList = () => {
     const ta = textareaRef.current;
     if (ta) {
@@ -586,6 +731,9 @@ function App() {
     }
   };
 
+  /**
+   * 插入有序列表
+   */
   const insertOrderedList = () => {
     const ta = textareaRef.current;
     if (ta) {
@@ -594,8 +742,12 @@ function App() {
     }
   };
 
+  /**
+   * 更新文档内容（带历史记录）
+   */
   const updateDocContent = (changes: Partial<NoteDoc>) => {
     if (!activeNotebook || !activeDoc) return;
+    // 只有内容、标题或标签变化时才记录历史
     if (typeof changes.content !== 'undefined' || typeof changes.title !== 'undefined' || typeof changes.tags !== 'undefined') {
       const now = Date.now();
       const last = lastHistoryAtRef.current;
@@ -605,6 +757,7 @@ function App() {
         tags: activeDoc.tags ?? [],
         time: now,
       };
+      // 超过合并窗口时间才记录新快照
       if (now - last > mergeWindow) {
         setPastSnapshots((p) => {
           const next = [...p, prevSnapshot];

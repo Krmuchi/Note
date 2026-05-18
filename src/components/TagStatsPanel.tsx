@@ -1,15 +1,26 @@
+// 导入类型定义
 import type { TagStats } from "../types";
 
+/**
+ * 标签统计面板属性接口
+ */
 interface TagStatsPanelProps {
-  stats: TagStats;
+  stats: TagStats;  // 标签统计数据
 }
 
+/**
+ * 标签统计面板组件
+ */
 export default function TagStatsPanel({ stats }: TagStatsPanelProps) {
+  /**
+   * 计算进度条宽度百分比
+   */
   const getBarWidth = (count: number, max: number) => {
     if (max === 0) return 0;
     return (count / max) * 100;
   };
 
+  // 获取最大计数值用于计算百分比
   const maxCount = Math.max(...stats.tagDistribution.map(d => d.count), 1);
 
   return (

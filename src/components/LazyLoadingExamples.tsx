@@ -4,9 +4,14 @@ import { PaginatedContent } from './PaginatedContent';
 import { VirtualScroll } from './VirtualScroll';
 import { createLazyComponent } from '../utils/lazyLoadUtils';
 
+/**
+ * 懒加载功能示例组件
+ * 展示图片懒加载、分页加载、虚拟滚动和组件懒加载四种懒加载技术
+ */
 export function LazyLoadingExamples() {
   const [activeTab, setActiveTab] = useState<'image' | 'pagination' | 'virtual' | 'component'>('image');
 
+  // 标签页配置
   const tabs = [
     { id: 'image' as const, label: '图片懒加载' },
     { id: 'pagination' as const, label: '分页加载' },
@@ -20,6 +25,7 @@ export function LazyLoadingExamples() {
         懒加载功能示例
       </h1>
 
+      {/* 标签页切换 */}
       <div style={{ marginBottom: '20px', borderBottom: '1px solid #e8e8e8' }}>
         {tabs.map((tab) => (
           <button
@@ -41,6 +47,7 @@ export function LazyLoadingExamples() {
         ))}
       </div>
 
+      {/* 内容区域 */}
       <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
         {activeTab === 'image' && <ImageLazyExample />}
         {activeTab === 'pagination' && <PaginationExample />}
@@ -51,6 +58,9 @@ export function LazyLoadingExamples() {
   );
 }
 
+/**
+ * 图片懒加载示例
+ */
 function ImageLazyExample() {
   const images = [
     'https://picsum.photos/800/600?random=1',
@@ -91,7 +101,11 @@ function ImageLazyExample() {
   );
 }
 
+/**
+ * 分页加载示例
+ */
 function PaginationExample() {
+  // 生成模拟长文档内容
   const longContent = React.useMemo(() => {
     let content = '';
     for (let i = 1; i <= 100; i++) {
@@ -133,7 +147,11 @@ function PaginationExample() {
   );
 }
 
+/**
+ * 虚拟滚动示例
+ */
 function VirtualScrollExample() {
+  // 生成 10000 条模拟数据
   const items = React.useMemo(() => {
     return Array.from({ length: 10000 }, (_, i) => ({
       id: `item-${i}`,
@@ -197,10 +215,14 @@ function VirtualScrollExample() {
   );
 }
 
+/**
+ * 组件懒加载示例
+ */
 function ComponentLazyExample() {
   const [showPanel, setShowPanel] = useState(false);
   const [showModal, setShowModal] = useState(false);
 
+  // 创建懒加载组件
   const LazySharePanel = createLazyComponent(
     () => import('./SharePanel'),
     {
@@ -254,6 +276,7 @@ function ComponentLazyExample() {
         </button>
       </div>
 
+      {/* 懒加载分享面板 */}
       {showPanel && (
         <div style={{ border: '1px solid #e8e8e8', borderRadius: '8px', padding: '20px', marginBottom: '16px' }}>
           <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '600' }}>分享面板（懒加载）</h3>
@@ -275,6 +298,7 @@ function ComponentLazyExample() {
         </div>
       )}
 
+      {/* 懒加载标签面板 */}
       {showModal && (
         <div style={{ border: '1px solid #e8e8e8', borderRadius: '8px', padding: '20px' }}>
           <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '600' }}>标签面板（懒加载）</h3>

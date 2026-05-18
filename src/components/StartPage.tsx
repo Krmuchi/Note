@@ -1,16 +1,24 @@
+// 导入 React 相关 hooks 和类型定义
 import { useState, useMemo } from "react";
 import type { NoteDoc, Notebook } from "../types";
 
+/**
+ * 开始页组件属性接口
+ */
 interface StartPageProps {
-  notebooks: Notebook[];
-  recentViews: { docId: string; notebookId: string; viewedAt: string }[];
-  onViewDoc: (notebookId: string, docId: string) => void;
-  onCreateDoc: (notebookId: string, parentId: string | null, docData?: Partial<NoteDoc>) => void;
-  onCreateNotebook: (title: string) => void;
+  notebooks: Notebook[];                                    // 知识库列表
+  recentViews: { docId: string; notebookId: string; viewedAt: string }[]; // 最近浏览记录
+  onViewDoc: (notebookId: string, docId: string) => void;   // 查看文档回调
+  onCreateDoc: (notebookId: string, parentId: string | null, docData?: Partial<NoteDoc>) => void; // 新建文档回调
+  onCreateNotebook: (title: string) => void;                // 新建知识库回调
 }
 
+// 文档过滤类型
 type FilterType = "edited" | "viewed" | "mentioned" | "liked" | "commented" | "collaborated" | "shared";
 
+/**
+ * 快捷操作配置
+ */
 const quickActions = [
   {
     id: "new-doc",
@@ -43,6 +51,9 @@ const quickActions = [
   }
 ];
 
+/**
+ * 过滤标签配置
+ */
 const filterTabs: { id: FilterType; label: string }[] = [
   { id: "edited", label: "编辑过" },
   { id: "viewed", label: "浏览过" },
@@ -53,6 +64,9 @@ const filterTabs: { id: FilterType; label: string }[] = [
   { id: "shared", label: "分享中的" }
 ];
 
+/**
+ * 开始页主组件
+ */
 export default function StartPage({
   notebooks,
   recentViews,
@@ -60,10 +74,14 @@ export default function StartPage({
   onCreateDoc,
   onCreateNotebook
 }: StartPageProps) {
-  const [activeFilter, setActiveFilter] = useState<FilterType>("edited");
-  const [expandedAction, _setExpandedAction] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterType>("edited"); // 当前激活的过滤器
+  const [, setExpandedAction] = useState<string | null>(null); // 展开的快捷操作（预留）
 
+  /**
+   * 根据过滤器类型过滤文档列表
+   */
   const filteredDocs = useMemo((): (NoteDoc & { notebook?: Notebook; viewedAt?: string })[] => {
+    // 如果选择"浏览过"，从浏览记录中获取
     if (activeFilter === "viewed") {
       return recentViews
         .map(view => {
@@ -75,6 +93,7 @@ export default function StartPage({
         .sort((a, b) => new Date(b.viewedAt).getTime() - new Date(a.viewedAt).getTime());
     }
 
+    // 默认：获取所有文档并按更新时间排序
     const allDocs: { doc: NoteDoc; notebook: Notebook }[] = [];
     notebooks.forEach(notebook => {
       notebook.docs.forEach(doc => {
@@ -86,24 +105,36 @@ export default function StartPage({
       .map(item => ({ ...item.doc, notebook: item.notebook }));
   }, [notebooks, recentViews, activeFilter]);
 
+  /**
+   * 处理快捷操作点击
+   */
   const handleActionClick = (actionId: string) => {
     if (actionId === "new-doc") {
+      // 新建文档：选择第一个知识库创建
       if (notebooks.length > 0) {
         onCreateDoc(notebooks[0].id, null, { title: "新建文档" });
       }
     } else if (actionId === "new-notebook") {
+      // 新建知识库
       onCreateNotebook("新建知识库");
     } else {
+      // 其他功能开发中
       alert(`${actionId} 功能开发中`);
     }
   };
 
+  /**
+   * 处理文档点击
+   */
   const handleDocClick = (doc: { id: string; notebook?: Notebook }) => {
     if (doc.notebook) {
       onViewDoc(doc.notebook.id, doc.id);
     }
   };
 
+  /**
+   * 格式化时间显示
+   */
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -123,18 +154,19 @@ export default function StartPage({
 
   return (
     <div className="start-page">
-      {/* 快捷操作区域 */}
+      {/* 页面头部 */}
       <div className="start-header">
         <h1 className="start-title">开始</h1>
       </div>
 
+      {/* 快捷操作区域 */}
       <div className="quick-actions">
         {/* 第一行：新建文档、新建知识库、模板中心 */}
         <div className="quick-actions-row">
           {quickActions.slice(0, 3).map((action) => (
             <div
               key={action.id}
-              className={`quick-action-card ${expandedAction === action.id ? "expanded" : ""}`}
+              className="quick-action-card"
               onClick={() => handleActionClick(action.id)}
             >
               <div className="action-header">
@@ -151,11 +183,11 @@ export default function StartPage({
           ))}
         </div>
         
-        {/* 第二行：AI 帮你写（单独一行） */}
+        {/* 第二行：AI 帮你写 */}
         <div className="quick-actions-row full-width">
           <div
             key={quickActions[3].id}
-            className={`quick-action-card ${expandedAction === quickActions[3].id ? "expanded" : ""}`}
+            className="quick-action-card"
             onClick={() => handleActionClick(quickActions[3].id)}
           >
             <div className="action-header">
@@ -175,6 +207,7 @@ export default function StartPage({
           <h2 className="docs-section-title">文档</h2>
         </div>
 
+        {/* 过滤标签 */}
         <div className="docs-filter-tabs">
           {filterTabs.map((tab) => (
             <button
@@ -187,6 +220,7 @@ export default function StartPage({
           ))}
         </div>
 
+        {/* 右侧筛选器 */}
         <div className="docs-filters-right">
           <select className="filter-select">
             <option>类型</option>
@@ -209,6 +243,7 @@ export default function StartPage({
           </select>
         </div>
 
+        {/* 文档列表容器 */}
         <div className="docs-list-container">
           {filteredDocs.length === 0 ? (
             <div className="empty-docs">

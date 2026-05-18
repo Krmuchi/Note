@@ -1,18 +1,25 @@
+// 导入 React hooks 和类型定义
 import { useState, useEffect } from "react";
 import type { ShareLink } from "../types";
 
+/**
+ * 分享面板组件属性接口
+ */
 interface SharePanelProps {
-  isOpen: boolean;
-  onClose: () => void;
-  docTitle: string;
-  docId: string;
-  notebookId: string;
-  shareLinks: ShareLink[];
-  onGenerateLink: (permission: string, password: string, expiresAt: string | null) => void;
-  onDeleteLink: (linkId: string) => void;
-  onCopyLink: (url: string) => void;
+  isOpen: boolean;                                 // 面板是否打开
+  onClose: () => void;                             // 关闭回调
+  docTitle: string;                                // 文档标题
+  docId: string;                                   // 文档 ID
+  notebookId: string;                              // 知识库 ID
+  shareLinks: ShareLink[];                         // 分享链接列表
+  onGenerateLink: (permission: string, password: string, expiresAt: string | null) => void; // 生成分享链接回调
+  onDeleteLink: (linkId: string) => void;          // 删除分享链接回调
+  onCopyLink: (url: string) => void;               // 复制链接回调
 }
 
+/**
+ * 权限选项配置
+ */
 const permissionOptions = [
   { value: 'view', label: '查看', icon: '👁️' },
   { value: 'comment', label: '评论', icon: '💬' },
@@ -20,6 +27,9 @@ const permissionOptions = [
   { value: 'manage', label: '管理', icon: '⚙️' },
 ];
 
+/**
+ * 有效期选项配置
+ */
 const expireOptions = [
   { value: null, label: '永不过期' },
   { value: '1d', label: '1天' },
@@ -28,6 +38,9 @@ const expireOptions = [
   { value: '30d', label: '30天' },
 ];
 
+/**
+ * 分享面板组件
+ */
 export default function SharePanel({
   isOpen,
   onClose,
@@ -37,11 +50,12 @@ export default function SharePanel({
   onDeleteLink,
   onCopyLink,
 }: SharePanelProps) {
-  const [selectedPermission, setSelectedPermission] = useState('view');
-  const [password, setPassword] = useState('');
-  const [expireOption, setExpireOption] = useState<string | null>(null);
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const [selectedPermission, setSelectedPermission] = useState('view'); // 选中的权限
+  const [password, setPassword] = useState('');                         // 密码
+  const [expireOption, setExpireOption] = useState<string | null>(null); // 有效期选项
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);      // 已复制的 URL
 
+  // 面板打开时重置表单
   useEffect(() => {
     if (isOpen) {
       setSelectedPermission('view');
@@ -50,6 +64,9 @@ export default function SharePanel({
     }
   }, [isOpen]);
 
+  /**
+   * 处理生成分享链接
+   */
   const handleGenerate = () => {
     let expiresAt: string | null = null;
     if (expireOption) {
@@ -63,12 +80,18 @@ export default function SharePanel({
     setExpireOption(null);
   };
 
+  /**
+   * 处理复制链接
+   */
   const handleCopy = (url: string) => {
     onCopyLink(url);
     setCopiedUrl(url);
     setTimeout(() => setCopiedUrl(null), 2000);
   };
 
+  /**
+   * 格式化日期显示
+   */
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleString('zh-CN', {
@@ -80,16 +103,23 @@ export default function SharePanel({
     });
   };
 
+  /**
+   * 获取有效期显示文本
+   */
   const getExpireDisplay = (expiresAt: string | null) => {
     if (!expiresAt) return '永不过期';
     return `有效期至 ${formatDate(expiresAt)}`;
   };
 
+  /**
+   * 获取权限标签显示
+   */
   const getPermissionLabel = (permission: string) => {
     const option = permissionOptions.find(p => p.value === permission);
     return option?.label || permission;
   };
 
+  // 如果面板未打开，返回 null
   if (!isOpen) return null;
 
   return (

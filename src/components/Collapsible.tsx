@@ -1,16 +1,24 @@
+// 导入 React 核心模块和 hooks
 import React, { useState, useCallback } from "react";
 
+/**
+ * 可折叠面板属性接口
+ */
 export interface CollapsibleProps {
-  title: string;
-  defaultExpanded?: boolean;
-  children: React.ReactNode;
-  className?: string;
-  icon?: string;
+  title: string;              // 标题文本
+  defaultExpanded?: boolean;  // 默认是否展开（默认 false）
+  children: React.ReactNode;  // 子内容
+  className?: string;         // 自定义样式类名
+  icon?: string;              // 自定义图标
 }
 
+/**
+ * 可折叠面板组件
+ */
 export function Collapsible({ title, defaultExpanded = false, children, className, icon }: CollapsibleProps) {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded); // 展开状态
 
+  // 切换展开/折叠状态
   const toggle = useCallback(() => {
     setIsExpanded((prev) => !prev);
   }, []);
@@ -34,31 +42,43 @@ export function Collapsible({ title, defaultExpanded = false, children, classNam
   );
 }
 
+/**
+ * 手风琴单项属性接口
+ */
 export interface AccordionItemProps {
-  title: string;
-  children: React.ReactNode;
-  icon?: string;
+  title: string;             // 标题文本
+  children: React.ReactNode; // 子内容
+  icon?: string;             // 自定义图标
 }
 
+/**
+ * 手风琴组件属性接口
+ */
 export interface AccordionProps {
-  items: AccordionItemProps[];
-  defaultOpenIndex?: number;
-  allowMultipleOpen?: boolean;
+  items: AccordionItemProps[]; // 手风琴项列表
+  defaultOpenIndex?: number;   // 默认打开的索引（默认 -1，即都关闭）
+  allowMultipleOpen?: boolean; // 是否允许多项同时打开（默认 false）
 }
 
+/**
+ * 手风琴组件
+ */
 export function Accordion({ items, defaultOpenIndex = -1, allowMultipleOpen = false }: AccordionProps) {
   const [openIndices, setOpenIndices] = useState<number[]>(
     defaultOpenIndex >= 0 ? [defaultOpenIndex] : []
   );
 
+  // 切换指定项的展开状态
   const toggleItem = useCallback((index: number) => {
     setOpenIndices((prev) => {
       if (allowMultipleOpen) {
+        // 允许多开模式：切换当前项状态
         if (prev.includes(index)) {
           return prev.filter((i) => i !== index);
         }
         return [...prev, index];
       }
+      // 单开模式：只保留当前项或全部关闭
       return prev.includes(index) ? [] : [index];
     });
   }, [allowMultipleOpen]);

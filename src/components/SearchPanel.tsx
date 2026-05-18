@@ -1,12 +1,19 @@
+// 导入 React hooks 和类型定义
 import { useState, useEffect, useRef } from "react";
 import { useNotesStore } from "../store/notesStore";
 import type { SearchFilter, SearchResult, SearchSuggestion } from "../types";
 
+/**
+ * 搜索面板属性接口
+ */
 interface SearchPanelProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen: boolean;     // 面板是否打开
+  onClose: () => void; // 关闭回调
 }
 
+/**
+ * 搜索面板组件
+ */
 export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
   const { 
     search, 
@@ -21,17 +28,18 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     setActiveDocId,
   } = useNotesStore();
 
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState<SearchFilter>({
+  const [query, setQuery] = useState('');                    // 搜索关键词
+  const [results, setResults] = useState<SearchResult[]>([]); // 搜索结果
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]); // 搜索建议
+  const [showSuggestions, setShowSuggestions] = useState(false); // 是否显示建议
+  const [showFilters, setShowFilters] = useState(false);     // 是否显示筛选面板
+  const [filters, setFilters] = useState<SearchFilter>({    // 筛选条件
     type: 'all',
   });
-  const [showResults, setShowResults] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [showResults, setShowResults] = useState(false);     // 是否显示结果
+  const inputRef = useRef<HTMLInputElement>(null);           // 输入框引用
 
+  // 面板打开时重置状态并聚焦输入框
   useEffect(() => {
     if (isOpen) {
       setQuery('');
@@ -43,6 +51,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     }
   }, [isOpen]);
 
+  // 根据输入实时生成搜索建议
   useEffect(() => {
     if (query.length > 0) {
       const newSuggestions = getSearchSuggestions(query);
@@ -52,6 +61,9 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     }
   }, [query]);
 
+  /**
+   * 执行搜索
+   */
   const handleSearch = () => {
     if (!query.trim()) return;
     
@@ -62,6 +74,9 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     addSearchHistory(query, searchResults.length);
   };
 
+  /**
+   * 键盘事件处理
+   */
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleSearch();
@@ -70,11 +85,17 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     }
   };
 
+  /**
+   * 点击搜索建议
+   */
   const handleSuggestionClick = (suggestion: SearchSuggestion) => {
     setQuery(suggestion.text);
     handleSearch();
   };
 
+  /**
+   * 点击搜索结果
+   */
   const handleResultClick = (result: SearchResult) => {
     if (result.type === 'notebook') {
       setActiveNotebookId(result.id);
@@ -91,10 +112,16 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     onClose();
   };
 
+  /**
+   * 更新筛选条件
+   */
   const handleFilterChange = (key: keyof SearchFilter, value: any) => {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
 
+  /**
+   * 高亮匹配文本
+   */
   const highlightText = (text: string, query: string) => {
     if (!query.trim()) return text;
     
@@ -102,6 +129,9 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     return text.replace(regex, '<mark>$1</mark>');
   };
 
+  /**
+   * 格式化日期显示
+   */
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     const now = new Date();
@@ -115,6 +145,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     return date.toLocaleDateString('zh-CN');
   };
 
+  // 如果面板未打开，返回 null
   if (!isOpen) return null;
 
   return (

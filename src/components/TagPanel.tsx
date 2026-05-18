@@ -1,21 +1,34 @@
+// 导入 React hooks 和类型定义
 import { useState, useEffect } from "react";
 import type { Tag, TagStats } from "../types";
 import { useNotesStore } from "../store/notesStore";
 import TagEditModal from "./TagEditModal";
 import TagStatsPanel from "./TagStatsPanel";
 
+/**
+ * 标签面板组件属性接口
+ */
 interface TagPanelProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen: boolean;       // 面板是否打开
+  onClose: () => void;   // 关闭回调
 }
 
+/**
+ * 默认标签颜色列表
+ */
 const defaultColors = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
   '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
 ];
 
+/**
+ * 默认标签图标列表
+ */
 const defaultIcons = ['📌', '⭐', '🔖', '🏷️', '📎', '📁', '📂', '🗂️', '📊', '📈', '💡', '🎯', '🎨', '🎭', '🌱'];
 
+/**
+ * 标签管理面板组件
+ */
 export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
   const { 
     tags, 
@@ -27,15 +40,16 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
     batchUpdateTags,
   } = useNotesStore();
 
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [searchText, setSearchText] = useState('');
-  const [showStats, setShowStats] = useState(false);
-  const [editTag, setEditTag] = useState<Tag | null>(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]); // 选中的标签 ID 列表
+  const [searchText, setSearchText] = useState('');               // 搜索文本
+  const [showStats, setShowStats] = useState(false);              // 是否显示统计面板
+  const [editTag, setEditTag] = useState<Tag | null>(null);       // 当前编辑的标签
+  const [showCreateModal, setShowCreateModal] = useState(false);  // 是否显示新建标签弹窗
 
-  const tagsWithHierarchy = getTagsWithHierarchy();
-  const stats: TagStats = getTagStats();
+  const tagsWithHierarchy = getTagsWithHierarchy(); // 获取带层级的标签列表
+  const stats: TagStats = getTagStats();            // 获取标签统计信息
 
+  // 面板打开时重置状态
   useEffect(() => {
     if (isOpen) {
       setSelectedTags([]);
@@ -43,20 +57,30 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
     }
   }, [isOpen]);
 
+  // 根据搜索文本过滤标签
   const filteredTags = tags.filter(tag => 
     tag.name.toLowerCase().includes(searchText.toLowerCase())
   );
 
+  /**
+   * 处理创建标签
+   */
   const handleCreateTag = (name: string, color: string, icon: string, parentId: string | null) => {
     createTag(name, color, icon, parentId);
     setShowCreateModal(false);
   };
 
+  /**
+   * 处理更新标签
+   */
   const handleUpdateTag = (tagId: string, updates: Partial<Tag>) => {
     updateTag(tagId, updates);
     setEditTag(null);
   };
 
+  /**
+   * 处理删除标签
+   */
   const handleDeleteTag = (tagId: string) => {
     if (window.confirm('确定要删除这个标签吗？所有使用该标签的文档将失去此标签。')) {
       deleteTag(tagId);
@@ -64,6 +88,9 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
     }
   };
 
+  /**
+   * 批量删除标签
+   */
   const handleBatchDelete = () => {
     if (window.confirm(`确定要删除选中的 ${selectedTags.length} 个标签吗？`)) {
       selectedTags.forEach(tagId => deleteTag(tagId));
@@ -71,6 +98,9 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
     }
   };
 
+  /**
+   * 批量更新标签（随机设置颜色和图标）
+   */
   const handleBatchUpdate = () => {
     if (selectedTags.length === 0) return;
     const randomColor = defaultColors[Math.floor(Math.random() * defaultColors.length)];
@@ -79,6 +109,9 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
     setSelectedTags([]);
   };
 
+  /**
+   * 切换标签选中状态
+   */
   const toggleSelectTag = (tagId: string) => {
     setSelectedTags(prev => 
       prev.includes(tagId) 
@@ -87,6 +120,9 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
     );
   };
 
+  /**
+   * 全选/取消全选
+   */
   const selectAllTags = () => {
     if (selectedTags.length === filteredTags.length) {
       setSelectedTags([]);
@@ -95,6 +131,9 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
     }
   };
 
+  /**
+   * 递归渲染标签树
+   */
   const renderTagTree = (tagList: Tag[], depth = 0) => {
     return tagList.map(tag => (
       <div key={tag.id}>
@@ -138,6 +177,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
     ));
   };
 
+  // 如果面板未打开，返回 null
   if (!isOpen) return null;
 
   return (
@@ -221,7 +261,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
           )}
         </div>
 
-        {/* 新建/编辑标签模态框 */}
+        {/* 新建标签模态框 */}
         {showCreateModal && (
           <TagEditModal
             onClose={() => setShowCreateModal(false)}
@@ -230,6 +270,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
           />
         )}
 
+        {/* 编辑标签模态框 */}
         {editTag && (
           <TagEditModal
             onClose={() => setEditTag(null)}

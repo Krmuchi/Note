@@ -1,31 +1,43 @@
+// 导入 React hooks 和类型定义
 import { useState, useMemo } from 'react';
 import type { DocVersion } from '../types';
 import { useNotesStore } from '../store/notesStore';
 import './VersionHistoryPanel.css';
 
+/**
+ * 版本历史面板属性接口
+ */
 interface VersionHistoryPanelProps {
-  notebookId: string;
-  docId: string;
-  onClose: () => void;
+  notebookId: string;  // 知识库 ID
+  docId: string;       // 文档 ID
+  onClose: () => void; // 关闭回调
 }
 
+/**
+ * 版本历史面板组件
+ */
 function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanelProps) {
   const { notebooks, getDocVersions, restoreVersion, updateDoc } = useNotesStore();
   
+  // 获取文档的所有版本
   const versions = useMemo(() => {
     return getDocVersions(notebookId, docId) || [];
   }, [getDocVersions, notebookId, docId]);
 
-  const [selectedVersion, setSelectedVersion] = useState<DocVersion | null>(null);
-  const [compareVersion, setCompareVersion] = useState<DocVersion | null>(null);
-  const [showDiff, setShowDiff] = useState(false);
-  const [showTagModal, setShowTagModal] = useState(false);
-  const [versionTag, setVersionTag] = useState('');
-  const [versionComment, setVersionComment] = useState('');
+  const [selectedVersion, setSelectedVersion] = useState<DocVersion | null>(null); // 当前选中的版本
+  const [compareVersion, setCompareVersion] = useState<DocVersion | null>(null);   // 用于对比的版本
+  const [showDiff, setShowDiff] = useState(false);                                 // 是否显示对比模式
+  const [showTagModal, setShowTagModal] = useState(false);                         // 是否显示标签弹窗
+  const [versionTag, setVersionTag] = useState('');                                // 版本标签
+  const [versionComment, setVersionComment] = useState('');                        // 版本备注
 
+  // 获取当前知识库和文档
   const activeNotebook = notebooks.find(nb => nb.id === notebookId);
   const currentDoc = activeNotebook?.docs.find(d => d.id === docId);
 
+  /**
+   * 处理选择版本
+   */
   const handleSelectVersion = (version: DocVersion) => {
     if (showDiff && compareVersion) {
       setSelectedVersion(version);
@@ -35,6 +47,9 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     }
   };
 
+  /**
+   * 处理版本对比
+   */
   const handleCompare = () => {
     if (selectedVersion) {
       setCompareVersion(selectedVersion);
@@ -42,6 +57,9 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     }
   };
 
+  /**
+   * 处理恢复版本
+   */
   const handleRestore = () => {
     if (selectedVersion && window.confirm('确定要恢复到此版本吗？')) {
       restoreVersion(notebookId, docId, selectedVersion.id);
@@ -49,6 +67,9 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     }
   };
 
+  /**
+   * 处理添加版本标签
+   */
   const handleAddTag = () => {
     if (selectedVersion && versionTag.trim()) {
       updateDoc(notebookId, docId, { 
@@ -64,6 +85,9 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     }
   };
 
+  /**
+   * 处理导出版本
+   */
   const handleExportVersion = () => {
     if (selectedVersion) {
       const content = `# ${selectedVersion.title}\n\n${selectedVersion.content}`;
@@ -79,6 +103,9 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     }
   };
 
+  /**
+   * 获取版本类型标签
+   */
   const getVersionTypeLabel = (type: string) => {
     switch (type) {
       case 'manual': return '手动保存';
@@ -87,6 +114,9 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     }
   };
 
+  /**
+   * 获取版本类型样式类
+   */
   const getVersionTypeClass = (type: string) => {
     switch (type) {
       case 'manual': return 'version-type-manual';
@@ -95,6 +125,9 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     }
   };
 
+  /**
+   * 渲染版本对比视图
+   */
   const renderDiff = () => {
     if (!selectedVersion || !compareVersion) return null;
     
@@ -142,6 +175,9 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     );
   };
 
+  /**
+   * 渲染版本内容详情
+   */
   const renderVersionContent = () => {
     if (!selectedVersion) {
       return (
@@ -315,6 +351,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
           </div>
         </div>
 
+        {/* 添加版本标签弹窗 */}
         {showTagModal && (
           <div className="tag-modal-overlay" onClick={() => setShowTagModal(false)}>
             <div className="tag-modal" onClick={(e) => e.stopPropagation()}>

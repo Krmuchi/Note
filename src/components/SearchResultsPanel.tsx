@@ -1,15 +1,21 @@
-// src/components/SearchResultsPanel.tsx
+// 搜索结果面板组件
 import React from 'react';
 import type { SearchResult } from '../utils/advancedSearchUtils';
 import { useNotesStore } from '../store/notesStore';
 
+/**
+ * 搜索结果面板属性接口
+ */
 interface SearchResultsPanelProps {
-  searchResults: SearchResult[];
-  searchText: string;
-  onClose: () => void;
-  onItemClick: (docId: string, notebookId: string) => void;
+  searchResults: SearchResult[];                    // 搜索结果列表
+  searchText: string;                               // 搜索关键词
+  onClose: () => void;                              // 关闭回调
+  onItemClick: (docId: string, notebookId: string) => void; // 点击结果项回调
 }
 
+/**
+ * 搜索结果面板组件
+ */
 const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({ 
   searchResults, 
   searchText, 
@@ -18,6 +24,7 @@ const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({
 }) => {
   const { notebooks } = useNotesStore();
   
+  // 如果搜索关键词为空，返回 null
   if (!searchText.trim()) {
     return null;
   }
@@ -33,6 +40,7 @@ const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({
       ) : (
         <div className="search-results-list">
           {searchResults.map(result => {
+            // 获取结果对应的知识库和文档
             const notebook = notebooks.find(nb => nb.id === result.notebookId);
             const doc = notebook?.docs.find(d => d.id === result.docId);
             

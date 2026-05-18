@@ -1,104 +1,131 @@
+// 导入 Zustand 状态管理库
 import { create } from 'zustand';
+// 导入类型定义
 import type { AppStore, NoteDoc, Notebook, ShareLink, Tag, TagStats, SearchHistory, SearchSuggestion, SearchFilter, SearchResult, DocVersion } from '../types';
 
+/**
+ * 保存状态类型
+ */
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
+/**
+ * NotesStore 接口定义
+ * 扩展自 AppStore，添加状态管理的 actions
+ */
 interface NotesStore extends AppStore {
-  // Actions
-  loadNotes: () => Promise<void>;
-  saveNotes: () => Promise<void>;
-  updateStore: (store: AppStore) => void;
+  // 核心操作
+  loadNotes: () => Promise<void>;   // 加载笔记数据
+  saveNotes: () => Promise<void>;   // 保存笔记数据
+  updateStore: (store: AppStore) => void; // 更新整个状态
 
-  // Auto-save state
-  saveStatus: SaveStatus;
-  lastSavedAt: string | null;
-  setSaveStatus: (status: SaveStatus) => void;
+  // 自动保存状态
+  saveStatus: SaveStatus;           // 当前保存状态
+  lastSavedAt: string | null;       // 最后保存时间
+  setSaveStatus: (status: SaveStatus) => void; // 设置保存状态
   
-  // Notebook actions
-  createNotebook: (title: string) => void;
-  updateNotebookTitle: (id: string, title: string) => void;
-  deleteNotebook: (id: string) => void;
+  // 知识库操作
+  createNotebook: (title: string) => void;           // 创建知识库
+  updateNotebookTitle: (id: string, title: string) => void; // 更新知识库标题
+  deleteNotebook: (id: string) => void;              // 删除知识库
   
-  // Document actions
-  createDoc: (notebookId: string, parentId: string | null, docData?: Partial<NoteDoc>) => void;
-  updateDoc: (notebookId: string, docId: string, updates: Partial<NoteDoc>) => void;
-  deleteDoc: (notebookId: string, docId: string) => void;
-  moveDocToTrash: (notebookId: string, docId: string) => void;
+  // 文档操作
+  createDoc: (notebookId: string, parentId: string | null, docData?: Partial<NoteDoc>) => void; // 创建文档
+  updateDoc: (notebookId: string, docId: string, updates: Partial<NoteDoc>) => void; // 更新文档
+  deleteDoc: (notebookId: string, docId: string) => void; // 删除文档
+  moveDocToTrash: (notebookId: string, docId: string) => void; // 移动文档到回收站
   
-  // Version history actions
-  saveVersion: (notebookId: string, docId: string, type: 'auto' | 'manual' | 'published') => void;
-  getDocVersions: (notebookId: string, docId: string) => DocVersion[] | undefined;
-  restoreVersion: (notebookId: string, docId: string, versionId: string) => void;
+  // 版本历史操作
+  saveVersion: (notebookId: string, docId: string, type: 'auto' | 'manual' | 'published') => void; // 保存版本
+  getDocVersions: (notebookId: string, docId: string) => DocVersion[] | undefined; // 获取文档版本
+  restoreVersion: (notebookId: string, docId: string, versionId: string) => void; // 恢复版本
   
-  // Favorite actions
-  toggleFavorite: (notebookId: string, docId: string) => void;
+  // 收藏操作
+  toggleFavorite: (notebookId: string, docId: string) => void; // 切换收藏状态
   
-  // Trash actions
-  restoreFromTrash: (docId: string) => void;
-  deleteFromTrash: (docId: string) => void;
-  clearTrash: () => void;
+  // 回收站操作
+  restoreFromTrash: (docId: string) => void; // 从回收站恢复
+  deleteFromTrash: (docId: string) => void;  // 彻底删除
+  clearTrash: () => void;                     // 清空回收站
   
-  // Share actions
-  generateShareLink: (notebookId: string, docId: string, permission: 'view' | 'comment' | 'edit' | 'manage', password: string, expiresAt: string | null) => void;
-  deleteShareLink: (notebookId: string, docId: string, linkId: string) => void;
+  // 分享操作
+  generateShareLink: (notebookId: string, docId: string, permission: 'view' | 'comment' | 'edit' | 'manage', password: string, expiresAt: string | null) => void; // 生成分享链接
+  deleteShareLink: (notebookId: string, docId: string, linkId: string) => void; // 删除分享链接
   
-  // Tag actions
-  createTag: (name: string, color?: string, icon?: string, parentId?: string | null) => void;
-  updateTag: (id: string, updates: Partial<Tag>) => void;
-  deleteTag: (id: string) => void;
-  addTagToDoc: (notebookId: string, docId: string, tagId: string) => void;
-  removeTagFromDoc: (notebookId: string, docId: string, tagId: string) => void;
-  updateTagUsageCounts: () => void;
-  getTagStats: () => TagStats;
-  getRecommendedTags: (docContent: string, limit?: number) => Tag[];
-  batchUpdateTags: (tagIds: string[], updates: Partial<Tag>) => void;
-  getTagsWithHierarchy: () => Tag[];
+  // 标签操作
+  createTag: (name: string, color?: string, icon?: string, parentId?: string | null) => void; // 创建标签
+  updateTag: (id: string, updates: Partial<Tag>) => void; // 更新标签
+  deleteTag: (id: string) => void; // 删除标签
+  addTagToDoc: (notebookId: string, docId: string, tagId: string) => void; // 为文档添加标签
+  removeTagFromDoc: (notebookId: string, docId: string, tagId: string) => void; // 从文档移除标签
+  updateTagUsageCounts: () => void; // 更新标签使用计数
+  getTagStats: () => TagStats; // 获取标签统计
+  getRecommendedTags: (docContent: string, limit?: number) => Tag[]; // 获取推荐标签
+  batchUpdateTags: (tagIds: string[], updates: Partial<Tag>) => void; // 批量更新标签
+  getTagsWithHierarchy: () => Tag[]; // 获取带层级的标签
   
-  // Search actions
-  search: (query: string, filters?: SearchFilter) => SearchResult[];
-  getSearchSuggestions: (query: string) => SearchSuggestion[];
-  addSearchHistory: (query: string, resultCount: number) => void;
-  clearSearchHistory: () => void;
-  removeSearchHistoryItem: (id: string) => void;
+  // 搜索操作
+  search: (query: string, filters?: SearchFilter) => SearchResult[]; // 搜索
+  getSearchSuggestions: (query: string) => SearchSuggestion[]; // 获取搜索建议
+  addSearchHistory: (query: string, resultCount: number) => void; // 添加搜索历史
+  clearSearchHistory: () => void; // 清空搜索历史
+  removeSearchHistoryItem: (id: string) => void; // 删除搜索历史项
   
-  // Active states
-  activeNotebookId: string;
-  activeDocId: string;
-  setActiveNotebookId: (id: string) => void;
-  setActiveDocId: (id: string) => void;
+  // 活动状态
+  activeNotebookId: string;           // 当前活动知识库 ID
+  activeDocId: string;                // 当前活动文档 ID
+  setActiveNotebookId: (id: string) => void; // 设置活动知识库
+  setActiveDocId: (id: string) => void;      // 设置活动文档
   
-  // Search
-  searchText: string;
-  setSearchText: (text: string) => void;
+  // 搜索文本
+  searchText: string;                 // 当前搜索文本
+  setSearchText: (text: string) => void; // 设置搜索文本
 }
 
+/**
+ * 生成唯一 ID
+ * 使用时间戳 + 随机数组合
+ */
 const newId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+/**
+ * 生成分享链接 URL
+ */
 const generateShareUrl = (docId: string, linkId: string) => {
   return `${window.location.origin}/share/${docId}/${linkId}`;
 };
 
+/**
+ * 默认标签颜色列表
+ */
 const defaultColors = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
   '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
 ];
 
-
+/**
+ * 创建 NotesStore 状态管理
+ */
 export const useNotesStore = create<NotesStore>((set, get) => ({
-  notebooks: [],
-  trash: [],
-  tags: [],
-  searchHistory: [],
-  activeNotebookId: '',
-  activeDocId: '',
-  searchText: '',
-  saveStatus: 'idle' as SaveStatus,
-  lastSavedAt: null,
-  setSaveStatus: (status) => set({ saveStatus: status }),
+  // 初始状态
+  notebooks: [],        // 知识库列表
+  trash: [],           // 回收站
+  tags: [],            // 标签列表
+  searchHistory: [],   // 搜索历史
+  activeNotebookId: '', // 当前活动知识库 ID
+  activeDocId: '',      // 当前活动文档 ID
+  searchText: '',      // 搜索文本
+  saveStatus: 'idle',  // 保存状态
+  lastSavedAt: null,   // 最后保存时间
+  setSaveStatus: (status) => set({ saveStatus: status }), // 设置保存状态
 
+  /**
+   * 加载笔记数据
+   * 从 window.notesApi 加载并标准化数据
+   */
   loadNotes: async () => {
     try {
       const loaded = await window.notesApi.load();
+      // 标准化数据格式，处理可能缺失的字段
       const normalized: AppStore = {
         notebooks: loaded.notebooks.map((notebook) => ({
           ...notebook,
@@ -138,6 +165,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       const now = new Date().toISOString();
       set({ ...normalized, lastSavedAt: now, saveStatus: 'saved' });
 
+      // 设置默认活动状态
       if (normalized.notebooks.length > 0) {
         const firstNotebook = normalized.notebooks[0];
         set({ activeNotebookId: firstNotebook.id });
@@ -151,6 +179,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     }
   },
 
+  /**
+   * 保存笔记数据到持久化存储
+   */
   saveNotes: async () => {
     const { notebooks, trash, tags } = get();
     set({ saveStatus: 'saving' });
@@ -163,8 +194,14 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     }
   },
 
+  /**
+   * 直接更新整个状态存储
+   */
   updateStore: (store) => set({ ...store }),
 
+  /**
+   * 创建新知识库
+   */
   createNotebook: (title) => {
     const { notebooks } = get();
     const newNotebook: Notebook = { 
@@ -180,6 +217,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     });
   },
 
+  /**
+   * 更新知识库标题
+   */
   updateNotebookTitle: (id, title) => {
     const { notebooks } = get();
     const updatedNotebooks = notebooks.map(nb => 
@@ -188,12 +228,17 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ notebooks: updatedNotebooks });
   },
 
+  /**
+   * 删除知识库
+   * 将知识库中的所有文档移到回收站
+   */
   deleteNotebook: (id) => {
     const { notebooks, activeNotebookId } = get();
     const target = notebooks.find(nb => nb.id === id);
     
     if (!target) return;
     
+    // 将所有文档移到回收站
     const docsToTrash = target.docs.map(doc => ({
       ...doc,
       parentId: null,
@@ -209,6 +254,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ 
       notebooks: updatedNotebooks, 
       trash: updatedTrash,
+      // 如果删除的是当前活动知识库，切换到第一个知识库
       ...(activeNotebookId === id ? { 
         activeNotebookId: updatedNotebooks[0]?.id || '',
         activeDocId: ''
@@ -216,6 +262,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     });
   },
 
+  /**
+   * 创建新文档
+   */
   createDoc: (notebookId, parentId, docData = {}) => {
     const { notebooks } = get();
     const newDoc: NoteDoc = {
@@ -250,11 +299,16 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     });
   },
 
+  /**
+   * 更新文档内容
+   * 同时自动保存版本历史
+   */
   updateDoc: (notebookId, docId, updates) => {
     const { notebooks } = get();
     const notebook = notebooks.find(nb => nb.id === notebookId);
     const doc = notebook?.docs.find(d => d.id === docId);
     
+    // 更新文档
     const updatedNotebooks = notebooks.map(nb => {
       if (nb.id !== notebookId) return nb;
       
@@ -270,6 +324,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     
     set({ notebooks: updatedNotebooks });
     
+    // 创建自动保存版本
     if (doc) {
       const newVersion: DocVersion = {
         id: newId(),
@@ -292,7 +347,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
             const versions = d.versions || [];
             return {
               ...d,
-              versions: [newVersion, ...versions].slice(0, 50),
+              versions: [newVersion, ...versions].slice(0, 50), // 最多保留50个版本
             };
           }),
         };
@@ -302,6 +357,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     }
   },
 
+  /**
+   * 手动保存版本
+   */
   saveVersion: (notebookId, docId, type) => {
     const { notebooks } = get();
     const notebook = notebooks.find(nb => nb.id === notebookId);
@@ -340,6 +398,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ notebooks: updatedNotebooks });
   },
 
+  /**
+   * 获取文档的版本历史
+   */
   getDocVersions: (notebookId, docId) => {
     const { notebooks } = get();
     const notebook = notebooks.find(nb => nb.id === notebookId);
@@ -347,6 +408,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     return doc?.versions;
   },
 
+  /**
+   * 恢复到指定版本
+   */
   restoreVersion: (notebookId, docId, versionId) => {
     const { notebooks } = get();
     const notebook = notebooks.find(nb => nb.id === notebookId);
@@ -376,6 +440,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ notebooks: updatedNotebooks });
   },
 
+  /**
+   * 切换文档收藏状态
+   */
   toggleFavorite: (notebookId, docId) => {
     const { notebooks } = get();
     const updatedNotebooks = notebooks.map(nb => {
@@ -394,6 +461,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ notebooks: updatedNotebooks });
   },
 
+  /**
+   * 直接删除文档（不经过回收站）
+   */
   deleteDoc: (notebookId, docId) => {
     const { notebooks, activeDocId } = get();
     const updatedNotebooks = notebooks.map(nb => {
@@ -411,6 +481,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     });
   },
 
+  /**
+   * 将文档移动到回收站
+   */
   moveDocToTrash: (notebookId, docId) => {
     const { notebooks, trash } = get();
     const notebook = notebooks.find(nb => nb.id === notebookId);
@@ -418,6 +491,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     
     if (!doc) return;
     
+    // 更新知识库：移除文档，并处理子文档的父级引用
     const updatedNotebooks = notebooks.map(nb => {
       if (nb.id !== notebookId) return nb;
       
@@ -429,6 +503,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       };
     });
     
+    // 添加到回收站
     const updatedTrash = [...trash, {
       ...doc,
       updatedAt: new Date().toISOString(),
@@ -445,12 +520,16 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     });
   },
 
+  /**
+   * 从回收站恢复文档
+   */
   restoreFromTrash: (docId) => {
     const { trash, notebooks, activeNotebookId } = get();
     const target = trash.find(item => item.id === docId);
     
     if (!target) return;
     
+    // 创建恢复后的文档
     const restoredDoc: NoteDoc = {
       id: target.id,
       title: target.title,
@@ -472,6 +551,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     const targetNotebookId = target.notebookId || activeNotebookId;
     if (!targetNotebookId) return;
     
+    // 将文档恢复到原知识库
     const updatedNotebooks = notebooks.map(nb =>
       nb.id === targetNotebookId
         ? { ...nb, docs: [...nb.docs, restoredDoc] }
@@ -488,16 +568,25 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     });
   },
 
+  /**
+   * 从回收站彻底删除
+   */
   deleteFromTrash: (docId) => {
     const { trash } = get();
     const updatedTrash = trash.filter(item => item.id !== docId);
     set({ trash: updatedTrash });
   },
 
+  /**
+   * 清空回收站
+   */
   clearTrash: () => {
     set({ trash: [] });
   },
 
+  /**
+   * 生成分享链接
+   */
   generateShareLink: (notebookId, docId, permission, password, expiresAt) => {
     const { notebooks } = get();
     const linkId = newId();
@@ -537,6 +626,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ notebooks: updatedNotebooks });
   },
 
+  /**
+   * 删除分享链接
+   */
   deleteShareLink: (notebookId, docId, linkId) => {
     const { notebooks } = get();
     const updatedNotebooks = notebooks.map(nb => {
@@ -563,11 +655,16 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ notebooks: updatedNotebooks });
   },
 
+  // 设置活动状态
   setActiveNotebookId: (id) => set({ activeNotebookId: id }),
   setActiveDocId: (id) => set({ activeDocId: id }),
   setSearchText: (text) => set({ searchText: text }),
 
-  // Tag actions
+  // ========== 标签操作 ==========
+  
+  /**
+   * 创建标签
+   */
   createTag: (name, color = defaultColors[0], icon = '🏷️', parentId = null) => {
     const { tags } = get();
     const newTag: Tag = {
@@ -583,6 +680,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ tags: [...tags, newTag] });
   },
 
+  /**
+   * 更新标签
+   */
   updateTag: (id, updates) => {
     const { tags } = get();
     const updatedTags = tags.map(tag =>
@@ -591,6 +691,10 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ tags: updatedTags });
   },
 
+  /**
+   * 删除标签
+   * 同时从所有文档中移除该标签引用
+   */
   deleteTag: (id) => {
     const { tags, notebooks } = get();
     const updatedTags = tags.filter(tag => tag.id !== id);
@@ -606,6 +710,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ tags: updatedTags, notebooks: updatedNotebooks });
   },
 
+  /**
+   * 为文档添加标签
+   */
   addTagToDoc: (notebookId, docId, tagId) => {
     const { notebooks, tags } = get();
     
@@ -621,6 +728,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       };
     });
     
+    // 更新标签使用计数
     const updatedTags = tags.map(tag =>
       tag.id === tagId ? { ...tag, usageCount: tag.usageCount + 1 } : tag
     );
@@ -628,6 +736,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ notebooks: updatedNotebooks, tags: updatedTags });
   },
 
+  /**
+   * 从文档移除标签
+   */
   removeTagFromDoc: (notebookId, docId, tagId) => {
     const { notebooks, tags } = get();
     
@@ -642,6 +753,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       };
     });
     
+    // 更新标签使用计数
     const updatedTags = tags.map(tag =>
       tag.id === tagId ? { ...tag, usageCount: Math.max(0, tag.usageCount - 1) } : tag
     );
@@ -649,6 +761,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ notebooks: updatedNotebooks, tags: updatedTags });
   },
 
+  /**
+   * 重新计算所有标签的使用计数
+   */
   updateTagUsageCounts: () => {
     const { notebooks, tags } = get();
     
@@ -675,6 +790,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ tags: updatedTags });
   },
 
+  /**
+   * 获取标签统计信息
+   */
   getTagStats: () => {
     const { notebooks, tags } = get();
     
@@ -690,11 +808,13 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     const usedCount = tags.filter(tag => usageMap[tag.id] > 0).length;
     const unusedCount = tags.filter(tag => usageMap[tag.id] === 0).length;
     
+    // 获取使用最多的前10个标签
     const topTags = tags
       .map(tag => ({ tag, count: usageMap[tag.id] || 0 }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
     
+    // 标签分布统计
     const tagDistribution = [
       { category: '高频标签', count: tags.filter(t => usageMap[t.id] >= 10).length },
       { category: '中频标签', count: tags.filter(t => usageMap[t.id] > 2 && usageMap[t.id] < 10).length },
@@ -711,6 +831,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     };
   },
 
+  /**
+   * 根据文档内容推荐标签
+   */
   getRecommendedTags: (docContent, limit = 5) => {
     const { tags } = get();
     
@@ -725,6 +848,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
           score += 1;
         }
       });
+      // 如果标签有描述，也参与匹配
       if (tag.description) {
         const descWords = tag.description.toLowerCase().split(/\s+/);
         descWords.forEach(word => {
@@ -744,6 +868,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       .slice(0, limit);
   },
 
+  /**
+   * 批量更新标签
+   */
   batchUpdateTags: (tagIds, updates) => {
     const { tags } = get();
     const updatedTags = tags.map(tag =>
@@ -752,6 +879,9 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     set({ tags: updatedTags });
   },
 
+  /**
+   * 获取带层级关系的标签列表
+   */
   getTagsWithHierarchy: () => {
     const { tags } = get();
     
@@ -771,11 +901,16 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
     return rootTags;
   },
 
-  // Search actions
+  // ========== 搜索操作 ==========
+  
+  /**
+   * 执行搜索
+   */
   search: (query, filters) => {
     const { notebooks, tags } = get();
     const results: SearchResult[] = [];
 
+    // 解析搜索查询
     const parseQuery = (q: string) => {
       const terms: { term: string; isNot: boolean; isExact: boolean }[] = [];
       const parts = q.split(/\s+/);
@@ -785,11 +920,13 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
         let isExact = false;
         let term = part;
         
+        // 处理排除项（以 - 开头）
         if (term.startsWith('-')) {
           isNot = true;
           term = term.slice(1);
         }
         
+        // 处理精确匹配（用引号包裹）
         if (term.startsWith('"') && term.endsWith('"')) {
           isExact = true;
           term = term.slice(1, -1);
@@ -803,6 +940,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
 
     const terms = parseQuery(query);
 
+    // 检查文本是否匹配查询
     const matchesQuery = (text: string | undefined): boolean => {
       if (!text) return false;
       const lowerText = text.toLowerCase();
@@ -816,11 +954,13 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       });
     };
 
+    // 检查标签过滤
     const matchesTagFilter = (docTags: string[]) => {
       if (!filters?.tags || filters.tags.length === 0) return true;
       return filters.tags.some(tagId => docTags.includes(tagId));
     };
 
+    // 检查日期过滤
     const matchesDateFilter = (updatedAt: string) => {
       if (!filters?.dateRange) return true;
       const docDate = new Date(updatedAt);
@@ -829,6 +969,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       return docDate >= startDate && docDate <= endDate;
     };
 
+    // 搜索知识库
     notebooks.forEach(notebook => {
       if (filters?.type === 'all' || filters?.type === 'notebook') {
         if (matchesQuery(notebook.title)) {
@@ -842,6 +983,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
         }
       }
 
+      // 搜索文档
       if (filters?.type === 'all' || filters?.type === 'document') {
         notebook.docs.forEach(doc => {
           const tagNames = doc.tags.map(tagId => tags.find(t => t.id === tagId)?.name || '').join(' ');
@@ -850,6 +992,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
           if (matchesQuery(fullText) && matchesTagFilter(doc.tags) && matchesDateFilter(doc.updatedAt)) {
             const highlights: { field: string; text: string }[] = [];
             
+            // 提取高亮片段
             if (doc.title && terms.some(t => doc.title.toLowerCase().includes(t.term))) {
               highlights.push({ field: 'title', text: doc.title });
             }
@@ -875,21 +1018,26 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
               content: doc.content,
               tags: doc.tags,
               updatedAt: doc.updatedAt,
-              highlights: highlights.slice(0, 3),
+              highlights: highlights.slice(0, 3), // 最多显示3个高亮
             });
           }
         });
       }
     });
 
+    // 按更新时间排序
     return results.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   },
 
+  /**
+   * 获取搜索建议
+   */
   getSearchSuggestions: (query) => {
     const { notebooks, tags, searchHistory } = get();
     const suggestions: SearchSuggestion[] = [];
     const lowerQuery = query.toLowerCase();
 
+    // 标签建议
     tags.forEach(tag => {
       if (tag.name.toLowerCase().includes(lowerQuery)) {
         suggestions.push({
@@ -900,6 +1048,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       }
     });
 
+    // 文档标题建议
     notebooks.forEach(notebook => {
       notebook.docs.forEach(doc => {
         if (doc.title.toLowerCase().includes(lowerQuery)) {
@@ -912,6 +1061,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       });
     });
 
+    // 搜索历史建议
     searchHistory.forEach(history => {
       if (history.query.toLowerCase().includes(lowerQuery)) {
         suggestions.push({
@@ -921,37 +1071,48 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       }
     });
 
-    return suggestions.slice(0, 8);
+    return suggestions.slice(0, 8); // 最多返回8个建议
   },
 
+  /**
+   * 添加搜索历史
+   */
   addSearchHistory: (query, resultCount) => {
     const { searchHistory } = get();
     const existing = searchHistory.find(h => h.query === query);
     
     let updatedHistory: SearchHistory[];
     if (existing) {
+      // 更新已有记录的时间戳
       updatedHistory = searchHistory.map(h =>
         h.query === query 
           ? { ...h, timestamp: new Date().toISOString(), resultCount }
           : h
       );
     } else {
+      // 添加新记录
       const newHistory: SearchHistory = {
         id: newId(),
         query,
         timestamp: new Date().toISOString(),
         resultCount,
       };
-      updatedHistory = [newHistory, ...searchHistory].slice(0, 20);
+      updatedHistory = [newHistory, ...searchHistory].slice(0, 20); // 最多保留20条
     }
     
     set({ searchHistory: updatedHistory });
   },
 
+  /**
+   * 清空搜索历史
+   */
   clearSearchHistory: () => {
     set({ searchHistory: [] });
   },
 
+  /**
+   * 删除单条搜索历史
+   */
   removeSearchHistoryItem: (id) => {
     const { searchHistory } = get();
     set({ searchHistory: searchHistory.filter(h => h.id !== id) });

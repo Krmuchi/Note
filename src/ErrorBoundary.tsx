@@ -1,5 +1,9 @@
 import React from 'react';
 
+/**
+ * 错误边界组件
+ * 用于捕获子组件的 JavaScript 错误并显示备用 UI
+ */
 interface Props {
   children: React.ReactNode;
 }
@@ -15,12 +19,20 @@ export default class ErrorBoundary extends React.Component<Props, State> {
     this.state = { hasError: false, error: null };
   }
 
+  /**
+   * 静态方法：从错误中派生状态
+   * 当子组件抛出错误时调用，更新状态以显示错误信息
+   */
   static getDerivedStateFromError(error: Error) {
     return { hasError: true, error };
   }
 
+  /**
+   * 实例方法：捕获错误后的处理
+   * 可在此处发送错误日志到监控系统
+   */
   componentDidCatch() {
-    // Could send to telemetry here
+    // 可在此处添加错误上报逻辑
   }
 
   render() {

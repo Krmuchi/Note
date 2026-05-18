@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(node -e \"const fs=require\\('fs'\\),p=require\\('path'\\);const d=p.join\\(process.env.HOME,'.claude','projects','d--00-------------'\\);const files=fs.readdirSync\\(d\\).filter\\(f=>f.endsWith\\('.jsonl'\\)\\).map\\(f=>p.join\\(d,f\\)\\);files.sort\\(\\(a,b\\)=>fs.statSync\\(b\\).mtimeMs-fs.statSync\\(a\\).mtimeMs\\);const c={};for\\(const f of files.slice\\(0,50\\)\\){const lines=fs.readFileSync\\(f,'utf8'\\).split\\('\\\\n'\\);for\\(const line of lines\\){try{const o=JSON.parse\\(line\\);if\\(o.role!=='assistant'\\)continue;for\\(const b of\\(o.message?.content||[]\\)\\){if\\(b.type==='tool_use'&&b.name==='Bash'\\){const cmd=\\(b.input?.command||''\\).trim\\(\\);if\\(!cmd\\)continue;const parts=cmd.split\\(/\\\\s+/\\);let i=0;while\\(i<parts.length&&parts[i].includes\\('='\\)\\)i++;if\\(i<parts.length\\){const k=parts[i]+' '+\\(parts[i+1]||''\\);c[k]=\\(c[k]||0\\)+1;}}}}catch\\(e\\){}}}const s=Object.entries\\(c\\).sort\\(\\(a,b\\)=>b[1]-a[1]\\);for\\(const[k,v]of s.slice\\(0,30\\)\\)console.log\\(v+' '+k\\);\")",
+      "Bash(wc -l ~/.claude/projects/d--00-------------/*.jsonl 2>/dev/null | tail -5)",
+      "Read(//c/Users/28973/.claude/projects/d--00-------------/**)"
+    ]
+  }
+}

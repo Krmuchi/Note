@@ -1,21 +1,34 @@
+// 导入 React hooks 和类型定义
 import { useState, useEffect } from "react";
 import type { Tag } from "../types";
 
+/**
+ * 标签编辑模态框属性接口
+ */
 interface TagEditModalProps {
-  onClose: () => void;
-  tag?: Tag;
-  onCreate?: (name: string, color: string, icon: string, parentId: string | null) => void;
-  onUpdate?: (updates: Partial<Tag>) => void;
-  availableTags: Tag[];
+  onClose: () => void;                                                                 // 关闭回调
+  tag?: Tag;                                                                          // 编辑的标签（可选）
+  onCreate?: (name: string, color: string, icon: string, parentId: string | null) => void; // 创建标签回调
+  onUpdate?: (updates: Partial<Tag>) => void;                                         // 更新标签回调
+  availableTags: Tag[];                                                               // 可用的标签列表（用于选择父标签）
 }
 
+/**
+ * 默认标签颜色列表
+ */
 const defaultColors = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
   '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
 ];
 
+/**
+ * 默认标签图标列表
+ */
 const defaultIcons = ['📌', '⭐', '🔖', '🏷️', '📎', '📁', '📂', '🗂️', '📊', '📈', '💡', '🎯', '🎨', '🎭', '🌱'];
 
+/**
+ * 标签编辑模态框组件
+ */
 export default function TagEditModal({ 
   onClose, 
   tag, 
@@ -23,12 +36,13 @@ export default function TagEditModal({
   onUpdate,
   availableTags 
 }: TagEditModalProps) {
-  const [name, setName] = useState('');
-  const [color, setColor] = useState(defaultColors[0]);
-  const [icon, setIcon] = useState('🏷️');
-  const [parentId, setParentId] = useState<string | null>(null);
-  const [description, setDescription] = useState('');
+  const [name, setName] = useState('');              // 标签名称
+  const [color, setColor] = useState(defaultColors[0]); // 标签颜色
+  const [icon, setIcon] = useState('🏷️');            // 标签图标
+  const [parentId, setParentId] = useState<string | null>(null); // 父标签 ID
+  const [description, setDescription] = useState(''); // 标签描述
 
+  // 根据是否编辑模式初始化表单
   useEffect(() => {
     if (tag) {
       setName(tag.name);
@@ -45,6 +59,9 @@ export default function TagEditModal({
     }
   }, [tag]);
 
+  /**
+   * 处理表单提交
+   */
   const handleSubmit = () => {
     if (!name.trim()) {
       alert('请输入标签名称');
@@ -60,6 +77,7 @@ export default function TagEditModal({
     onClose();
   };
 
+  // 过滤掉当前编辑的标签（避免自己作为父标签）
   const parentTags = availableTags.filter(t => t.id !== tag?.id);
 
   return (

@@ -1,14 +1,21 @@
+// 导入 React hooks 和状态管理
 import { useState, useEffect } from "react";
 import { useNotesStore } from "../store/notesStore";
 
+/**
+ * 文档标签选择器属性接口
+ */
 interface DocTagSelectorProps {
-  notebookId: string;
-  docId: string;
-  currentTags: string[];
-  docContent: string;
-  onTagsChange?: () => void;
+  notebookId: string;           // 知识库 ID
+  docId: string;                // 文档 ID
+  currentTags: string[];        // 当前文档的标签 ID 列表
+  docContent: string;           // 文档内容（用于推荐标签）
+  onTagsChange?: () => void;    // 标签变化回调
 }
 
+/**
+ * 文档标签选择器组件
+ */
 export default function DocTagSelector({ 
   notebookId, 
   docId, 
@@ -24,31 +31,42 @@ export default function DocTagSelector({
     getRecommendedTags 
   } = useNotesStore();
 
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [searchText, setSearchText] = useState('');
-  const [showCreateInput, setShowCreateInput] = useState(false);
-  const [newTagName, setNewTagName] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);   // 是否显示下拉选择器
+  const [searchText, setSearchText] = useState('');          // 搜索文本
+  const [showCreateInput, setShowCreateInput] = useState(false); // 是否显示创建输入框
+  const [newTagName, setNewTagName] = useState('');          // 新标签名称
 
-  const recommendedTags = getRecommendedTags(docContent, 5);
+  const recommendedTags = getRecommendedTags(docContent, 5); // 获取推荐标签
 
+  // 获取当前文档已选标签的对象列表
   const currentTagObjects = tags.filter(tag => currentTags.includes(tag.id));
 
+  // 过滤出未选择且匹配搜索的标签
   const filteredTags = tags.filter(tag => 
     !currentTags.includes(tag.id) && 
     tag.name.toLowerCase().includes(searchText.toLowerCase())
   );
 
+  /**
+   * 添加标签到文档
+   */
   const handleAddTag = (tagId: string) => {
     addTagToDoc(notebookId, docId, tagId);
     setSearchText('');
     onTagsChange?.();
   };
 
+  /**
+   * 从文档移除标签
+   */
   const handleRemoveTag = (tagId: string) => {
     removeTagFromDoc(notebookId, docId, tagId);
     onTagsChange?.();
   };
 
+  /**
+   * 创建新标签
+   */
   const handleCreateTag = () => {
     if (!newTagName.trim()) return;
     
@@ -62,6 +80,7 @@ export default function DocTagSelector({
     setShowCreateInput(false);
   };
 
+  // 点击外部区域关闭下拉框
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
