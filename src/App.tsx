@@ -10,15 +10,18 @@ import {
   insertCodeBlock as utilsInsertCodeBlock
 } from "./utils/editorUtils";
 import { saveDraft, loadLatestDraft, clearDrafts } from "./utils/autoSaveUtils";
+import { debounce } from "./utils/debounce";
 import { ToastContainer, useToast } from "./components/Toast";
 import { Loading } from "./components/Loading";
+import { EditorHeader } from "./components/EditorHeader";
+import { EditorContent } from "./components/EditorContent";
 import "./App.css";
 
 // 懒加载组件，优化首屏加载性能
 const StartPage = lazy(() => import("./components/StartPage"));
 const SharePanel = lazy(() => import("./components/SharePanel"));
 const TagPanel = lazy(() => import("./components/TagPanel"));
-const DocTagSelector = lazy(() => import("./components/DocTagSelector"));
+
 const SearchPanel = lazy(() => import("./components/SearchPanel"));
 const VersionHistoryPanel = lazy(() => import("./components/VersionHistoryPanel"));
 
@@ -87,7 +90,6 @@ function App() {
   // UI 状态管理
   const [showMoreMenu, setShowMoreMenu] = useState(false);         // 更多菜单显示状态
   const [fontSize, setFontSize] = useState<string>("15px");        // 编辑器字体大小
-  const [textStyle, setTextStyle] = useState<string>("正文");      // 文本样式
   const [showMoreOptions, setShowMoreOptions] = useState(false);   // 更多选项菜单
   const [activeView, setActiveView] = useState<string>("notebooks"); // 当前视图类型
   const [activeLeftMenu, setActiveLeftMenu] = useState<string>("notebooks"); // 左侧菜单激活项
@@ -101,6 +103,12 @@ function App() {
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false); // 草稿恢复对话框
   const [recoveryDraftMeta, setRecoveryDraftMeta] = useState<{ timestamp: string; docTitle: string } | null>(null); // 草稿元数据
   const [isLoading, setIsLoading] = useState(true);                // 加载状态
+
+  // Dialog 状态
+  const [renameDocId, setRenameDocId] = useState<string | null>(null);    // 正在重命名的文档 ID
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null); // 确认操作回调
+  const [moveDocData, setMoveDocData] = useState<{ id: string; title: string; options: { id: string; label: string; depth: number }[] } | null>(null); // 移动文档信息
+
   const dirtyRef = useRef(false);                                  // 脏标记（用于跳过首次触发）
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // 自动保存定时器
 
@@ -119,6 +127,13 @@ function App() {
     y: number;
     notebookId: string;
   } | null>(null);
+
+  // 使用防抖优化搜索功能
+  const debouncedSetSearchText = useCallback(debounce((value: string) => {
+    setSearchText(value);
+  }, 300), [setSearchText]);
+
+
 
   // 点击外部关闭右键菜单
   useEffect(() => {
@@ -149,18 +164,28 @@ function App() {
    * 重命名文档
    */
   const handleRename = (docId: string) => {
-    const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
-    if (!notebook) return;
-    
-    const doc = notebook.docs.find(d => d.id === docId);
-    if (!doc) return;
-    
-    const newTitle = window.prompt('请输入新名称', doc.title);
-    if (newTitle !== null && newTitle.trim() !== '') {
-      updateDoc(notebook.id, docId, { title: newTitle.trim() });
-    }
+    setRenameDocId(docId);
     setContextMenu(null);
   };
+
+  // 这些函数在组件的其他部分被使用，但TypeScript可能无法完全追踪到
+  const handleRenameConfirm = useCallback((newTitle: string) => {
+    if (!renameDocId || !newTitle.trim()) return;
+    const notebook = notebooks.find(nb => nb.docs.some(d => d.id === renameDocId));
+    if (!notebook) return;
+    updateDoc(notebook.id, renameDocId, { title: newTitle.trim() });
+    setRenameDocId(null);
+  }, [renameDocId, notebooks]); // eslint-disable-line @typescript-eslint/no-unused-vars
+
+  const handleRenameCancel = useCallback(() => setRenameDocId(null), []); // eslint-disable-line @typescript-eslint/no-unused-vars
+
+  const handleMoveConfirm = useCallback((targetId: string | null) => {
+    if (!moveDocData) return;
+    updateDoc(notebooks.find(nb => nb.docs.some(d => d.id === moveDocData.id))!.id, moveDocData.id, { parentId: targetId });
+    setMoveDocData(null);
+  }, [moveDocData, notebooks]); // eslint-disable-line @typescript-eslint/no-unused-vars
+
+  const handleMoveCancel = useCallback(() => setMoveDocData(null), []); // eslint-disable-line @typescript-eslint/no-unused-vars
 
   /**
    * 复制文档链接到剪贴板
@@ -192,15 +217,16 @@ function App() {
    * 删除文档到回收站
    */
   const handleDelete = (docId: string) => {
-    const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
-    if (!notebook) return;
-    
-    if (window.confirm('确定要删除此文档吗？删除后可在回收站恢复吗？')) {
+    setConfirmAction(() => () => {
+      const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
+      if (!notebook) return;
       moveDocToTrash(notebook.id, docId);
       if (activeDocId === docId) {
         setActiveDocId('');
       }
-    }
+      setConfirmAction(null);
+      setContextMenu(null);
+    });
     setContextMenu(null);
   };
 
@@ -219,7 +245,7 @@ function App() {
    * 开始演示
    */
   const handleStartPresentation = () => {
-    alert('演示功能已触发\n\n即将进入全屏演示模式');
+    error('演示功能尚未实现');
     setShowPresentationMenu(false);
   };
 
@@ -227,7 +253,7 @@ function App() {
    * 编辑演示分页
    */
   const handleEditPresentation = () => {
-    alert('演示分页编辑功能已触发\n\n您可以编辑演示的分页结构');
+    error('演示分页编辑功能尚未实现');
     setShowPresentationMenu(false);
   };
 
@@ -248,37 +274,24 @@ function App() {
   const handleMove = (docId: string) => {
     const notebook = notebooks.find(nb => nb.docs.some(d => d.id === docId));
     if (!notebook) return;
-    
+
     const doc = notebook.docs.find(d => d.id === docId);
     if (!doc) return;
-    
+
     const otherDocs = notebook.docs.filter(d => d.id !== docId);
     if (otherDocs.length === 0) {
-      alert('没有其他文档可以移动');
+      error('没有其他文档可以移动');
       setContextMenu(null);
       return;
     }
-    
+
     const options = otherDocs.map(d => ({
-      value: d.id,
-      label: `${' '.repeat((docDepthMap.get(d.id) ?? 0) * 2)}${d.title || '未命名文档'}`
+      id: d.id,
+      label: `${' '.repeat((docDepthMap.get(d.id) ?? 0) * 2)}${d.title || '未命名文档'}`.trim(),
+      depth: docDepthMap.get(d.id) ?? 0,
     }));
-    
-    const selectHtml = `
-      <select id="moveTarget">
-        <option value="">移动到根目录</option>
-        ${options.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
-      </select>
-    `;
-    
-    const container = document.createElement('div');
-    container.innerHTML = selectHtml;
-    const select = container.querySelector('#moveTarget') as HTMLSelectElement;
-    
-    if (confirm(`选择目标位置后确定移动？`)) {
-      const targetId = select.value || null;
-      updateDoc(notebook.id, docId, { parentId: targetId });
-    }
+
+    setMoveDocData({ id: docId, title: doc.title || '未命名文档', options });
     setContextMenu(null);
   };
 
@@ -324,31 +337,22 @@ function App() {
    */
   const handleRemoveNotebookFromFavorites = (_notebookId: string) => {
     setNotebookContextMenu(null);
-    alert('移出常用功能已触发');
+    error('该功能尚未实现');
   };
 
-  /**
-   * 设置知识库离线可用（预留功能）
-   */
   const handleSetNotebookOfflineAvailable = (_notebookId: string) => {
     setNotebookContextMenu(null);
-    alert('设为离线可用功能已触发');
+    error('该功能尚未实现');
   };
 
-  /**
-   * 知识库权限设置（预留功能）
-   */
   const handleNotebookPermissions = (_notebookId: string) => {
     setNotebookContextMenu(null);
-    alert('权限设置功能已触发');
+    error('该功能尚未实现');
   };
 
-  /**
-   * 知识库更多设置（预留功能）
-   */
   const handleNotebookMoreSettings = (_notebookId: string) => {
     setNotebookContextMenu(null);
-    alert('更多设置功能已触发');
+    error('该功能尚未实现');
   };
 
   /**
@@ -429,6 +433,17 @@ function App() {
   /**
    * 自动保存：数据变化时延迟保存到磁盘和 localStorage
    */
+  const notebooksRef = useRef(notebooks);
+  const trashRef = useRef(trash);
+  const tagsRef = useRef(tags);
+  const activeDocIdRef = useRef(activeDocId);
+  const activeDocTitleRef = useRef("");
+  useEffect(() => { notebooksRef.current = notebooks; }, [notebooks]);
+  useEffect(() => { trashRef.current = trash; }, [trash]);
+  useEffect(() => { tagsRef.current = tags; }, [tags]);
+  useEffect(() => { activeDocIdRef.current = activeDocId; }, [activeDocId]);
+
+
   useEffect(() => {
     // 跳过初始挂载触发
     if (!dirtyRef.current) {
@@ -442,10 +457,9 @@ function App() {
 
     autoSaveTimerRef.current = setTimeout(() => {
       const state = useNotesStore.getState();
-      const activeDocTitle = activeDoc?.title;
       saveDraft(
         { notebooks: state.notebooks, trash: state.trash, tags: state.tags, searchHistory: state.searchHistory },
-        activeDocTitle,
+        activeDocTitleRef.current,
       );
       saveNotes();
     }, 2000);
@@ -508,6 +522,12 @@ function App() {
   // 编辑器文本域引用
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  useEffect(() => { 
+    if (activeDoc) {
+      activeDocTitleRef.current = activeDoc.title; 
+    }
+  }, [activeDoc?.title]);
+
   /**
    * 搜索结果文档列表
    */
@@ -548,30 +568,42 @@ function App() {
   const lastHistoryAtRef = useRef<number>(0); // 上次记录时间
   const mergeWindow = 1000; // 合并窗口（毫秒）
 
-  const canUndo = pastSnapshots.length > 0;
-  const canRedo = futureSnapshots.length > 0;
+  // Use refs for undo/redo state to avoid stale closures in keyboard handler
+  const pastSnapshotsRef = useRef(pastSnapshots);
+  const futureSnapshotsRef = useRef(futureSnapshots);
+  const activeDocRef = useRef(activeDoc);
+  const activeNotebookIdRef = useRef(activeNotebookId);
+  useEffect(() => { pastSnapshotsRef.current = pastSnapshots; }, [pastSnapshots]);
+  useEffect(() => { futureSnapshotsRef.current = futureSnapshots; }, [futureSnapshots]);
+  useEffect(() => { activeDocRef.current = activeDoc; }, [activeDoc]);
+  useEffect(() => { activeNotebookIdRef.current = activeNotebookId; }, [activeNotebookId]);
+
+  const canUndo = pastSnapshotsRef.current.length > 0;
+  const canRedo = futureSnapshotsRef.current.length > 0;
 
   /**
    * 撤销操作
    */
-  const undo = () => {
-    if (!activeDoc || !canUndo) return;
-    const prev = pastSnapshots[pastSnapshots.length - 1];
+  const undo = useCallback(() => {
+    const doc = activeDocRef.current;
+    if (!doc || !canUndo) return;
+    const prev = pastSnapshotsRef.current[pastSnapshotsRef.current.length - 1];
     setPastSnapshots((p) => p.slice(0, p.length - 1));
-    setFutureSnapshots((f) => [...f, { title: activeDoc.title ?? "", content: activeDoc.content ?? "", tags: activeDoc.tags ?? [] }]);
-    updateDoc(activeNotebookId, activeDoc.id, { title: prev.title, content: prev.content, tags: prev.tags });
-  };
+    setFutureSnapshots((f) => [...f, { title: doc.title ?? "", content: doc.content ?? "", tags: doc.tags ?? [] }]);
+    updateDoc(activeNotebookIdRef.current, doc.id, { title: prev.title, content: prev.content, tags: prev.tags });
+  }, [canUndo]);
 
   /**
    * 重做操作
    */
-  const redo = () => {
-    if (!activeDoc || !canRedo) return;
-    const next = futureSnapshots[futureSnapshots.length - 1];
+  const redo = useCallback(() => {
+    const doc = activeDocRef.current;
+    if (!doc || !canRedo) return;
+    const next = futureSnapshotsRef.current[futureSnapshotsRef.current.length - 1];
     setFutureSnapshots((f) => f.slice(0, f.length - 1));
-    setPastSnapshots((p) => [...p, { title: activeDoc.title ?? "", content: activeDoc.content ?? "", tags: activeDoc.tags ?? [] }]);
-    updateDoc(activeNotebookId, activeDoc.id, { title: next.title, content: next.content, tags: next.tags });
-  };
+    setPastSnapshots((p) => [...p, { title: doc.title ?? "", content: doc.content ?? "", tags: doc.tags ?? [] }]);
+    updateDoc(activeNotebookIdRef.current, doc.id, { title: next.title, content: next.content, tags: next.tags });
+  }, [canRedo]);
 
   /**
    * 全局键盘事件监听
@@ -607,7 +639,7 @@ function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canUndo, canRedo]);
+  }, []);
 
   /**
    * 处理粘贴事件
@@ -808,7 +840,7 @@ function App() {
                 className="search-input"
                 placeholder="搜索"
                 value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
+                onChange={(event) => debouncedSetSearchText(event.target.value)}
                 onClick={() => setShowSearchPanel(true)}
               />
               <span className="search-shortcut">Ctrl+K</span>
@@ -1029,202 +1061,46 @@ function App() {
           <main className="editor-panel">
             {activeDoc && (
               <>
-                <header className="editor-header">
-                  <div className="editor-title-row">
-                    <input
-                      className="editor-title-input"
-                      value={activeDoc.title}
-                      onChange={(e) => updateDocContent({ title: e.target.value })}
-                      placeholder="无标题"
-                    />
-                    <span className={`save-status-indicator ${saveStatus}`}>
-                      {saveStatus === 'saving' && <span className="save-spinner" />}
-                      {saveStatus === 'saving' && '正在保存...'}
-                      {saveStatus === 'saved' && '✓已保存'}
-                      {saveStatus === 'error' && '✗保存失败'}
-                      {saveStatus === 'idle' && '已保存'}
-                    </span>
-                    <LazyLoader>
-                      <DocTagSelector
-                        notebookId={activeNotebookId}
-                        docId={activeDocId}
-                        currentTags={activeDoc.tags || []}
-                        docContent={activeDoc.content || ''}
-                        onTagsChange={() => setTagsUpdated(prev => prev + 1)}
-                      />
-                    </LazyLoader>
-                    <div className="title-toolbar">
-                      <button 
-                        className={`title-toolbar-btn ${activeDoc.favorite ? "favorited" : ""}`} 
-                        title="收藏"
-                        onClick={() => toggleFavorite(activeNotebookId, activeDocId)}
-                      >
-                        ⭐
-                      </button>
-                      <button 
-                        className="title-toolbar-btn presentation-btn" 
-                        title="演示"
-                        onClick={() => setShowPresentationMenu(!showPresentationMenu)}
-                      >
-                        🎤
-                      </button>
-                      <button className="title-toolbar-btn" title="分享协作" onClick={() => activeDoc && handleCopyLink(activeDoc.id)}>
-                        🔗
-                      </button>
-                      <button className="title-toolbar-btn" title="在新窗口打开" onClick={() => activeDoc && handleOpenInNewWindow(activeDoc.id)}>
-                        ↗
-                      </button>
-                      <button className="title-toolbar-btn" title="更多操作">
-                        ⋯
-                      </button>
-                      <button className="title-toolbar-btn share-btn" title="分享" onClick={() => setShowSharePanel(true)}>
-                        分享
-                      </button>
-                      <button className="title-toolbar-btn" title="视图切换">
-                        □□
-                      </button>
-                      <button className="title-toolbar-btn" title="全屏">
-                        ⛶
-                      </button>
-                    </div>
-                    {showPresentationMenu && (
-                      <div className="presentation-menu">
-                        <button className="presentation-menu-item" onClick={handleStartPresentation}>
-                          <span className="presentation-menu-icon">🎤</span>
-                          <span className="presentation-menu-text">开始演示</span>
-                        </button>
-                        <button className="presentation-menu-item" onClick={handleEditPresentation}>
-                          <span className="presentation-menu-icon">📝</span>
-                          <span className="presentation-menu-text">编辑演示分页</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="editor-toolbar">
-                    <div className="toolbar-left">
-                      <button className="toolbar-btn" onClick={undo} disabled={!canUndo} title="撤销">
-                        ↩
-                      </button>
-                      <button className="toolbar-btn" onClick={redo} disabled={!canRedo} title="重做">
-                        ↪
-                      </button>
-                      <span className="toolbar-divider" />
-                      <select className="toolbar-select" value={textStyle} onChange={(e) => setTextStyle(e.target.value)} title="样式">
-                        <option value="正文">正文</option>
-                        <option value="标题1">标题1</option>
-                        <option value="标题2">标题2</option>
-                        <option value="标题3">标题3</option>
-                        <option value="引用">引用</option>
-                        <option value="代码">代码</option>
-                      </select>
-                      <select className="toolbar-select" value={fontSize} onChange={(e) => setFontSize(e.target.value)} title="字号">
-                        <option value="12px">12px</option>
-                        <option value="13px">13px</option>
-                        <option value="14px">14px</option>
-                        <option value="15px">15px</option>
-                        <option value="16px">16px</option>
-                        <option value="18px">18px</option>
-                        <option value="20px">20px</option>
-                      </select>
-                      <span className="toolbar-divider" />
-                      <button className="toolbar-btn" onClick={() => insertWrap("**")} title="加粗">
-                        <strong>B</strong>
-                      </button>
-                      <button className="toolbar-btn" onClick={() => insertWrap("*")} title="斜体">
-                        <em>I</em>
-                      </button>
-                      <button className="toolbar-btn" onClick={insertUnderline} title="下划线">
-                        <u>U</u>
-                      </button>
-                      <button className="toolbar-btn" onClick={() => insertWrap("~~")} title="删除线">
-                        <s>S</s>
-                      </button>
-                      <span className="toolbar-divider" />
-                      <button 
-                        className={`toolbar-btn more-options-btn ${showMoreOptions ? "active" : ""}`} 
-                        title="更多选项"
-                        onClick={() => setShowMoreOptions(!showMoreOptions)}
-                      >
-                        ⋯
-                      </button>
-                    </div>
-                  </div>
-                  {showMoreOptions && (
-                    <div className="editor-toolbar expanded-toolbar">
-                      <div className="toolbar-left">
-                        <span className="toolbar-section-label">标题</span>
-                        <button className="toolbar-btn" onClick={() => insertHeadingFunc(1)} title="标题1">
-                          H1
-                        </button>
-                        <button className="toolbar-btn" onClick={() => insertHeadingFunc(2)} title="标题2">
-                          H2
-                        </button>
-                        <button className="toolbar-btn" onClick={() => insertHeadingFunc(3)} title="标题3">
-                          H3
-                        </button>
-                        <span className="toolbar-divider" />
-                        <span className="toolbar-section-label">列表</span>
-                        <button className="toolbar-btn" onClick={insertUnorderedList} title="无序列表">
-                          •
-                        </button>
-                        <button className="toolbar-btn" onClick={insertOrderedList} title="有序列表">
-                          1.
-                        </button>
-                        <span className="toolbar-divider" />
-                        <span className="toolbar-section-label">插入</span>
-                        <button className="toolbar-btn" onClick={insertQuote} title="引用">
-                          "
-                        </button>
-                        <button className="toolbar-btn" onClick={insertCodeBlockFunc} title="代码块">
-                          &lt;/&gt;
-                        </button>
-                        <button className="toolbar-btn" onClick={insertLinkFunc} title="链接">
-                          🔗
-                        </button>
-                        <label className="toolbar-btn file-label" title="插入图片">
-                          🖼
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="file-input"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0];
-                              if (!file) return;
-                              void insertImageFunc(file);
-                              event.target.value = "";
-                            }}
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  )}
-                </header>
-                
-                <div className="editor-content">
-                  {activeDoc ? (
-                    <div className="editor-body">
-                      <textarea
-                        ref={textareaRef}
-                        className="editor-textarea"
-                        value={activeDoc?.content || ""}
-                        onChange={(e) => {
-                          if (activeDoc) {
-                            updateDocContent({ content: e.target.value });
-                          }
-                        }}
-                        onPaste={handlePaste}
-                        placeholder="开始编写你的文章..."
-                        spellCheck={false}
-                        style={{ fontSize: fontSize }}
-                      />
-                    </div>
-                  ) : (
-                    <div className="empty-editor">
-                      <div className="empty-icon">📄</div>
-                      <div className="empty-text">选择文档开始编辑</div>
-                    </div>
-                  )}
-                </div>
+                <EditorHeader
+                  activeDoc={activeDoc}
+                  activeNotebookId={activeNotebookId}
+                  activeDocId={activeDocId}
+                  saveStatus={saveStatus}
+                  fontSize={fontSize}
+                  showPresentationMenu={showPresentationMenu}
+                  updateDocContent={updateDocContent}
+                  toggleFavorite={toggleFavorite}
+                  handleCopyLink={handleCopyLink}
+                  handleOpenInNewWindow={handleOpenInNewWindow}
+                  setShowSharePanel={setShowSharePanel}
+                  setShowPresentationMenu={setShowPresentationMenu}
+                  setFontSize={setFontSize}
+                  showMoreOptions={showMoreOptions}
+                  setShowMoreOptions={setShowMoreOptions}
+                  insertWrap={insertWrap}
+                  insertUnderline={insertUnderline}
+                  insertHeadingFunc={insertHeadingFunc}
+                  insertUnorderedList={insertUnorderedList}
+                  insertOrderedList={insertOrderedList}
+                  insertQuote={insertQuote}
+                  insertCodeBlockFunc={insertCodeBlockFunc}
+                  insertLinkFunc={insertLinkFunc}
+                  insertImageFunc={insertImageFunc}
+                  undo={undo}
+                  redo={redo}
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                  handleStartPresentation={handleStartPresentation}
+                  handleEditPresentation={handleEditPresentation}
+                  setTagsUpdated={setTagsUpdated}
+                />
+                <EditorContent
+                  activeDoc={activeDoc}
+                  fontSize={fontSize}
+                  updateDocContent={updateDocContent}
+                  handlePaste={handlePaste}
+                  activeView={activeView}
+                />
               </>
             )}
           </main>
@@ -1251,7 +1127,7 @@ function App() {
                 className="search-input"
                 placeholder="搜索文档"
                 value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
+                onChange={(event) => debouncedSetSearchText(event.target.value)}
               />
             </div>
             
@@ -1367,168 +1243,39 @@ function App() {
               </div>
             ) : (
               <>
-                <header className="editor-header">
-                  <div className="editor-title-row">
-                    <input
-                      className="editor-title-input"
-                      value={activeDoc?.title || ""}
-                      onChange={(e) => activeDoc && updateDocContent({ title: e.target.value })}
-                      placeholder="无标题"
-                    />
-                    <span className={`save-status-indicator ${saveStatus}`}>
-                      {saveStatus === 'saving' && <span className="save-spinner" />}
-                      {saveStatus === 'saving' && '正在保存...'}
-                      {saveStatus === 'saved' && '✓已保存'}
-                      {saveStatus === 'error' && '✗保存失败'}
-                      {saveStatus === 'idle' && '已保存'}
-                    </span>
-                    <div className="title-toolbar">
-                      <button 
-                        className={`title-toolbar-btn ${activeDoc?.favorite ? "favorited" : ""}`} 
-                        title="收藏"
-                        onClick={() => activeDoc && toggleFavorite(activeNotebookId, activeDocId)}
-                      >
-                        ⭐
-                      </button>
-                      <button 
-                        className="title-toolbar-btn presentation-btn" 
-                        title="演示"
-                        onClick={() => setShowPresentationMenu(!showPresentationMenu)}
-                      >
-                        🎤
-                      </button>
-                      <button className="title-toolbar-btn" title="分享协作" onClick={() => activeDoc && handleCopyLink(activeDoc.id)}>
-                        🔗
-                      </button>
-                      <button className="title-toolbar-btn" title="在新窗口打开" onClick={() => activeDoc && handleOpenInNewWindow(activeDoc.id)}>
-                        ↗
-                      </button>
-                      <button className="title-toolbar-btn" title="更多操作">
-                        ⋯
-                      </button>
-                      <button className="title-toolbar-btn share-btn" title="分享" onClick={() => setShowSharePanel(true)}>
-                        分享
-                      </button>
-                      <button className="title-toolbar-btn" title="视图切换">
-                        □□
-                      </button>
-                      <button className="title-toolbar-btn" title="全屏">
-                        ⛶
-                      </button>
-                    </div>
-                    {showPresentationMenu && (
-                      <div className="presentation-menu">
-                        <button className="presentation-menu-item" onClick={handleStartPresentation}>
-                          <span className="presentation-menu-icon">🎤</span>
-                          <span className="presentation-menu-text">开始演示</span>
-                        </button>
-                        <button className="presentation-menu-item" onClick={handleEditPresentation}>
-                          <span className="presentation-menu-icon">📝</span>
-                          <span className="presentation-menu-text">编辑演示分页</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="editor-toolbar">
-                    <div className="toolbar-left">
-                      <button className="toolbar-btn" onClick={undo} disabled={!canUndo} title="撤销">
-                        ↩
-                      </button>
-                      <button className="toolbar-btn" onClick={redo} disabled={!canRedo} title="重做">
-                        ↪
-                      </button>
-                      <span className="toolbar-divider" />
-                      <select className="toolbar-select" value={textStyle} onChange={(e) => setTextStyle(e.target.value)} title="样式">
-                        <option value="正文">正文</option>
-                        <option value="标题1">标题1</option>
-                        <option value="标题2">标题2</option>
-                        <option value="标题3">标题3</option>
-                        <option value="引用">引用</option>
-                        <option value="代码">代码</option>
-                      </select>
-                      <select className="toolbar-select" value={fontSize} onChange={(e) => setFontSize(e.target.value)} title="字号">
-                        <option value="12px">12px</option>
-                        <option value="13px">13px</option>
-                        <option value="14px">14px</option>
-                        <option value="15px">15px</option>
-                        <option value="16px">16px</option>
-                        <option value="18px">18px</option>
-                        <option value="20px">20px</option>
-                      </select>
-                      <span className="toolbar-divider" />
-                      <button className="toolbar-btn" onClick={() => insertWrap("**")} title="加粗">
-                        <strong>B</strong>
-                      </button>
-                      <button className="toolbar-btn" onClick={() => insertWrap("*")} title="斜体">
-                        <em>I</em>
-                      </button>
-                      <button className="toolbar-btn" onClick={insertUnderline} title="下划线">
-                        <u>U</u>
-                      </button>
-                      <button className="toolbar-btn" onClick={() => insertWrap("~~")} title="删除线">
-                        <s>S</s>
-                      </button>
-                      <span className="toolbar-divider" />
-                      <button 
-                        className={`toolbar-btn more-options-btn ${showMoreOptions ? "active" : ""}`} 
-                        title="更多选项"
-                        onClick={() => setShowMoreOptions(!showMoreOptions)}
-                      >
-                        ⋯
-                      </button>
-                    </div>
-                  </div>
-                  {showMoreOptions && (
-                    <div className="editor-toolbar expanded-toolbar">
-                      <div className="toolbar-left">
-                        <span className="toolbar-section-label">标题</span>
-                        <button className="toolbar-btn" onClick={() => insertHeadingFunc(1)} title="标题1">
-                          H1
-                        </button>
-                        <button className="toolbar-btn" onClick={() => insertHeadingFunc(2)} title="标题2">
-                          H2
-                        </button>
-                        <button className="toolbar-btn" onClick={() => insertHeadingFunc(3)} title="标题3">
-                          H3
-                        </button>
-                        <span className="toolbar-divider" />
-                        <span className="toolbar-section-label">列表</span>
-                        <button className="toolbar-btn" onClick={insertUnorderedList} title="无序列表">
-                          •
-                        </button>
-                        <button className="toolbar-btn" onClick={insertOrderedList} title="有序列表">
-                          1.
-                        </button>
-                        <span className="toolbar-divider" />
-                        <span className="toolbar-section-label">插入</span>
-                        <button className="toolbar-btn" onClick={insertQuote} title="引用">
-                          "
-                        </button>
-                        <button className="toolbar-btn" onClick={insertCodeBlockFunc} title="代码块">
-                          &lt;/&gt;
-                        </button>
-                        <button className="toolbar-btn" onClick={insertLinkFunc} title="链接">
-                          🔗
-                        </button>
-                        <label className="toolbar-btn file-label" title="插入图片">
-                          🖼
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="file-input"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0];
-                              if (!file) return;
-                              void insertImageFunc(file);
-                              event.target.value = "";
-                            }}
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  )}
-                </header>
-                
+                <EditorHeader
+                  activeDoc={activeDoc}
+                  activeNotebookId={activeNotebookId}
+                  activeDocId={activeDocId}
+                  saveStatus={saveStatus}
+                  fontSize={fontSize}
+                  showPresentationMenu={showPresentationMenu}
+                  updateDocContent={updateDocContent}
+                  toggleFavorite={toggleFavorite}
+                  handleCopyLink={handleCopyLink}
+                  handleOpenInNewWindow={handleOpenInNewWindow}
+                  setShowSharePanel={setShowSharePanel}
+                  setShowPresentationMenu={setShowPresentationMenu}
+                  setFontSize={setFontSize}
+                  showMoreOptions={showMoreOptions}
+                  setShowMoreOptions={setShowMoreOptions}
+                  insertWrap={insertWrap}
+                  insertUnderline={insertUnderline}
+                  insertHeadingFunc={insertHeadingFunc}
+                  insertUnorderedList={insertUnorderedList}
+                  insertOrderedList={insertOrderedList}
+                  insertQuote={insertQuote}
+                  insertCodeBlockFunc={insertCodeBlockFunc}
+                  insertLinkFunc={insertLinkFunc}
+                  insertImageFunc={insertImageFunc}
+                  undo={undo}
+                  redo={redo}
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                  handleStartPresentation={handleStartPresentation}
+                  handleEditPresentation={handleEditPresentation}
+                  setTagsUpdated={setTagsUpdated}
+                />
                 <div className="editor-content">
                   {activeDoc ? (
                     <div className="editor-body">

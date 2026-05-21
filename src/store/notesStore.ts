@@ -301,43 +301,54 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
 
   /**
    * 更新文档内容
-   * 同时自动保存版本历史
+   * 同时自动保存版本历史（仅当内容与上一版本不同时才保存）
    */
   updateDoc: (notebookId, docId, updates) => {
     const { notebooks } = get();
     const notebook = notebooks.find(nb => nb.id === notebookId);
     const doc = notebook?.docs.find(d => d.id === docId);
-    
+
     // 更新文档
     const updatedNotebooks = notebooks.map(nb => {
       if (nb.id !== notebookId) return nb;
-      
+
       return {
         ...nb,
-        docs: nb.docs.map(d => 
-          d.id === docId 
-            ? { ...d, ...updates, updatedAt: new Date().toISOString() } 
+        docs: nb.docs.map(d =>
+          d.id === docId
+            ? { ...d, ...updates, updatedAt: new Date().toISOString() }
             : d
         )
       };
     });
-    
+
     set({ notebooks: updatedNotebooks });
-    
-    // 创建自动保存版本
-    if (doc) {
+
+    // 创建自动保存版本：仅当内容变化且距上次版本超过30秒时保存
+    if (doc && (updates.content || updates.title || updates.tags)) {
+      const versions = doc.versions || [];
+      const lastAuto = versions.find(v => v.type === 'auto');
+      if (lastAuto && Date.now() - new Date(lastAuto.createdAt).getTime() < 30_000) {
+        return; // 跳过频繁保存
+      }
+
+      const now = new Date();
+
+      const currentVersions = (updatedNotebooks.find(nb => nb.id === notebookId)?.docs.find(d => d.id === docId)) as NoteDoc | undefined;
+      const mergedContent = { ...currentVersions, ...updates, updatedAt: now.toISOString() };
+
       const newVersion: DocVersion = {
         id: newId(),
         docId: doc.id,
         notebookId: notebookId,
-        title: doc.title,
-        content: doc.content,
-        tags: doc.tags,
-        createdAt: new Date().toISOString(),
-        updatedAt: doc.updatedAt,
+        title: mergedContent.title || doc.title,
+        content: mergedContent.content || doc.content,
+        tags: mergedContent.tags || doc.tags,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
         type: 'auto',
       };
-      
+
       const withVersion = updatedNotebooks.map(nb => {
         if (nb.id !== notebookId) return nb;
         return {
@@ -347,12 +358,12 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
             const versions = d.versions || [];
             return {
               ...d,
-              versions: [newVersion, ...versions].slice(0, 50), // 最多保留50个版本
+              versions: [newVersion, ...versions].slice(0, 50),
             };
           }),
         };
       });
-      
+
       set({ notebooks: withVersion });
     }
   },
@@ -487,14 +498,16 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
   moveDocToTrash: (notebookId, docId) => {
     const { notebooks, trash } = get();
     const notebook = notebooks.find(nb => nb.id === notebookId);
+
+    if (!notebook) return;
+
     const doc = notebook?.docs.find(d => d.id === docId);
-    
     if (!doc) return;
-    
+
     // 更新知识库：移除文档，并处理子文档的父级引用
     const updatedNotebooks = notebooks.map(nb => {
       if (nb.id !== notebookId) return nb;
-      
+
       return {
         ...nb,
         docs: nb.docs
@@ -502,7 +515,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
           .map(d => d.parentId === docId ? { ...d, parentId: doc.parentId } : d)
       };
     });
-    
+
     // 添加到回收站
     const updatedTrash = [...trash, {
       ...doc,
@@ -510,7 +523,7 @@ export const useNotesStore = create<NotesStore>((set, get) => ({
       parentId: null,
       originalParentId: doc.parentId ?? null,
       notebookId: notebookId,
-      notebookTitle: notebook!.title,
+      notebookTitle: notebook.title,
     }];
     
     set({ 

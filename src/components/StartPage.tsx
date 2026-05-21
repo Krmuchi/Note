@@ -75,7 +75,6 @@ export default function StartPage({
   onCreateNotebook
 }: StartPageProps) {
   const [activeFilter, setActiveFilter] = useState<FilterType>("edited"); // 当前激活的过滤器
-  const [, setExpandedAction] = useState<string | null>(null); // 展开的快捷操作（预留）
 
   /**
    * 根据过滤器类型过滤文档列表

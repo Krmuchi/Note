@@ -104,28 +104,31 @@ export const insertSeparator = (textarea: HTMLTextAreaElement): void => {
 
 /**
  * 插入链接
+ * @returns { url: string; text: string } | null - 返回用户输入的链接信息，null表示取消
  */
-export const insertLink = (textarea: HTMLTextAreaElement): void => {
+export const insertLink = (textarea: HTMLTextAreaElement): { url: string; text: string } | null => {
   const url = prompt("请输入链接 URL：", "https://");
-  if (!url) return;
-  
+  if (!url) return null;
+
   const text = prompt("请输入显示文本：", "链接文本") || url;
-  
+
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
   const selectedText = textarea.value.substring(start, end);
-  
+
   const linkText = `[${selectedText || text}](${url})`;
-  
-  const newContent = 
-    textarea.value.substring(0, start) + 
-    linkText + 
+
+  const newContent =
+    textarea.value.substring(0, start) +
+    linkText +
     textarea.value.substring(end);
-  
+
   textarea.value = newContent;
-  
+
   const newCursorPosition = start + linkText.length;
   textarea.setSelectionRange(newCursorPosition, newCursorPosition);
+
+  return { url, text: selectedText || text };
 };
 
 /**

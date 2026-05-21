@@ -83,9 +83,7 @@ function createWindow() {
     console.log("Loading dev server:", process.env.VITE_DEV_SERVER_URL);
     win.loadURL(process.env.VITE_DEV_SERVER_URL).catch((err) => console.error("Failed to load URL:", err));
     // 自动打开开发者工具以便调试
-    if (process.env.NODE_ENV === 'development') {
-  win.webContents.openDevTools({ mode: "right" });
-}
+    win.webContents.openDevTools({ mode: "right" });
   } else {
     win.loadFile(path.join(__dirname, "../dist/index.html"));
   }
@@ -235,14 +233,39 @@ app.whenReady().then(() => {
           if (mime === "image/png") ext = ".png";
           else if (mime === "image/jpeg") ext = ".jpg";
           else if (mime === "image/gif") ext = ".gif";
+          else if (mime === "image/webp") ext = ".webp";
+          else if (mime === "image/svg+xml") ext = ".svg";
+          else {
+            // Default to png if mime type is unknown
+            ext = ".png";
+          }
         }
       } else {
         // if not data URL, assume base64 raw
         buffer = Buffer.from(String(data), "base64");
       }
-      const base = path.basename(name, path.extname(name)).replace(/[^a-zA-Z0-9-_]/g, "_");
-      const filename = `${base}-${Date.now()}${ext}`;
+      
+      // Validate file extension to prevent malicious uploads
+      const allowedExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'];
+      if (!allowedExtensions.includes(ext.toLowerCase())) {
+        throw new Error(`Invalid file extension: ${ext}. Only image files are allowed.`);
+      }
+      
+      // Sanitize filename to prevent path traversal attacks
+      const cleanBaseName = path.basename(name, path.extname(name))
+        .replace(/[^a-zA-Z0-9-_]/g, '_')
+        .substring(0, 100); // Limit length to prevent extremely long filenames
+      
+      const filename = `${cleanBaseName}-${Date.now()}${ext}`;
       const dest = path.join(imagesDir, filename);
+      
+      // Double-check that the destination is within the intended directory
+      const resolvedDest = path.resolve(dest);
+      const resolvedImagesDir = path.resolve(imagesDir);
+      if (!resolvedDest.startsWith(resolvedImagesDir + path.sep) && resolvedDest !== resolvedImagesDir) {
+        throw new Error("Invalid file path - path traversal detected");
+      }
+      
       await fs.writeFile(dest, buffer);
       // return file:// URL for renderer
       return `file://${dest.replace(/\\/g, "/")}`;
