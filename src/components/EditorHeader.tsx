@@ -4,7 +4,7 @@ import DocTagSelector from './DocTagSelector';
 import type { SaveStatus } from '../store/notesStore';
 
 interface EditorHeaderProps {
-  activeDoc: NoteDoc | null;
+  activeDoc: NoteDoc;
   activeNotebookId: string;
   activeDocId: string;
   saveStatus: SaveStatus;
@@ -12,29 +12,18 @@ interface EditorHeaderProps {
   showPresentationMenu: boolean;
   updateDocContent: (updates: Partial<NoteDoc>) => void;
   toggleFavorite: (notebookId: string, docId: string) => void;
-  handleCopyLink: (docId: string) => void;
-  handleOpenInNewWindow: (docId: string) => void;
+  handleCopyLink: () => void;
+  handleOpenInNewWindow: () => void;
   setShowSharePanel: (show: boolean) => void;
   setShowPresentationMenu: (show: boolean) => void;
   setFontSize: (size: string) => void;
   showMoreOptions: boolean;
   setShowMoreOptions: (show: boolean) => void;
-  insertWrap: (wrapper: string) => void;
-  insertUnderline: () => void;
-  insertHeadingFunc: (level: number) => void;
-  insertUnorderedList: () => void;
-  insertOrderedList: () => void;
-  insertQuote: () => void;
-  insertCodeBlockFunc: () => void;
-  insertLinkFunc: () => void;
-  insertImageFunc: (file: File) => Promise<void>;
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  handleStartPresentation: () => void;
-  handleEditPresentation: () => void;
-  setTagsUpdated: (callback: (prev: number) => number) => void;
+  
 }
 
 export const EditorHeader: React.FC<EditorHeaderProps> = ({
@@ -53,25 +42,11 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   setFontSize,
   showMoreOptions,
   setShowMoreOptions,
-  insertWrap,
-  insertUnderline,
-  insertHeadingFunc,
-  insertUnorderedList,
-  insertOrderedList,
-  insertQuote,
-  insertCodeBlockFunc,
-  insertLinkFunc,
-  insertImageFunc,
   undo,
   redo,
   canUndo,
   canRedo,
-  handleStartPresentation,
-  handleEditPresentation,
-  setTagsUpdated,
 }) => {
-  if (!activeDoc) return null;
-
   return (
     <header className="editor-header">
       <div className="editor-title-row">
@@ -89,12 +64,12 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
           {saveStatus === 'idle' && '已保存'}
         </span>
         <DocTagSelector
-            notebookId={activeNotebookId}
-            docId={activeDocId}
-            currentTags={activeDoc.tags || []}
-            docContent={activeDoc.content || ''}
-            onTagsChange={() => setTagsUpdated(prev => prev + 1)}
-          />
+          notebookId={activeNotebookId}
+          docId={activeDocId}
+          currentTags={activeDoc.tags || []}
+          docContent={activeDoc.content || ''}
+          onTagsChange={() => {}}
+        />
         <div className="title-toolbar">
           <button 
             className={`title-toolbar-btn ${activeDoc.favorite ? "favorited" : ""}`} 
@@ -110,10 +85,10 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
           >
             🎤
           </button>
-          <button className="title-toolbar-btn" title="分享协作" onClick={() => handleCopyLink(activeDoc.id)}>
+          <button className="title-toolbar-btn" title="复制链接" onClick={handleCopyLink}>
             🔗
           </button>
-          <button className="title-toolbar-btn" title="在新窗口打开" onClick={() => handleOpenInNewWindow(activeDoc.id)}>
+          <button className="title-toolbar-btn" title="在新窗口打开" onClick={handleOpenInNewWindow}>
             ↗
           </button>
           <button className="title-toolbar-btn" title="更多操作">
@@ -131,11 +106,15 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
         </div>
         {showPresentationMenu && (
           <div className="presentation-menu">
-            <button className="presentation-menu-item" onClick={handleStartPresentation}>
+            <button className="presentation-menu-item" onClick={() => {
+              setShowPresentationMenu(false);
+            }}>
               <span className="presentation-menu-icon">🎤</span>
               <span className="presentation-menu-text">开始演示</span>
             </button>
-            <button className="presentation-menu-item" onClick={handleEditPresentation}>
+            <button className="presentation-menu-item" onClick={() => {
+              setShowPresentationMenu(false);
+            }}>
               <span className="presentation-menu-icon">📝</span>
               <span className="presentation-menu-text">编辑演示分页</span>
             </button>
@@ -161,16 +140,16 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
             <option value="20px">20px</option>
           </select>
           <span className="toolbar-divider" />
-          <button className="toolbar-btn" onClick={() => insertWrap("**")} title="加粗">
+          <button className="toolbar-btn" onClick={() => updateDocContent({ content: `**${activeDoc.content || ''}**` })} title="加粗">
             <strong>B</strong>
           </button>
-          <button className="toolbar-btn" onClick={() => insertWrap("*")} title="斜体">
+          <button className="toolbar-btn" onClick={() => updateDocContent({ content: `*${activeDoc.content || ''}*` })} title="斜体">
             <em>I</em>
           </button>
-          <button className="toolbar-btn" onClick={insertUnderline} title="下划线">
+          <button className="toolbar-btn" onClick={() => updateDocContent({ content: `<u>${activeDoc.content || ''}</u>` })} title="下划线">
             <u>U</u>
           </button>
-          <button className="toolbar-btn" onClick={() => insertWrap("~~")} title="删除线">
+          <button className="toolbar-btn" onClick={() => updateDocContent({ content: `~~${activeDoc.content || ''}~~` })} title="删除线">
             <s>S</s>
           </button>
           <span className="toolbar-divider" />
@@ -187,48 +166,37 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
         <div className="editor-toolbar expanded-toolbar">
           <div className="toolbar-left">
             <span className="toolbar-section-label">标题</span>
-            <button className="toolbar-btn" onClick={() => insertHeadingFunc(1)} title="标题1">
+            <button className="toolbar-btn" onClick={() => updateDocContent({ content: `# ${activeDoc.content || ''}` })} title="标题1">
               H1
             </button>
-            <button className="toolbar-btn" onClick={() => insertHeadingFunc(2)} title="标题2">
+            <button className="toolbar-btn" onClick={() => updateDocContent({ content: `## ${activeDoc.content || ''}` })} title="标题2">
               H2
             </button>
-            <button className="toolbar-btn" onClick={() => insertHeadingFunc(3)} title="标题3">
+            <button className="toolbar-btn" onClick={() => updateDocContent({ content: `### ${activeDoc.content || ''}` })} title="标题3">
               H3
             </button>
             <span className="toolbar-divider" />
             <span className="toolbar-section-label">列表</span>
-            <button className="toolbar-btn" onClick={insertUnorderedList} title="无序列表">
+            <button className="toolbar-btn" onClick={() => updateDocContent({ content: `- ${activeDoc.content || ''}` })} title="无序列表">
               •
             </button>
-            <button className="toolbar-btn" onClick={insertOrderedList} title="有序列表">
+            <button className="toolbar-btn" onClick={() => updateDocContent({ content: `1. ${activeDoc.content || ''}` })} title="有序列表">
               1.
             </button>
             <span className="toolbar-divider" />
             <span className="toolbar-section-label">插入</span>
-            <button className="toolbar-btn" onClick={insertQuote} title="引用">
+            <button className="toolbar-btn" onClick={() => updateDocContent({ content: `> ${activeDoc.content || ''}` })} title="引用">
               "
             </button>
-            <button className="toolbar-btn" onClick={insertCodeBlockFunc} title="代码块">
+            <button className="toolbar-btn" onClick={() => updateDocContent({ content: `\`\`\`\n${activeDoc.content || ''}\n\`\`\`` })} title="代码块">
               &lt;/&gt;
             </button>
-            <button className="toolbar-btn" onClick={insertLinkFunc} title="链接">
+            <button className="toolbar-btn" onClick={() => updateDocContent({ content: `[链接](${activeDoc.content || ''})` })} title="链接">
               🔗
             </button>
-            <label className="toolbar-btn file-label" title="插入图片">
+            <button className="toolbar-btn" title="插入图片" onClick={() => {}}>
               🖼
-              <input
-                type="file"
-                accept="image/*"
-                className="file-input"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (!file) return;
-                  void insertImageFunc(file);
-                  event.target.value = "";
-                }}
-              />
-            </label>
+            </button>
           </div>
         </div>
       )}

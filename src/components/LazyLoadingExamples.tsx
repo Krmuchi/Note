@@ -166,11 +166,10 @@ function VirtualScrollExample() {
       <p style={{ marginBottom: '16px', color: '#666', fontSize: '14px' }}>
         滚动列表查看虚拟滚动效果。只渲染可见区域的元素，大幅提升性能。
       </p>
-      <div style={{ border: '1px solid #e8e8e8', borderRadius: '8px' }}>
+      <div style={{ border: '1px solid #e8e8e8', borderRadius: '8px', height: '500px' }}>
         <VirtualScroll
           items={items}
           itemHeight={80}
-          containerHeight={500}
           renderItem={(item: { id: string; name: string; description: string }, index: number) => (
             <div
               key={item.id}
@@ -206,9 +205,6 @@ function VirtualScrollExample() {
               </div>
             </div>
           )}
-          overscan={5}
-          onEndReached={() => console.log('滚动到底部')}
-          endReachedThreshold={200}
         />
       </div>
     </div>
