@@ -105,7 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       <div className="sidebar-section">
-        <button
+        <div
           className="section-header"
           onClick={() => setNotebooksExpanded(!notebooksExpanded)}
         >
@@ -121,7 +121,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             +
           </button>
-        </button>
+        </div>
         {notebooksExpanded && (
           <div className="notebooks-list">
             {notebooks.map((notebook) => (
