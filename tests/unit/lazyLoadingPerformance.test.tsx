@@ -105,7 +105,7 @@ describe('Lazy Loading Performance', () => {
   });
 
   it('应该减少内存使用', () => {
-    const initialMemory = (performance as any).memory?.usedJSHeapSize || 0;
+    const initialMemory = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize || 0;
     
     const { unmount } = render(
       <VirtualScroll
@@ -116,7 +116,7 @@ describe('Lazy Loading Performance', () => {
       />
     );
 
-    const afterRenderMemory = (performance as any).memory?.usedJSHeapSize || 0;
+    const afterRenderMemory = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize || 0;
     const memoryIncrease = afterRenderMemory - initialMemory;
 
     unmount();

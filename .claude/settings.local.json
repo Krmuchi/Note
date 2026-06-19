@@ -16,7 +16,9 @@
       "Bash(powershell *)",
       "Bash(tasklist)",
       "Bash(taskkill //F //IM git.exe //T)",
-      "Bash(taskkill //F //IM git-remote-https.exe //T)"
+      "Bash(taskkill //F //IM git-remote-https.exe //T)",
+      "Skill(run)",
+      "Skill(run:*)"
     ]
   }
 }

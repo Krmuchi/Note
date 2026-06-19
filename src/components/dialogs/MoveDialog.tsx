@@ -1,5 +1,6 @@
 import React from 'react';
-import { useNotesStore } from '../../store/notesStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useNotesStore } from '@/store';
 
 interface MoveDialogProps {
   docId: string;
@@ -14,7 +15,10 @@ export const MoveDialog: React.FC<MoveDialogProps> = ({
   onConfirm,
   onCancel,
 }) => {
-  const { notebooks, activeNotebookId } = useNotesStore();
+  const { notebooks, activeNotebookId } = useNotesStore(useShallow((s) => ({
+    notebooks: s.notebooks,
+    activeNotebookId: s.activeNotebookId,
+  })));
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
   const activeNotebook = notebooks.find((nb) => nb.id === activeNotebookId);

@@ -1,0 +1,88 @@
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn var(--transition-fast);
+}
+
+.modal-content {
+  background: var(--bg-elevated);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-xl);
+  max-width: 800px;
+  width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  animation: scaleIn var(--transition-base);
+  border: 1px solid var(--border-color);
+}
+
+.presentation-mode-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #1a1a2e;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-10);
+  color: #fff;
+  animation: fadeIn var(--transition-slow);
+}
+
+.presentation-slide {
+  max-width: 900px;
+  width: 100%;
+  text-align: center;
+}
+
+.presentation-slide h1 {
+  font-size: 48px;
+  margin-bottom: var(--space-6);
+  font-weight: 700;
+}
+
+.presentation-slide p {
+  font-size: 24px;
+  line-height: 1.8;
+  opacity: 0.9;
+}
+
+.presentation-controls {
+  position: fixed;
+  bottom: var(--space-8);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.presentation-btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.presentation-btn:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+.presentation-progress {
+  font-size: var(--font-size-sm);
+  color: rgba(255,255,255,0.5);
+}

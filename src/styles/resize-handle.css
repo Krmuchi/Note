@@ -1,0 +1,106 @@
+/* ============================================
+   三栏拖拽分隔条
+   参考 VS Code / 语雀 的拖拽体验
+   ============================================ */
+
+.resize-handle {
+  position: relative;
+  flex-shrink: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: var(--border-secondary);
+  z-index: 20;
+  transition: background 0.15s ease;
+}
+
+/* 扩大可点击命中区域（视觉仍为 4px） */
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  right: -3px;
+  z-index: 1;
+}
+
+.resize-handle:hover {
+  background: var(--gray-400);
+}
+
+.resize-handle.dragging {
+  background: var(--primary-500);
+}
+
+/* 折叠/展开按钮（仅左栏分隔条） */
+.resize-handle-collapse-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-round);
+  border: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  z-index: 2;
+  box-shadow: var(--shadow-sm);
+}
+
+.resize-handle:hover .resize-handle-collapse-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.resize-handle-collapse-btn:hover {
+  background: var(--primary-500);
+  color: #ffffff;
+  border-color: var(--primary-500);
+}
+
+/* 拖拽中：覆盖整个界面的半透明遮罩，防止误触其他元素 */
+body.panel-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.panel-resizing::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.02);
+  z-index: 9999;
+  pointer-events: none;
+}
+
+/* 拖拽时关闭宽度过渡动画，松开恢复 */
+body.panel-resizing .main-sidebar,
+body.panel-resizing .docs-sidebar {
+  transition: none !important;
+}
+
+/* 非拖拽时宽度过渡（用于折叠/展开、双击重置） */
+.main-sidebar {
+  transition: width 0.1s linear;
+}
+
+.docs-sidebar {
+  transition: width 0.1s linear;
+}
+
+/* 移动端隐藏分隔条 */
+@media (max-width: 768px) {
+  .resize-handle {
+    display: none;
+  }
+}

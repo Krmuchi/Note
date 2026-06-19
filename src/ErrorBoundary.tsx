@@ -1,50 +1,88 @@
-import React from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react'
 
-/**
- * 错误边界组件
- * 用于捕获子组件的 JavaScript 错误并显示备用 UI
- */
 interface Props {
-  children: React.ReactNode;
+  children: ReactNode
+  fallback?: ReactNode
 }
 
 interface State {
-  hasError: boolean;
-  error?: Error | null;
+  hasError: boolean
+  error: Error | null
 }
 
-export default class ErrorBoundary extends React.Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { hasError: false, error: null };
+interface SentryWindow {
+  Sentry?: {
+    captureException: (error: Error, options: { extra: { componentStack: string | null | undefined } }) => void
+  }
+}
+
+declare const window: Window & SentryWindow
+
+class ErrorBoundary extends Component<Props, State> {
+  public state: State = {
+    hasError: false,
+    error: null
   }
 
-  /**
-   * 静态方法：从错误中派生状态
-   * 当子组件抛出错误时调用，更新状态以显示错误信息
-   */
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
+  public static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error }
   }
 
-  /**
-   * 实例方法：捕获错误后的处理
-   * 可在此处发送错误日志到监控系统
-   */
-  componentDidCatch() {
-    // 可在此处添加错误上报逻辑
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    this.reportError(error, errorInfo)
+    this.logError(error, errorInfo)
   }
 
-  render() {
+  private reportError(error: Error, errorInfo: ErrorInfo) {
+    if (window.Sentry) {
+      window.Sentry.captureException(error, { 
+        extra: { componentStack: errorInfo.componentStack } 
+      })
+    }
+  }
+
+  private logError(error: Error, errorInfo: ErrorInfo) {
+    console.error('ErrorBoundary caught:', error)
+    console.error('Component stack:', errorInfo.componentStack)
+    
+    try {
+      const logs = JSON.parse(localStorage.getItem('error-logs') || '[]')
+      logs.push({
+        timestamp: new Date().toISOString(),
+        error: error.message,
+        stack: errorInfo.componentStack
+      })
+      localStorage.setItem('error-logs', JSON.stringify(logs.slice(-50)))
+    } catch {
+      // ignore
+    }
+  }
+
+  private handleReset = () => {
+    this.setState({ hasError: false, error: null })
+  }
+
+  public render() {
     if (this.state.hasError) {
+      if (this.props.fallback) {
+        return this.props.fallback
+      }
+      
       return (
         <div style={{ padding: 24 }}>
           <h2>应用出错了</h2>
-          <pre style={{ whiteSpace: 'pre-wrap', color: '#b91c1c' }}>{String(this.state.error)}</pre>
-          <div>请打开开发者工具查看详细信息。</div>
+          <p>{this.state.error?.message}</p>
+          <button onClick={this.handleReset} style={{ padding: '8px 16px', cursor: 'pointer' }}>重试</button>
+          <details style={{ marginTop: 16 }}>
+            <summary>错误详情</summary>
+            <pre style={{ whiteSpace: 'pre-wrap', color: '#b91c1c' }}>{this.state.error?.stack}</pre>
+          </details>
         </div>
-      );
+      )
     }
-    return this.props.children;
+
+    return this.props.children
   }
 }
+
+export default ErrorBoundary

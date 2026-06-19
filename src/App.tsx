@@ -1,31 +1,36 @@
 import { useCallback, useEffect, useMemo, useState, lazy } from "react";
-import type { NoteDoc, Notebook } from "./types";
-import { useNotesStore } from "./store/notesStore";
-import { useAutoSave } from "./hooks/useAutoSave";
-import { useKeyboard } from "./hooks/useKeyboard";
-import { debounce } from "./utils/debounce";
-import { saveDraft, loadLatestDraft, clearDrafts } from "./utils/autoSaveUtils";
-import { ToastContainer, useToast } from "./components/Toast";
-import { Loading } from "./components/Loading";
-import { LazyLoader } from "./components/LazyLoader";
-import { Sidebar } from "./components/layout/Sidebar";
-import { DocsSidebar } from "./components/layout/DocsSidebar";
-import { Editor } from "./components/editor/Editor";
-import { ConfirmDialog } from "./components/dialogs/ConfirmDialog";
-import { RecoveryDialog } from "./components/dialogs/RecoveryDialog";
-import "./App.css";
+import { useShallow } from "zustand/react/shallow";
+import type { RecentView } from "@/types";
+import { useNotesStore } from "@/store";
+import { useAutoSave } from "@/hooks/useAutoSave";
+import { useKeyboard } from "@/hooks/useKeyboard";
+import { useUIState } from "@/hooks/useUIState";
+import { useFavoriteDocs } from "@/hooks/useFavoriteDocs";
+import { useConfirmAction } from "@/hooks/useConfirmAction";
+import { debounce } from "@/utils/debounce";
+import { copyToClipboard } from "@/utils/clipboard";
+import { saveDraft, loadLatestDraft, clearDrafts } from "@/utils/autoSaveUtils";
+import { ToastContainer, useToast } from "@/components/common/Toast";
+import { Loading } from "@/components/common/Loading";
+import { LazyLoader } from "@/components/common/LazyLoader";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { ResizeHandle } from "@/components/layout/ResizeHandle";
+import { useResizableLayout } from "@/hooks/useResizableLayout";
+import { ConfirmDialog } from "@/components/dialogs/ConfirmDialog";
+import { RecoveryDialog } from "@/components/dialogs/RecoveryDialog";
+import TrashView from "@/components/views/TrashView";
+import FavoriteView from "@/components/views/FavoriteView";
+import NotebooksView from "@/components/views/NotebooksView";
+import "@/App.css";
 
-const StartPage = lazy(() => import("./components/StartPage"));
-const SharePanel = lazy(() => import("./components/SharePanel"));
-const TagPanel = lazy(() => import("./components/TagPanel"));
-const SearchPanel = lazy(() => import("./components/SearchPanel"));
-const VersionHistoryPanel = lazy(() => import("./components/VersionHistoryPanel"));
-
-interface RecentView {
-  docId: string;
-  notebookId: string;
-  viewedAt: string;
-}
+const StartPage = lazy(() => import("@/components/start/StartPage"));
+const SharePanel = lazy(() => import("@/components/share/SharePanel"));
+const TagPanel = lazy(() => import("@/components/tags/TagPanel"));
+const SearchPanel = lazy(() => import("@/components/search/SearchPanel"));
+const VersionHistoryPanel = lazy(() => import("@/components/version/VersionHistoryPanel"));
+const ShortcutHelp = lazy(() => import("@/components/common/ShortcutHelp"));
+const SettingsPanel = lazy(() => import("@/components/settings/SettingsPanel"));
+const QuickNotePanel = lazy(() => import("@/components/notes/QuickNotePanel"));
 
 function App() {
   const {
@@ -35,6 +40,16 @@ function App() {
     searchText,
     trash,
     tags,
+  } = useNotesStore(useShallow((s) => ({
+    notebooks: s.notebooks,
+    activeNotebookId: s.activeNotebookId,
+    activeDocId: s.activeDocId,
+    searchText: s.searchText,
+    trash: s.trash,
+    tags: s.tags,
+  })));
+
+  const {
     loadNotes,
     saveNotes,
     setActiveNotebookId,
@@ -46,36 +61,113 @@ function App() {
     deleteFromTrash,
     clearTrash,
     setSaveStatus,
-  } = useNotesStore();
+    generateShareLink,
+    deleteShareLink,
+  } = useNotesStore(useShallow((s) => ({
+    loadNotes: s.loadNotes,
+    saveNotes: s.saveNotes,
+    setActiveNotebookId: s.setActiveNotebookId,
+    setActiveDocId: s.setActiveDocId,
+    setSearchText: s.setSearchText,
+    createNotebook: s.createNotebook,
+    createDoc: s.createDoc,
+    restoreFromTrash: s.restoreFromTrash,
+    deleteFromTrash: s.deleteFromTrash,
+    clearTrash: s.clearTrash,
+    setSaveStatus: s.setSaveStatus,
+    generateShareLink: s.generateShareLink,
+    deleteShareLink: s.deleteShareLink,
+  })));
 
+  const {
+    activeView,
+    setActiveView,
+    activeLeftMenu,
+    setActiveLeftMenu,
+    fontSize,
+    setFontSize,
+    showSearchPanel,
+    setShowSearchPanel,
+    showSharePanel,
+    setShowSharePanel,
+    showTagPanel,
+    setShowTagPanel,
+    showCommentsPanel,
+    setShowCommentsPanel,
+    showOutlinePanel,
+    setShowOutlinePanel,
+    showVersionHistory,
+    setShowVersionHistory,
+    showShortcutHelp,
+    setShowShortcutHelp,
+    showSettings,
+    setShowSettings,
+  } = useUIState();
+
+  const favoriteDocs = useFavoriteDocs();
+  const { confirmConfig, confirm, handleConfirm, handleCancel } = useConfirmAction();
   const { toasts, removeToast, error } = useToast();
 
-  const [fontSize, setFontSize] = useState<string>("15px");
-  const [activeView, setActiveView] = useState<string>("notebooks");
-  const [activeLeftMenu, setActiveLeftMenu] = useState<string>("notebooks");
+  const {
+    sidebarWidth,
+    docsSidebarWidth,
+    sidebarCollapsed,
+    dragging,
+    isMobile,
+    startSidebarResize,
+    startDocsResize,
+    resetSidebar,
+    resetDocs,
+    toggleSidebarCollapse,
+    setSidebarCollapsed,
+  } = useResizableLayout();
+
   const [recentViews, setRecentViews] = useState<RecentView[]>([]);
-  const [showSharePanel, setShowSharePanel] = useState(false);
-  const [showTagPanel, setShowTagPanel] = useState(false);
-  const [showSearchPanel, setShowSearchPanel] = useState(false);
-  const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
   const [recoveryDraftMeta, setRecoveryDraftMeta] = useState<{ timestamp: string; docTitle: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
-  const [confirmMessage, setConfirmMessage] = useState("");
-  
 
   useAutoSave(3000);
 
   useKeyboard({
     onSearch: () => setShowSearchPanel(true),
+    onSave: () => saveNotes(),
+    onNewDoc: () => {
+      if (activeNotebookId) createDoc(activeNotebookId, null);
+    },
+    onNewNotebook: () => createNotebook("新建知识库"),
+    onToggleSidebar: () => {
+      setActiveLeftMenu(activeLeftMenu === "notebooks" ? "start" : "notebooks");
+    },
+    onToggleFavorite: () => {
+      if (activeNotebookId && activeDocId) {
+        useNotesStore.getState().toggleFavorite(activeNotebookId, activeDocId);
+      }
+    },
+    onClose: () => {
+      if (showSearchPanel) setShowSearchPanel(false);
+      else if (showSharePanel) setShowSharePanel(false);
+      else if (showTagPanel) setShowTagPanel(false);
+      else if (showVersionHistory) setShowVersionHistory(false);
+    },
+    onEscape: () => {
+      if (showShortcutHelp) setShowShortcutHelp(false);
+      else if (showSearchPanel) setShowSearchPanel(false);
+      else if (showSharePanel) setShowSharePanel(false);
+      else if (showTagPanel) setShowTagPanel(false);
+      else if (showVersionHistory) setShowVersionHistory(false);
+    },
+    onShortcutHelp: () => setShowShortcutHelp(!showShortcutHelp),
   });
 
-  const debouncedSetSearchText = useCallback(debounce((value: string) => {
-    setSearchText(value);
-  }, 300), [setSearchText]);
+  const debouncedSetSearchText = useMemo(
+    () => debounce((value: string) => {
+      setSearchText(value);
+    }, 300),
+    [setSearchText]
+  );
 
-  const handleViewDoc = (notebookId: string, docId: string) => {
+  const handleViewDoc = useCallback((notebookId: string, docId: string) => {
     setRecentViews((prev) => {
       const filtered = prev.filter((v) => !(v.docId === docId && v.notebookId === notebookId));
       return [{ docId, notebookId, viewedAt: new Date().toISOString() }, ...filtered].slice(0, 50);
@@ -84,7 +176,7 @@ function App() {
     setActiveDocId(docId);
     setActiveView("notebooks");
     setActiveLeftMenu("notebooks");
-  };
+  }, [setActiveNotebookId, setActiveDocId, setActiveView, setActiveLeftMenu]);
 
   const activeNotebook = useMemo(
     () => notebooks.find((item) => item.id === activeNotebookId) ?? null,
@@ -96,13 +188,13 @@ function App() {
     [activeDocId, activeNotebook]
   );
 
-  
-
   useEffect(() => {
     const draft = loadLatestDraft();
+    const { autoCleanTrash: cleanTrash } = useNotesStore.getState();
 
     loadNotes().then(() => {
       setIsLoading(false);
+      cleanTrash();
       if (draft) {
         const current = useNotesStore.getState();
         const draftNotebooks = JSON.stringify(draft.data.notebooks);
@@ -123,7 +215,7 @@ function App() {
       setIsLoading(false);
       error("加载笔记失败，请检查数据文件");
     });
-  }, [error]);
+  }, [error, loadNotes]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -134,7 +226,7 @@ function App() {
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, []);
+  }, [saveNotes]);
 
   useEffect(() => {
     if (activeDoc) {
@@ -171,153 +263,130 @@ function App() {
     setShowRecoveryDialog(false);
   }, []);
 
-  const handleConfirm = () => {
-    confirmAction?.();
-    setConfirmAction(null);
-    setConfirmMessage("");
-  };
-
-  const handleCancelConfirm = () => {
-    setConfirmAction(null);
-    setConfirmMessage("");
-  };
-
-  const handleRestoreFromTrash = (docId: string) => {
-    restoreFromTrash(docId);
-  };
-
-  const handleDeleteFromTrash = (docId: string) => {
-    setConfirmMessage(`确定要永久删除该文档吗？此操作无法撤销。`);
-    setConfirmAction(() => () => {
-      deleteFromTrash(docId);
+  const handleDeleteFromTrash = useCallback((docId: string) => {
+    confirm({
+      title: "确认操作",
+      message: "确定要永久删除该文档吗？此操作无法撤销。",
+      confirmText: "确认删除",
+      variant: "danger",
+      onConfirm: () => deleteFromTrash(docId),
     });
-  };
+  }, [confirm, deleteFromTrash]);
 
-  const handleClearTrash = () => {
-    setConfirmMessage(`确定要清空回收站吗？此操作无法撤销。`);
-    setConfirmAction(() => () => {
-      clearTrash();
+  const handleClearTrash = useCallback(() => {
+    confirm({
+      title: "确认操作",
+      message: "确定要清空回收站吗？此操作无法撤销。",
+      confirmText: "清空回收站",
+      variant: "danger",
+      onConfirm: () => clearTrash(),
     });
-  };
+  }, [confirm, clearTrash]);
 
-  const favoriteDocs = useMemo(() => {
-    const favorites: { notebook: Notebook; doc: NoteDoc }[] = [];
-    notebooks.forEach((notebook) => {
-      notebook.docs.forEach((doc) => {
-        if (doc.favorite) {
-          favorites.push({ notebook, doc });
-        }
-      });
-    });
-    return favorites.sort((a, b) => new Date(b.doc.updatedAt).getTime() - new Date(a.doc.updatedAt).getTime());
-  }, [notebooks]);
+  const handleGenerateShareLink = useCallback((permission: string, password: string, expiresAt: string | null) => {
+    generateShareLink(activeNotebookId, activeDocId, permission as 'view' | 'comment' | 'edit' | 'manage', password, expiresAt);
+  }, [activeNotebookId, activeDocId, generateShareLink]);
 
-  const renderTrashView = () => (
-    <main className="editor-panel">
-      <div className="trash-panel">
-        <div className="trash-header">
-          <h2>🗑️ 回收站</h2>
-          {trash.length > 0 && (
-            <button className="btn-clear-trash" onClick={handleClearTrash}>
-              清空回收站
-            </button>
-          )}
-        </div>
-        {trash.length === 0 ? (
-          <div className="empty-trash">
-            <span className="empty-icon">🗑️</span>
-            <span className="empty-text">回收站为空</span>
-          </div>
-        ) : (
-          <div className="trash-list">
-            {trash.map((item) => (
-              <div key={item.id} className="trash-item">
-                <span className="trash-item-title">{item.title}</span>
-                <span className="trash-item-notebook">{item.notebookTitle}</span>
-                <span className="trash-item-time">{new Date(item.updatedAt).toLocaleString()}</span>
-                <button className="btn-restore" onClick={() => handleRestoreFromTrash(item.id)}>
-                  恢复
-                </button>
-                <button className="btn-delete" onClick={() => handleDeleteFromTrash(item.id)}>
-                  删除
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </main>
-  );
+  const handleDeleteShareLink = useCallback((linkId: string) => {
+    deleteShareLink(activeNotebookId, activeDocId, linkId);
+  }, [activeNotebookId, activeDocId, deleteShareLink]);
 
-  const renderFavoriteView = () => (
-    <>
-      <aside className="docs-sidebar">
-        <div className="docs-header">
-          <div className="docs-title-row">
-            <span className="docs-icon">⭐</span>
-            <span className="docs-title">收藏</span>
-          </div>
-        </div>
-        <div className="docs-list">
-          {favoriteDocs.length === 0 ? (
-            <div className="empty-favorite">
-              <span className="empty-icon">⭐</span>
-              <span className="empty-text">暂无收藏</span>
-              <span className="empty-hint">点击文档上的星标进行收藏</span>
-            </div>
-          ) : (
-            <>
-              <div className="favorite-list-header">
-                <span className="favorite-col-name">名称</span>
-                <span className="favorite-col-belong">归属</span>
-                <span className="favorite-col-time">更新时间</span>
-              </div>
-              {favoriteDocs.map(({ notebook, doc }) => (
-                <div
-                  key={doc.id}
-                  className={`favorite-item ${activeDocId === doc.id ? "active" : ""}`}
-                  onClick={() => handleViewDoc(notebook.id, doc.id)}
-                >
-                  <span className="favorite-item-name">{doc.title}</span>
-                  <span className="favorite-item-belong">{notebook.title}</span>
-                  <span className="favorite-item-time">
-                    {new Date(doc.updatedAt).toLocaleString("zh-CN")}
-                  </span>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      </aside>
-      <Editor
-        activeDoc={activeDoc}
-        activeNotebookId={activeNotebookId}
-        activeDocId={activeDocId}
-        fontSize={fontSize}
-        onFontSizeChange={setFontSize}
-      />
-    </>
-  );
+  const handleCopyShareLink = useCallback(async (url: string) => {
+    await copyToClipboard(url);
+  }, []);
 
-  const renderNotebooksView = () => (
-    <>
-      <DocsSidebar
+  const renderMainContent = () => {
+    if (activeLeftMenu === "start") {
+      return (
+        <main className="start-panel">
+          <LazyLoader>
+            <StartPage
+              notebooks={notebooks}
+              recentViews={recentViews}
+              onViewDoc={handleViewDoc}
+              onCreateDoc={createDoc}
+              onCreateNotebook={createNotebook}
+              onOpenTemplates={() => {}}
+            />
+          </LazyLoader>
+        </main>
+      );
+    }
+
+    if (activeLeftMenu === "note") {
+      return (
+        <main className="editor-panel">
+          <LazyLoader>
+            <QuickNotePanel />
+          </LazyLoader>
+        </main>
+      );
+    }
+
+    if (activeLeftMenu === "tags") {
+      return (
+        <main className="editor-panel">
+          <LazyLoader>
+            <TagPanel key="tags-panel" isOpen={activeLeftMenu === "tags"} onClose={() => setActiveLeftMenu("notebooks")} />
+          </LazyLoader>
+        </main>
+      );
+    }
+
+    if (activeView === "trash") {
+      return (
+        <TrashView
+          trash={trash}
+          onRestore={restoreFromTrash}
+          onDelete={handleDeleteFromTrash}
+          onClearTrash={handleClearTrash}
+        />
+      );
+    }
+
+    if (activeView === "favorite") {
+      return (
+        <FavoriteView
+          favoriteDocs={favoriteDocs}
+          activeDocId={activeDocId}
+          fontSize={fontSize}
+          onFontSizeChange={setFontSize}
+          onViewDoc={handleViewDoc}
+          activeDoc={activeDoc}
+          activeNotebookId={activeNotebookId}
+          onShowVersionHistory={() => setShowVersionHistory(true)}
+          onShowSharePanel={() => setShowSharePanel(true)}
+          showOutlinePanel={showOutlinePanel}
+          onToggleOutlinePanel={() => setShowOutlinePanel(!showOutlinePanel)}
+          showCommentsPanel={showCommentsPanel}
+          onToggleCommentsPanel={() => setShowCommentsPanel(!showCommentsPanel)}
+        />
+      );
+    }
+
+    return (
+      <NotebooksView
         searchText={searchText}
         onSearchChange={debouncedSetSearchText}
-        activeView={activeView}
-        onViewChange={setActiveView}
-        recentViews={recentViews}
         onViewDoc={handleViewDoc}
-      />
-      <Editor
         activeDoc={activeDoc}
         activeNotebookId={activeNotebookId}
         activeDocId={activeDocId}
         fontSize={fontSize}
         onFontSizeChange={setFontSize}
+        onShowVersionHistory={() => setShowVersionHistory(true)}
+        onShowSharePanel={() => setShowSharePanel(true)}
+        showOutlinePanel={showOutlinePanel}
+        onToggleOutlinePanel={() => setShowOutlinePanel(!showOutlinePanel)}
+        showCommentsPanel={showCommentsPanel}
+        onToggleCommentsPanel={() => setShowCommentsPanel(!showCommentsPanel)}
+        docsSidebarWidth={isMobile ? undefined : docsSidebarWidth}
+        onDocsResizeStart={startDocsResize}
+        onDocsResizeReset={resetDocs}
+        docsDragging={dragging === "docs"}
       />
-    </>
-  );
+    );
+  };
 
   return (
     <>
@@ -337,68 +406,52 @@ function App() {
             onViewChange={setActiveView}
             tags={tags}
             trash={trash}
+            onOpenSettings={() => setShowSettings(true)}
+            width={isMobile ? undefined : sidebarWidth}
+            collapsed={isMobile ? false : sidebarCollapsed}
+            onCollapsedChange={setSidebarCollapsed}
           />
 
-          {activeLeftMenu === "start" ? (
-            <main className="start-panel">
-              <LazyLoader>
-                <StartPage
-                  notebooks={notebooks}
-                  recentViews={recentViews}
-                  onViewDoc={handleViewDoc}
-                  onCreateDoc={createDoc}
-                  onCreateNotebook={createNotebook}
-                />
-              </LazyLoader>
-            </main>
-          ) : activeLeftMenu === "note" ? (
-            <main className="editor-panel">
-              <div className="empty-editor">
-                <div className="empty-icon">📝</div>
-                <div className="empty-text">小记功能开发中</div>
-              </div>
-            </main>
-          ) : activeLeftMenu === "tags" ? (
-            <>
-              <main className="editor-panel">
-                <LazyLoader>
-                  <TagPanel isOpen={activeLeftMenu === "tags"} onClose={() => setActiveLeftMenu("notebooks")} />
-                </LazyLoader>
-              </main>
-            </>
-          ) : activeView === "trash" ? (
-            renderTrashView()
-          ) : activeView === "favorite" ? (
-            renderFavoriteView()
-          ) : (
-            renderNotebooksView()
+          {!isMobile && (
+            <ResizeHandle
+              variant="sidebar"
+              onResizeStart={startSidebarResize}
+              onDoubleClick={resetSidebar}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={toggleSidebarCollapse}
+              dragging={dragging === "sidebar"}
+              ariaLabel="调整侧栏宽度"
+            />
           )}
+
+          {renderMainContent()}
 
           {showSharePanel && (
             <LazyLoader>
               <SharePanel
+                key={`share-${activeDocId}`}
                 isOpen={showSharePanel}
                 onClose={() => setShowSharePanel(false)}
                 docTitle={activeDoc?.title || ''}
                 docId={activeDocId}
                 notebookId={activeNotebookId}
                 shareLinks={activeDoc?.shareLinks || []}
-                onGenerateLink={() => {}}
-                onDeleteLink={() => {}}
-                onCopyLink={() => {}}
+                onGenerateLink={handleGenerateShareLink}
+                onDeleteLink={handleDeleteShareLink}
+                onCopyLink={handleCopyShareLink}
               />
             </LazyLoader>
           )}
 
           {showTagPanel && (
             <LazyLoader>
-              <TagPanel isOpen={showTagPanel} onClose={() => setShowTagPanel(false)} />
+              <TagPanel key="tag-panel-popup" isOpen={showTagPanel} onClose={() => setShowTagPanel(false)} />
             </LazyLoader>
           )}
 
           {showSearchPanel && (
             <LazyLoader>
-              <SearchPanel isOpen={showSearchPanel} onClose={() => setShowSearchPanel(false)} />
+              <SearchPanel key="search-panel" isOpen={showSearchPanel} onClose={() => setShowSearchPanel(false)} />
             </LazyLoader>
           )}
 
@@ -408,6 +461,26 @@ function App() {
                 onClose={() => setShowVersionHistory(false)}
                 notebookId={activeNotebookId}
                 docId={activeDocId}
+              />
+            </LazyLoader>
+          )}
+
+          {showShortcutHelp && (
+            <LazyLoader>
+              <ShortcutHelp
+                isOpen={showShortcutHelp}
+                onClose={() => setShowShortcutHelp(false)}
+              />
+            </LazyLoader>
+          )}
+
+          {showSettings && (
+            <LazyLoader>
+              <SettingsPanel
+                isOpen={showSettings}
+                onClose={() => setShowSettings(false)}
+                fontSize={fontSize}
+                onFontSizeChange={setFontSize}
               />
             </LazyLoader>
           )}
@@ -425,12 +498,14 @@ function App() {
         />
       )}
 
-      {confirmAction && (
+      {confirmConfig && (
         <ConfirmDialog
-          title="确认操作"
-          message={confirmMessage}
+          title={confirmConfig.title}
+          message={confirmConfig.message}
+          confirmText={confirmConfig.confirmText}
+          variant={confirmConfig.variant}
           onConfirm={handleConfirm}
-          onCancel={handleCancelConfirm}
+          onCancel={handleCancel}
         />
       )}
     </>

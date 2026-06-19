@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { LazyImage } from '../src/components/LazyImage';
 import { PaginatedContent } from '../src/components/PaginatedContent';
 import { VirtualScroll } from '../src/components/VirtualScroll';

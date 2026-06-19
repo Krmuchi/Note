@@ -1,5 +1,6 @@
 // 导入应用状态类型
-import type { AppStore } from '../types';
+import type { AppStore } from '@/types';
+import { newId } from '@/store/storeUtils';
 
 // localStorage 存储键名常量
 const DRAFT_KEY = 'notes-autosave-draft';
@@ -33,7 +34,7 @@ export function saveDraft(data: AppStore, activeDocTitle?: string): void {
   try {
     // 创建草稿元数据
     const meta: DraftMeta = {
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      id: newId(),
       timestamp: new Date().toISOString(),
       docTitle: activeDocTitle || '',
     };

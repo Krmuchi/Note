@@ -1,0 +1,317 @@
+// ========================================
+// Design Token System
+// 参考语雀(温暖专业) + 飞书(高效清晰) 设计理念
+// ========================================
+
+// ----- 主色体系 -----
+// 语雀风格：温暖蓝 + 科技感
+// 飞书风格：专业宝蓝 + 清新绿
+$blue-50: #e6f4ff;
+$blue-100: #bae0ff;
+$blue-200: #91caff;
+$blue-300: #69b1ff;
+$blue-400: #4096ff;
+$blue-500: #1677ff;    // 主色
+$blue-600: #0958d9;
+$blue-700: #003eb3;
+$blue-800: #002c8c;
+$blue-900: #001b66;
+
+$cyan-50: #e6fffb;
+$cyan-100: #b5f5ec;
+$cyan-200: #87e8de;
+$cyan-300: #5cdbd3;
+$cyan-400: #36cfc9;
+$cyan-500: #13c2c2;
+$cyan-600: #08979c;
+
+$green-50: #f6ffed;
+$green-100: #d9f7be;
+$green-200: #b7eb8f;
+$green-300: #95de64;
+$green-400: #73d13d;
+$green-500: #52c41a;
+$green-600: #389e0d;
+
+// ----- 中性色 -----
+$gray-50: #fafafa;
+$gray-100: #f5f5f5;
+$gray-200: #f0f0f0;
+$gray-300: #d9d9d9;
+$gray-400: #bfbfbf;
+$gray-500: #8c8c8c;
+$gray-600: #595959;
+$gray-700: #434343;
+$gray-800: #262626;
+$gray-900: #1f1f1f;
+$gray-950: #141414;
+
+// ----- 语义色 -----
+$red-50: #fff2f0;
+$red-100: #ffccc7;
+$red-200: #ffa39e;
+$red-300: #ff7875;
+$red-400: #ff4d4f;
+$red-500: #f5222d;
+$red-600: #cf1322;
+
+$orange-50: #fff7e6;
+$orange-100: #ffe7ba;
+$orange-200: #ffd591;
+$orange-300: #ffc069;
+$orange-400: #ffa940;
+$orange-500: #fa8c16;
+$orange-600: #d46b08;
+
+// ----- 字体大小 -----
+$font-size-xs: 11px;
+$font-size-sm: 12px;
+$font-size-base: 13px;
+$font-size-md: 14px;
+$font-size-lg: 15px;
+$font-size-xl: 16px;
+$font-size-2xl: 18px;
+$font-size-3xl: 20px;
+$font-size-4xl: 24px;
+$font-size-5xl: 30px;
+
+// ----- 行高 -----
+$line-height-tight: 1.3;
+$line-height-base: 1.5;
+$line-height-relaxed: 1.8;
+
+// ----- 间距 (4px 网格) -----
+$space-unit: 4px;
+$space-1: $space-unit;         // 4px
+$space-2: $space-unit * 2;     // 8px
+$space-3: $space-unit * 3;     // 12px
+$space-4: $space-unit * 4;     // 16px
+$space-5: $space-unit * 5;     // 20px
+$space-6: $space-unit * 6;     // 24px
+$space-8: $space-unit * 8;     // 32px
+$space-10: $space-unit * 10;   // 40px
+$space-12: $space-unit * 12;   // 48px
+
+// ----- 圆角 -----
+$radius-sm: 4px;
+$radius-md: 6px;
+$radius-lg: 8px;
+$radius-xl: 12px;
+$radius-2xl: 16px;
+$radius-round: 9999px;
+
+// ----- 阴影 (飞书风格：柔和、多层次) -----
+$shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+$shadow-md: 0 3px 6px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.05);
+$shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
+$shadow-xl: 0 12px 48px rgba(0, 0, 0, 0.12), 0 6px 12px rgba(0, 0, 0, 0.06);
+$shadow-2xl: 0 24px 64px rgba(0, 0, 0, 0.16);
+
+// 暗色阴影
+$shadow-dark-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+$shadow-dark-md: 0 3px 6px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.3);
+$shadow-dark-lg: 0 8px 24px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3);
+$shadow-dark-xl: 0 12px 48px rgba(0, 0, 0, 0.5), 0 6px 12px rgba(0, 0, 0, 0.4);
+
+// ----- 过渡动画 -----
+$transition-fast: 0.15s ease;
+$transition-base: 0.2s ease;
+$transition-slow: 0.3s ease;
+$transition-spring: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+
+// ========================================
+// Mixins
+// ========================================
+
+// Flex 居中
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// Flex 两端对齐
+@mixin flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+// 文字溢出省略
+@mixin truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// 多行文字省略 ($lines: 行数)
+@mixin line-clamp($lines: 2) {
+  display: -webkit-box;
+  -webkit-line-clamp: $lines;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+// 卡片样式
+@mixin card {
+  background: var(--bg-primary);
+  border-radius: $radius-lg;
+  border: 1px solid var(--border-color);
+  padding: $space-4;
+  transition: box-shadow $transition-base;
+
+  &:hover {
+    box-shadow: var(--shadow-md);
+  }
+}
+
+// 按钮基础
+@mixin btn-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: $space-2;
+  padding: $space-2 $space-3;
+  border: none;
+  border-radius: $radius-md;
+  cursor: pointer;
+  font-size: $font-size-md;
+  line-height: $line-height-base;
+  transition: all $transition-base;
+  user-select: none;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+// 主要按钮
+@mixin btn-primary {
+  @include btn-base;
+  background: var(--primary-color);
+  color: #fff;
+
+  &:hover:not(:disabled) {
+    opacity: 0.9;
+    box-shadow: var(--shadow-sm);
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+}
+
+// 次要按钮
+@mixin btn-secondary {
+  @include btn-base;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+
+  &:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    border-color: var(--primary-color);
+  }
+}
+
+// 文本省略号动画
+@mixin loading-dots {
+  &::after {
+    content: '...';
+    animation: loading-dots 1.5s steps(3, end) infinite;
+  }
+}
+
+// 响应式断点 (移动优先)
+@mixin respond-to($breakpoint) {
+  @if $breakpoint == sm {
+    @media (max-width: 576px) { @content; }
+  } @else if $breakpoint == md {
+    @media (max-width: 768px) { @content; }
+  } @else if $breakpoint == lg {
+    @media (max-width: 992px) { @content; }
+  } @else if $breakpoint == xl {
+    @media (max-width: 1200px) { @content; }
+  }
+}
+
+// ========================================
+// Keyframes
+// ========================================
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes loading-dots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60%, 100% { content: '...'; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

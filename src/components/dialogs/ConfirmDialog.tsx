@@ -5,6 +5,7 @@ interface ConfirmDialogProps {
   message: string;
   confirmText?: string;
   cancelText?: string;
+  variant?: 'default' | 'danger';
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -14,6 +15,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   message,
   confirmText = '确定',
   cancelText = '取消',
+  variant = 'default',
   onConfirm,
   onCancel,
 }) => {
@@ -30,7 +32,10 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           <button className="btn btn-secondary" onClick={onCancel}>
             {cancelText}
           </button>
-          <button className="btn btn-primary" onClick={onConfirm}>
+          <button
+            className={`btn ${variant === 'danger' ? 'btn-danger' : 'btn-primary'}`}
+            onClick={onConfirm}
+          >
             {confirmText}
           </button>
         </div>

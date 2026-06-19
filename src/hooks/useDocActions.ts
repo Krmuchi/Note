@@ -1,9 +1,16 @@
 import { useCallback } from 'react';
-import { useNotesStore } from '../store/notesStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useNotesStore } from '@/store';
 
 
 export const useDocActions = () => {
-  const { notebooks, updateDoc, moveDocToTrash, createDoc, toggleFavorite } = useNotesStore();
+  const { notebooks, updateDoc, moveDocToTrash, createDoc, toggleFavorite } = useNotesStore(useShallow((s) => ({
+    notebooks: s.notebooks,
+    updateDoc: s.updateDoc,
+    moveDocToTrash: s.moveDocToTrash,
+    createDoc: s.createDoc,
+    toggleFavorite: s.toggleFavorite,
+  })));
 
   const handleRename = useCallback((docId: string, newTitle: string) => {
     if (!newTitle.trim()) return;

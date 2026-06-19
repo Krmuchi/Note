@@ -59,8 +59,31 @@ async function readStore() {
 }
 
 async function writeStore(payload) {
-  await fs.writeFile(dataPath, JSON.stringify(payload, null, 2), "utf-8");
+  const tempPath = dataPath + ".tmp";
+  await fs.writeFile(tempPath, JSON.stringify(payload, null, 2), "utf-8");
+  await fs.rename(tempPath, dataPath);
   return payload;
+}
+
+async function createBackup() {
+  try {
+    const backupDir = path.join(app.getPath("userData"), "backups");
+    await fs.mkdir(backupDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = path.join(backupDir, `backup-${timestamp}.json`);
+    
+    const raw = await fs.readFile(dataPath, "utf-8");
+    await fs.writeFile(backupPath, raw, "utf-8");
+    
+    const files = await fs.readdir(backupDir);
+    if (files.length > 10) {
+      const sorted = files.sort();
+      const toDelete = sorted.slice(0, files.length - 10);
+      await Promise.all(toDelete.map(f => fs.unlink(path.join(backupDir, f))));
+    }
+  } catch (err) {
+    console.warn("Backup creation failed:", err);
+  }
 }
 
 const safeName = (name) => (name || "note").replace(/[\\/:*?"<>|]/g, "_");
@@ -161,10 +184,18 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("notes:save", async (_event, payload) => {
-    return writeStore(payload);
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid save payload');
+    }
+    const result = await writeStore(payload);
+    createBackup();
+    return result;
   });
 
   ipcMain.handle("notes:export-doc", async (_event, payload) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid export payload');
+    }
     const win = BrowserWindow.getFocusedWindow();
     const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
       title: "导出 Markdown 文档",
@@ -177,6 +208,9 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("notes:export-notebook", async (_event, payload) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid export payload');
+    }
     const win = BrowserWindow.getFocusedWindow();
     const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
       title: "导出知识库 Markdown",
@@ -192,6 +226,9 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("notes:export-notebook-zip", async (_event, payload) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Invalid export payload');
+    }
     const win = BrowserWindow.getFocusedWindow();
     const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
       title: "导出知识库 ZIP",
@@ -216,6 +253,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle("notes:save-image", async (_event, payload) => {
     try {
+      if (!payload || typeof payload !== 'object') {
+        throw new Error('Invalid image payload');
+      }
       const { name, data } = payload || {};
       if (!data) return "";
       const imagesDir = path.join(app.getPath("userData"), "images");

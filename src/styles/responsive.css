@@ -1,0 +1,143 @@
+@media (max-width: 1200px) {
+  .start-panel {
+    padding: var(--space-6) var(--space-6);
+  }
+}
+
+@media (max-width: 992px) {
+  .brand-text {
+    display: none;
+  }
+
+  .search-shortcut {
+    display: none;
+  }
+
+  .quick-actions-row {
+    flex-direction: column;
+  }
+
+  .start-panel {
+    padding: var(--space-4) var(--space-4);
+  }
+
+  .docs-filters-right {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .main-sidebar {
+    width: 100%;
+    height: auto;
+    max-height: 56px;
+    flex-direction: row;
+    overflow: visible;
+    padding: var(--space-2) var(--space-3);
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: 0;
+  }
+
+  .sidebar-search-wrapper {
+    margin-top: 0;
+    flex: 1;
+  }
+
+  .sidebar-nav {
+    display: none;
+  }
+
+  .sidebar-section {
+    display: none;
+  }
+
+  .sidebar-footer {
+    display: none;
+  }
+
+  .docs-sidebar {
+    width: 100%;
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .search-panel {
+    width: 95vw;
+    max-height: 80vh;
+  }
+
+  .search-panel-overlay {
+    padding-top: 60px;
+  }
+
+  .editor-title-row {
+    padding: var(--space-3) var(--space-4);
+    flex-wrap: wrap;
+  }
+
+  .editor-toolbar {
+    padding: var(--space-1) var(--space-2);
+  }
+
+  .toolbar-btn {
+    width: 28px;
+    height: 28px;
+  }
+
+  .toolbar-divider {
+    margin: 0 2px;
+  }
+
+  .toolbar-select {
+    width: 50px;
+    padding: 0 var(--space-4) 0 var(--space-1);
+  }
+
+  .toolbar-collapse-btn {
+    display: none;
+  }
+
+  .editor-textarea {
+    padding: var(--space-4) var(--space-4);
+  }
+
+  .version-history-overlay {
+    width: 100%;
+  }
+}
+
+@media (max-width: 576px) {
+  .search-panel-overlay {
+    padding-top: 20px;
+  }
+
+  .search-panel-header {
+    flex-wrap: wrap;
+  }
+
+  .search-filter-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .title-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .title-toolbar-btn.share-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

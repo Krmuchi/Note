@@ -1,0 +1,288 @@
+.quick-note-panel {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6);
+}
+
+.quick-note-header {
+  margin-bottom: var(--space-6);
+}
+
+.quick-note-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-700));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.quick-note-subtitle {
+  font-size: var(--font-size-md);
+  color: var(--text-tertiary);
+  margin: var(--space-2) 0 0;
+}
+
+.quick-note-input-area {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.quick-note-input-area:focus-within {
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 2px var(--primary-50);
+}
+
+.quick-note-input {
+  width: 100%;
+  min-height: 80px;
+  padding: var(--space-2) var(--space-1);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-relaxed);
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.quick-note-input:focus {
+  outline: none;
+}
+
+.quick-note-input::placeholder {
+  color: var(--text-placeholder);
+}
+
+.quick-note-input-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-2);
+  gap: var(--space-3);
+}
+
+.quick-note-tags-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  flex: 1;
+}
+
+.quick-note-tag-chip {
+  padding: 2px 8px;
+  border-radius: var(--radius-round);
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.quick-note-tag-chip:hover {
+  border-color: var(--text-tertiary);
+}
+
+.quick-note-tag-chip.selected {
+  font-weight: 500;
+}
+
+.quick-note-add-btn {
+  padding: var(--space-2) var(--space-5);
+  background: var(--primary-color);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.quick-note-add-btn:hover:not(:disabled) {
+  background: var(--primary-600);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.quick-note-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quick-note-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.quick-note-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12) var(--space-5);
+  text-align: center;
+}
+
+.quick-note-empty-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-3);
+  opacity: 0.4;
+}
+
+.quick-note-empty-text {
+  font-size: var(--font-size-md);
+  color: var(--text-tertiary);
+}
+
+.quick-note-item {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4);
+  transition: all var(--transition-fast);
+}
+
+.quick-note-item:hover {
+  border-color: var(--primary-300);
+  box-shadow: var(--shadow-sm);
+}
+
+.quick-note-item-content {
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+  line-height: var(--line-height-relaxed);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: var(--space-2);
+}
+
+.quick-note-item-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.quick-note-item-tags {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.quick-note-item-tag {
+  font-size: var(--font-size-xs);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.quick-note-item-time {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  margin-left: auto;
+}
+
+.quick-note-item-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.quick-note-item:hover .quick-note-item-actions {
+  opacity: 1;
+}
+
+.quick-note-action-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-fast);
+}
+
+.quick-note-action-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.quick-note-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.quick-note-edit-input {
+  width: 100%;
+  min-height: 60px;
+  padding: var(--space-2);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-relaxed);
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.quick-note-edit-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary-50);
+}
+
+.quick-note-edit-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.quick-note-edit-save {
+  padding: var(--space-1) var(--space-4);
+  background: var(--primary-color);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.quick-note-edit-save:hover {
+  background: var(--primary-600);
+}
+
+.quick-note-edit-cancel {
+  padding: var(--space-1) var(--space-4);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.quick-note-edit-cancel:hover {
+  background: var(--bg-quaternary);
+}

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { LazyImage } from '../src/components/LazyImage';

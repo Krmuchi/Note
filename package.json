@@ -1,5 +1,5 @@
 {
-  "name": "-",
+  "name": "notes",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,15 +9,18 @@
     "dev:web": "vite",
     "dev:electron": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
     "dev:electron:log": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 ELECTRON_ENABLE_LOGGING=true electron . --enable-logging",
-    "test:unit": "vitest",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
     "test:e2e": "playwright test",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "typecheck": "tsc -b --noEmit",
     "preview": "vite preview",
     "start": "electron ."
   },
   "dependencies": {
     "dompurify": "^2.4.0",
+    "immer": "^11.1.8",
     "jszip": "^3.10.1",
     "marked": "^18.0.2",
     "react": "^19.2.5",
@@ -26,6 +29,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
@@ -34,13 +39,18 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^41.3.0",
+    "esbuild": "^0.28.0",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
+    "jsdom": "^29.1.1",
+    "rollup-plugin-visualizer": "^7.0.1",
+    "sass": "^1.100.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10",
+    "vitest": "^4.1.8",
     "wait-on": "^9.0.5"
   }
 }

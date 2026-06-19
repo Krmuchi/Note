@@ -1,0 +1,780 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import type { NoteDoc } from '@/types';
+import type { SaveStatus } from '@/store';
+import { useTheme } from '@/shared/hooks';
+import type { FormatType } from './Editor';
+
+interface EditorHeaderProps {
+  activeDoc: NoteDoc;
+  activeNotebookId: string;
+  activeDocId: string;
+  saveStatus: SaveStatus;
+  fontSize: string;
+  showPresentationMenu: boolean;
+  updateDocContent: (updates: Partial<NoteDoc>) => void;
+  toggleFavorite: (notebookId: string, docId: string) => void;
+  handleCopyLink: () => void;
+  handleOpenInNewWindow: () => void;
+  setShowSharePanel: (show: boolean) => void;
+  setShowPresentationMenu: (show: boolean) => void;
+  setFontSize: (size: string) => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onStartPresentation?: () => void;
+  onShowVersionHistory?: () => void;
+  applyFormat: (type: FormatType, options?: { color?: string }) => void;
+  activeFormats?: Set<string>;
+  showOutlinePanel?: boolean;
+  onToggleOutlinePanel?: () => void;
+  showCommentsPanel?: boolean;
+  onToggleCommentsPanel?: () => void;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+}
+
+type HeadingLevel = 'paragraph' | 'h1' | 'h2' | 'h3';
+type ColorTab = 'text' | 'highlight';
+
+const FONT_SIZE_OPTIONS = ['12px', '13px', '14px', '15px', '16px', '18px', '20px'];
+
+const TEXT_COLORS = [
+  '#000000', '#262626', '#595959', '#8c8c8c', '#bfbfbf', '#1677ff', '#0958d9', '#003eb3',
+  '#52c41a', '#389e0d', '#13c2c2', '#08979c', '#722ed1', '#531dab', '#eb2f96', '#c41d7f',
+  '#fa8c16', '#d46b08', '#fa541c', '#d4380d', '#f5222d', '#cf1322', '#faad14', '#d48806',
+];
+
+const HIGHLIGHT_COLORS = [
+  '#fff3a0', '#ffe58f', '#ffd591', '#ffbb96', '#ff9c6e', '#d9f7be', '#b7eb8f', '#95de64',
+  '#91d5ff', '#69c0ff', '#40a9ff', '#1890ff', '#b5f5ec', '#87e8de', '#5cdbd3', '#36cfc9',
+  '#d3adf7', '#b37feb', '#9254de', '#722ed1', '#efdbff', '#ffadd2', '#ff85c0', '#f759ab',
+];
+
+const STORAGE_KEY = 'toolbarExpanded';
+
+const IconBtn: React.FC<{
+  title: string;
+  onClick?: () => void;
+  active?: boolean;
+  disabled?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}> = ({ title, onClick, active, disabled, className = '', children }) => (
+  <button
+    type="button"
+    className={`eh-icon-btn ${active ? 'active' : ''} ${disabled ? 'disabled' : ''} ${className}`}
+    title={title}
+    onClick={onClick}
+    disabled={disabled}
+  >
+    {children}
+  </button>
+);
+
+export const EditorHeader: React.FC<EditorHeaderProps> = ({
+  activeDoc,
+  activeNotebookId,
+  activeDocId,
+  saveStatus,
+  fontSize,
+  showPresentationMenu,
+  updateDocContent,
+  toggleFavorite,
+  handleCopyLink,
+  handleOpenInNewWindow,
+  setShowSharePanel,
+  setShowPresentationMenu,
+  setFontSize,
+  undo,
+  redo,
+  canUndo,
+  canRedo,
+  onStartPresentation,
+  onShowVersionHistory,
+  applyFormat,
+  activeFormats = new Set(),
+  showOutlinePanel,
+  onToggleOutlinePanel,
+  showCommentsPanel,
+  onToggleCommentsPanel,
+  isFullscreen,
+  onToggleFullscreen,
+}) => {
+  const { theme, toggleTheme } = useTheme();
+  const [toolbarExpanded, setToolbarExpanded] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [showHeadingMenu, setShowHeadingMenu] = useState(false);
+  const [showFontSizeMenu, setShowFontSizeMenu] = useState(false);
+  const [showAlignMenu, setShowAlignMenu] = useState(false);
+  const [showListMenu, setShowListMenu] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState<ColorTab | null>(null);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [winWidth, setWinWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1280);
+
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const headingMenuRef = useRef<HTMLDivElement>(null);
+  const fontSizeMenuRef = useRef<HTMLDivElement>(null);
+  const alignMenuRef = useRef<HTMLDivElement>(null);
+  const listMenuRef = useRef<HTMLDivElement>(null);
+  const colorPickerRef = useRef<HTMLDivElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, String(toolbarExpanded));
+    } catch {
+      /* ignore */
+    }
+  }, [toolbarExpanded]);
+
+  useEffect(() => {
+    const onResize = () => setWinWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const isMobile = winWidth < 600;
+  const effectiveExpanded = !isMobile && toolbarExpanded;
+
+  useEffect(() => {
+    if (titleEditing) titleInputRef.current?.focus();
+  }, [titleEditing]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (headingMenuRef.current && !headingMenuRef.current.contains(target)) setShowHeadingMenu(false);
+      if (fontSizeMenuRef.current && !fontSizeMenuRef.current.contains(target)) setShowFontSizeMenu(false);
+      if (alignMenuRef.current && !alignMenuRef.current.contains(target)) setShowAlignMenu(false);
+      if (listMenuRef.current && !listMenuRef.current.contains(target)) setShowListMenu(false);
+      if (colorPickerRef.current && !colorPickerRef.current.contains(target)) setShowColorPicker(null);
+      if (moreMenuRef.current && !moreMenuRef.current.contains(target)) setShowMoreMenu(false);
+      if (addMenuRef.current && !addMenuRef.current.contains(target)) setShowAddMenu(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    updateDocContent({ title: e.target.value });
+  };
+
+  const currentHeading = (): HeadingLevel => {
+    if (activeFormats.has('heading1')) return 'h1';
+    if (activeFormats.has('heading2')) return 'h2';
+    if (activeFormats.has('heading3')) return 'h3';
+    return 'paragraph';
+  };
+
+  const handleHeadingSelect = (level: HeadingLevel) => {
+    if (level === 'paragraph') {
+      if (activeFormats.has('heading1')) applyFormat('heading1');
+      if (activeFormats.has('heading2')) applyFormat('heading2');
+      if (activeFormats.has('heading3')) applyFormat('heading3');
+    } else {
+      const target = level as 'heading1' | 'heading2' | 'heading3';
+      if (activeFormats.has(target)) {
+        applyFormat(target);
+      } else {
+        if (activeFormats.has('heading1')) applyFormat('heading1');
+        if (activeFormats.has('heading2')) applyFormat('heading2');
+        if (activeFormats.has('heading3')) applyFormat('heading3');
+        applyFormat(target);
+      }
+    }
+    setShowHeadingMenu(false);
+  };
+
+  const headingLabel = (): string => {
+    const h = currentHeading();
+    if (h === 'h1') return 'H1';
+    if (h === 'h2') return 'H2';
+    if (h === 'h3') return 'H3';
+    return '正文';
+  };
+
+  const handleMoreAction = useCallback((action: () => void) => {
+    action();
+    setShowMoreMenu(false);
+  }, []);
+
+  const handleAddAction = useCallback((action: () => void) => {
+    action();
+    setShowAddMenu(false);
+  }, []);
+
+  const syncText = (): string => {
+    if (saveStatus === 'saving') return '正在保存...';
+    if (saveStatus === 'error') return '保存失败';
+    if (saveStatus === 'saved') return '已加载最新版本';
+    return '已加载最新版本';
+  };
+
+  const hideFormatPainter = winWidth < 1000;
+  const hideRedo = winWidth < 1000;
+  const hideTableAndDivider = winWidth < 800;
+
+  const renderColorPicker = () => {
+    if (!showColorPicker) return null;
+    const colors = showColorPicker === 'text' ? TEXT_COLORS : HIGHLIGHT_COLORS;
+    return (
+      <div className="eh-color-picker" ref={colorPickerRef}>
+        <div className="eh-color-tabs">
+          <button
+            className={`eh-color-tab ${showColorPicker === 'text' ? 'active' : ''}`}
+            onClick={() => setShowColorPicker('text')}
+          >
+            文字颜色
+          </button>
+          <button
+            className={`eh-color-tab ${showColorPicker === 'highlight' ? 'active' : ''}`}
+            onClick={() => setShowColorPicker('highlight')}
+          >
+            背景高亮
+          </button>
+        </div>
+        <div className="eh-color-grid">
+          {colors.map((color) => (
+            <button
+              key={color}
+              className="eh-color-swatch"
+              style={{ backgroundColor: color }}
+              title={color}
+              onClick={() => {
+                if (showColorPicker === 'text') applyFormat('textColor', { color });
+                else applyFormat('highlight', { color });
+                setShowColorPicker(null);
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <header className="eh-header">
+      {/* ===== 第一层：文档标题栏 ===== */}
+      <div className="eh-title-bar">
+        <div className="eh-title-left">
+          <input
+            ref={titleInputRef}
+            className={`eh-title-input ${titleEditing ? 'editing' : ''}`}
+            value={activeDoc.title}
+            onChange={handleTitleChange}
+            onFocus={() => setTitleEditing(true)}
+            onBlur={() => setTitleEditing(false)}
+            placeholder="无标题"
+          />
+          <span className="eh-sync-status">
+            <svg className="eh-sync-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9v-2.5a2.5 2.5 0 0 1 5 0V20" />
+              <path d="M5 15a4 4 0 0 1 4-4h7" />
+            </svg>
+            {syncText()}
+          </span>
+        </div>
+
+        <div className="eh-title-right">
+          <IconBtn
+            title="收藏"
+            onClick={() => toggleFavorite(activeNotebookId, activeDocId)}
+            active={activeDoc.favorite}
+          >
+            {activeDoc.favorite ? (
+              <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              </svg>
+            )}
+          </IconBtn>
+
+          <IconBtn title="历史版本" onClick={() => onShowVersionHistory?.()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+          </IconBtn>
+
+          <IconBtn title="外链 - 在新窗口打开" onClick={handleOpenInNewWindow}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+          </IconBtn>
+
+          <IconBtn title="分享" onClick={() => setShowSharePanel(true)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+              <polyline points="16 6 12 2 8 6" />
+              <line x1="12" y1="2" x2="12" y2="15" />
+            </svg>
+          </IconBtn>
+
+          <IconBtn title={isFullscreen ? '退出全屏' : '全屏'} onClick={() => onToggleFullscreen?.()} active={isFullscreen}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+              <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+              <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+              <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+            </svg>
+          </IconBtn>
+
+          <IconBtn title={theme === 'light' ? '切换到夜间模式' : '切换到日间模式'} onClick={toggleTheme}>
+            {theme === 'light' ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="5" />
+                <line x1="12" y1="1" x2="12" y2="3" />
+                <line x1="12" y1="21" x2="12" y2="23" />
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                <line x1="1" y1="12" x2="3" y2="12" />
+                <line x1="21" y1="12" x2="23" y2="12" />
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+              </svg>
+            )}
+          </IconBtn>
+
+          <div className="eh-dropdown" ref={moreMenuRef}>
+            <IconBtn title="更多" onClick={() => setShowMoreMenu(!showMoreMenu)} active={showMoreMenu}>
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="5" r="2" />
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="12" cy="19" r="2" />
+              </svg>
+            </IconBtn>
+            {showMoreMenu && (
+              <div className="eh-dropdown-menu">
+                <div className="eh-menu-group">
+                  <div className="eh-group-label">操作</div>
+                  <button className="eh-menu-item" onClick={() => handleMoreAction(() => setShowPresentationMenu(true))}>
+                    <span className="eh-menu-icon">🎤</span>演示模式
+                  </button>
+                  <button className="eh-menu-item" onClick={() => handleMoreAction(() => onShowVersionHistory?.())}>
+                    <span className="eh-menu-icon">📋</span>版本历史
+                  </button>
+                  <button className="eh-menu-item" onClick={() => handleMoreAction(handleCopyLink)}>
+                    <span className="eh-menu-icon">🔗</span>复制链接
+                  </button>
+                  <button className="eh-menu-item" onClick={() => handleMoreAction(handleOpenInNewWindow)}>
+                    <span className="eh-menu-icon">↗</span>新窗口打开
+                  </button>
+                </div>
+                <div className="eh-menu-divider" />
+                <div className="eh-menu-group">
+                  <div className="eh-group-label">视图</div>
+                  <button className={`eh-menu-item ${showOutlinePanel ? 'active' : ''}`} onClick={() => handleMoreAction(() => onToggleOutlinePanel?.())}>
+                    <span className="eh-menu-icon">📑</span>目录大纲
+                  </button>
+                  <button className={`eh-menu-item ${showCommentsPanel ? 'active' : ''}`} onClick={() => handleMoreAction(() => onToggleCommentsPanel?.())}>
+                    <span className="eh-menu-icon">💬</span>评论
+                  </button>
+                  <button className="eh-menu-item" onClick={() => handleMoreAction(() => onToggleFullscreen?.())}>
+                    <span className="eh-menu-icon">⛶</span>{isFullscreen ? '退出全屏' : '全屏'}
+                  </button>
+                  <button className="eh-menu-item" onClick={() => handleMoreAction(toggleTheme)}>
+                    <span className="eh-menu-icon">{theme === 'light' ? '🌙' : '☀️'}</span>{theme === 'light' ? '夜间模式' : '日间模式'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {showPresentationMenu && (
+          <div className="eh-presentation-menu">
+            <button
+              className="eh-presentation-item"
+              onClick={() => {
+                setShowPresentationMenu(false);
+                onStartPresentation?.();
+              }}
+            >
+              <span className="eh-menu-icon">🎤</span>开始演示
+            </button>
+            <button className="eh-presentation-item" onClick={() => setShowPresentationMenu(false)}>
+              <span className="eh-menu-icon">📝</span>编辑演示分页
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ===== 第二层：可展开/收缩的格式工具栏 ===== */}
+      <div className={`eh-toolbar ${effectiveExpanded ? 'expanded' : ''}`}>
+        <div className="eh-toolbar-row eh-toolbar-row-primary">
+          <div className="eh-toolbar-left">
+            <div className="eh-dropdown" ref={addMenuRef}>
+              <button
+                className="eh-add-btn"
+                title="添加内容"
+                onClick={() => setShowAddMenu(!showAddMenu)}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+              {showAddMenu && (
+                <div className="eh-dropdown-menu eh-add-menu">
+                  <div className="eh-menu-group">
+                    <div className="eh-group-label">快速插入</div>
+                    <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('heading1'))}>
+                      <span className="eh-menu-icon">H1</span>标题 1
+                    </button>
+                    <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('heading2'))}>
+                      <span className="eh-menu-icon">H2</span>标题 2
+                    </button>
+                    <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('ulist'))}>
+                      <span className="eh-menu-icon">•</span>无序列表
+                    </button>
+                    <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('tasklist'))}>
+                      <span className="eh-menu-icon">☑</span>任务列表
+                    </button>
+                    <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('quote'))}>
+                      <span className="eh-menu-icon">❝</span>引用块
+                    </button>
+                    <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('codeblock'))}>
+                      <span className="eh-menu-icon">&lt;/&gt;</span>代码块
+                    </button>
+                    <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('divider'))}>
+                      <span className="eh-menu-icon">—</span>分割线
+                    </button>
+                    <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('table'))}>
+                      <span className="eh-menu-icon">⊞</span>表格
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <IconBtn title="撤销 (Ctrl+Z)" onClick={undo} disabled={!canUndo}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+            </IconBtn>
+
+            {!hideRedo && (
+              <IconBtn title="重做 (Ctrl+Y)" onClick={redo} disabled={!canRedo}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+                </svg>
+              </IconBtn>
+            )}
+
+            {!hideFormatPainter && (
+              <IconBtn title="格式刷" onClick={() => applyFormat('formatPainter')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 11h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z" />
+                  <path d="M5 4h11a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+                  <line x1="9" y1="11" x2="9" y2="17" />
+                </svg>
+              </IconBtn>
+            )}
+
+            <IconBtn title="插入链接" onClick={() => applyFormat('link')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+            </IconBtn>
+
+            <span className="eh-divider" />
+
+            <div className="eh-dropdown" ref={headingMenuRef}>
+              <button
+                className={`eh-icon-btn eh-btn-text ${currentHeading() !== 'paragraph' ? 'active' : ''}`}
+                onClick={() => setShowHeadingMenu(!showHeadingMenu)}
+                title="段落样式"
+              >
+                {headingLabel()}
+                <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor"><path d="M3 5l3 3 3-3" /></svg>
+              </button>
+              {showHeadingMenu && (
+                <div className="eh-dropdown-menu eh-heading-menu">
+                  <button className={`eh-menu-item ${currentHeading() === 'paragraph' ? 'active' : ''}`} onClick={() => handleHeadingSelect('paragraph')}>
+                    <span className="eh-heading-p">正文</span>
+                  </button>
+                  <button className={`eh-menu-item ${currentHeading() === 'h1' ? 'active' : ''}`} onClick={() => handleHeadingSelect('h1')}>
+                    <span className="eh-heading-h1">标题 1</span>
+                  </button>
+                  <button className={`eh-menu-item ${currentHeading() === 'h2' ? 'active' : ''}`} onClick={() => handleHeadingSelect('h2')}>
+                    <span className="eh-heading-h2">标题 2</span>
+                  </button>
+                  <button className={`eh-menu-item ${currentHeading() === 'h3' ? 'active' : ''}`} onClick={() => handleHeadingSelect('h3')}>
+                    <span className="eh-heading-h3">标题 3</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="eh-dropdown" ref={fontSizeMenuRef}>
+              <button
+                className="eh-icon-btn eh-btn-text"
+                onClick={() => setShowFontSizeMenu(!showFontSizeMenu)}
+                title="字号"
+              >
+                {fontSize.replace('px', '')}
+                <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor"><path d="M3 5l3 3 3-3" /></svg>
+              </button>
+              {showFontSizeMenu && (
+                <div className="eh-dropdown-menu eh-fontsize-menu">
+                  {FONT_SIZE_OPTIONS.map((val) => (
+                    <button
+                      key={val}
+                      className={`eh-menu-item ${fontSize === val ? 'active' : ''}`}
+                      onClick={() => { setFontSize(val); setShowFontSizeMenu(false); }}
+                    >
+                      {val}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <span className="eh-divider" />
+
+            <IconBtn title="粗体 (Ctrl+B)" onClick={() => applyFormat('bold')} active={activeFormats.has('bold')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
+                <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
+              </svg>
+            </IconBtn>
+            <IconBtn title="斜体 (Ctrl+I)" onClick={() => applyFormat('italic')} active={activeFormats.has('italic')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="19" y1="4" x2="10" y2="4" />
+                <line x1="14" y1="20" x2="5" y2="20" />
+                <line x1="15" y1="4" x2="9" y2="20" />
+              </svg>
+            </IconBtn>
+            <IconBtn title="删除线" onClick={() => applyFormat('strike')} active={activeFormats.has('strike')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 4H9a3 3 0 0 0-3 3 3 3 0 0 0 3 3h6" />
+                <line x1="4" y1="12" x2="20" y2="12" />
+                <path d="M15 12a3 3 0 1 1 0 6H8" />
+              </svg>
+            </IconBtn>
+            <IconBtn title="下划线" onClick={() => applyFormat('underline')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 3v7a6 6 0 0 0 12 0V3" />
+                <line x1="4" y1="21" x2="20" y2="21" />
+              </svg>
+            </IconBtn>
+
+            <div className="eh-dropdown">
+              <button
+                className="eh-icon-btn eh-btn-text eh-color-trigger"
+                onClick={() => setShowColorPicker(showColorPicker === 'text' ? null : 'text')}
+                title="文字颜色"
+              >
+                <span className="eh-color-letter">A</span>
+                <span className="eh-color-underline" />
+                <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor"><path d="M3 5l3 3 3-3" /></svg>
+              </button>
+              {showColorPicker === 'text' && renderColorPicker()}
+            </div>
+
+            <div className="eh-dropdown">
+              <button
+                className="eh-icon-btn eh-color-trigger"
+                onClick={() => setShowColorPicker(showColorPicker === 'highlight' ? null : 'highlight')}
+                title="高亮颜色"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 11l-6 6v3h3l6-6" />
+                  <path d="M14 6l3.5-3.5a2.12 2.12 0 0 1 3 3L17 9z" />
+                  <path d="M9 11l5 5" />
+                </svg>
+                <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor"><path d="M3 5l3 3 3-3" /></svg>
+              </button>
+              {showColorPicker === 'highlight' && renderColorPicker()}
+            </div>
+
+            <span className="eh-divider" />
+
+            <div className="eh-dropdown" ref={alignMenuRef}>
+              <button
+                className="eh-icon-btn eh-btn-text"
+                onClick={() => setShowAlignMenu(!showAlignMenu)}
+                title="对齐方式"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="12" x2="15" y2="12" />
+                  <line x1="3" y1="18" x2="18" y2="18" />
+                </svg>
+                <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor"><path d="M3 5l3 3 3-3" /></svg>
+              </button>
+              {showAlignMenu && (
+                <div className="eh-dropdown-menu eh-align-menu">
+                  <button className="eh-menu-item" onClick={() => { applyFormat('alignLeft'); setShowAlignMenu(false); }}>
+                    <svg className="eh-menu-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="15" y2="12" /><line x1="3" y1="18" x2="18" y2="18" /></svg>
+                    左对齐
+                  </button>
+                  <button className="eh-menu-item" onClick={() => { applyFormat('alignCenter'); setShowAlignMenu(false); }}>
+                    <svg className="eh-menu-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="6" y1="12" x2="18" y2="12" /><line x1="4" y1="18" x2="20" y2="18" /></svg>
+                    居中
+                  </button>
+                  <button className="eh-menu-item" onClick={() => { applyFormat('alignRight'); setShowAlignMenu(false); }}>
+                    <svg className="eh-menu-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="9" y1="12" x2="21" y2="12" /><line x1="6" y1="18" x2="21" y2="18" /></svg>
+                    右对齐
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="eh-dropdown" ref={listMenuRef}>
+              <button
+                className={`eh-icon-btn ${activeFormats.has('ulist') || activeFormats.has('olist') ? 'active' : ''}`}
+                onClick={() => setShowListMenu(!showListMenu)}
+                title="列表"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="8" y1="6" x2="21" y2="6" />
+                  <line x1="8" y1="12" x2="21" y2="12" />
+                  <line x1="8" y1="18" x2="21" y2="18" />
+                  <circle cx="4" cy="6" r="1" fill="currentColor" />
+                  <circle cx="4" cy="12" r="1" fill="currentColor" />
+                  <circle cx="4" cy="18" r="1" fill="currentColor" />
+                </svg>
+                <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor"><path d="M3 5l3 3 3-3" /></svg>
+              </button>
+              {showListMenu && (
+                <div className="eh-dropdown-menu eh-list-menu">
+                  <button className={`eh-menu-item ${activeFormats.has('ulist') ? 'active' : ''}`} onClick={() => { applyFormat('ulist'); setShowListMenu(false); }}>
+                    <svg className="eh-menu-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><circle cx="4" cy="6" r="1" fill="currentColor" /><circle cx="4" cy="12" r="1" fill="currentColor" /><circle cx="4" cy="18" r="1" fill="currentColor" /></svg>
+                    无序列表
+                  </button>
+                  <button className={`eh-menu-item ${activeFormats.has('olist') ? 'active' : ''}`} onClick={() => { applyFormat('olist'); setShowListMenu(false); }}>
+                    <svg className="eh-menu-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="10" y1="6" x2="21" y2="6" /><line x1="10" y1="12" x2="21" y2="12" /><line x1="10" y1="18" x2="21" y2="18" /><text x="2" y="8" fontSize="8" fill="currentColor" stroke="none">1</text><text x="2" y="14" fontSize="8" fill="currentColor" stroke="none">2</text><text x="2" y="20" fontSize="8" fill="currentColor" stroke="none">3</text></svg>
+                    有序列表
+                  </button>
+                  <button className="eh-menu-item" onClick={() => { applyFormat('tasklist'); setShowListMenu(false); }}>
+                    <svg className="eh-menu-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+                    任务列表
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="eh-toolbar-right">
+            <button
+              className="eh-icon-btn eh-expand-btn"
+              onClick={() => !isMobile && setToolbarExpanded(!toolbarExpanded)}
+              disabled={isMobile}
+              title={isMobile ? '窗口过窄，暂不支持展开' : (effectiveExpanded ? '收起工具栏' : '展开工具栏')}
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="5" r="2" />
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="12" cy="19" r="2" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="eh-toolbar-row eh-toolbar-row-secondary">
+          <div className="eh-toolbar-left">
+            <IconBtn title="任务列表" onClick={() => applyFormat('tasklist')} active={activeFormats.has('tasklist')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 11 12 14 22 4" />
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+              </svg>
+            </IconBtn>
+            <IconBtn title="增加缩进" onClick={() => applyFormat('indent')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+                <line x1="3" y1="6" x2="3" y2="18" />
+                <line x1="21" y1="6" x2="21" y2="18" />
+              </svg>
+            </IconBtn>
+            <IconBtn title="减少缩进" onClick={() => applyFormat('outdent')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6" />
+                <line x1="3" y1="6" x2="3" y2="18" />
+                <line x1="21" y1="6" x2="21" y2="18" />
+              </svg>
+            </IconBtn>
+            <IconBtn title="引用块" onClick={() => applyFormat('quote')} active={activeFormats.has('quote')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21z" />
+                <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3z" />
+              </svg>
+            </IconBtn>
+            <IconBtn title="代码块" onClick={() => applyFormat('codeblock')} active={activeFormats.has('codeblock')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <polyline points="9 8 5 12 9 16" />
+                <polyline points="15 8 19 12 15 16" />
+              </svg>
+            </IconBtn>
+            <IconBtn title="插入图片" onClick={() => applyFormat('image')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </IconBtn>
+            {!hideTableAndDivider && (
+              <>
+                <IconBtn title="表格" onClick={() => applyFormat('table')}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <line x1="3" y1="9" x2="21" y2="9" />
+                    <line x1="3" y1="15" x2="21" y2="15" />
+                    <line x1="9" y1="3" x2="9" y2="21" />
+                    <line x1="15" y1="3" x2="15" y2="21" />
+                  </svg>
+                </IconBtn>
+                <IconBtn title="分割线" onClick={() => applyFormat('divider')}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                </IconBtn>
+              </>
+            )}
+            <IconBtn title="清除格式" onClick={() => applyFormat('clearFormat')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 21l9-9" />
+                <path d="M12 12l4-4a2 2 0 0 1 3 3l-4 4" />
+                <path d="M16 16l4 4" />
+                <line x1="5" y1="5" x2="19" y2="19" />
+              </svg>
+            </IconBtn>
+          </div>
+          <div className="eh-toolbar-right">
+            <button
+              className="eh-icon-btn eh-collapse-btn"
+              onClick={() => setToolbarExpanded(false)}
+              title="收起工具栏"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="18 15 12 9 6 15" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+};
