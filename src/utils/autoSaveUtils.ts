@@ -94,31 +94,3 @@ export function clearDrafts(): void {
     // 静默失败
   }
 }
-
-/**
- * 检查是否存在比给定时间戳更新的草稿
- * @param compareTime 比较时间戳
- * @returns 如果存在更新的草稿返回 true，否则返回 false
- */
-export function hasNewerDraft(compareTime?: string): boolean {
-  const draft = loadLatestDraft();
-  if (!draft) return false;
-  if (!compareTime) return true;
-  return new Date(draft.meta.timestamp) > new Date(compareTime);
-}
-
-/**
- * 检测草稿与当前状态之间的差异
- * @param draft 草稿数据
- * @param current 当前状态数据
- * @returns 存在差异的顶级键名数组
- */
-export function detectConflicts(draft: AppStore, current: AppStore): string[] {
-  const conflicts: string[] = [];
-  const draftStr = JSON.stringify(draft.notebooks);
-  const currentStr = JSON.stringify(current.notebooks);
-  if (draftStr !== currentStr) conflicts.push('notebooks');
-  if (JSON.stringify(draft.trash) !== JSON.stringify(current.trash)) conflicts.push('trash');
-  if (JSON.stringify(draft.tags) !== JSON.stringify(current.tags)) conflicts.push('tags');
-  return conflicts;
-}

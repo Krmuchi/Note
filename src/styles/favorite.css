@@ -112,3 +112,113 @@
   background: var(--error-50);
   color: var(--error-500);
 }
+
+/* 收藏夹控制区域 */
+.favorite-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
+}
+
+.favorite-sort-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.favorite-control-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  min-width: 30px;
+}
+
+.favorite-select {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.favorite-select:hover {
+  border-color: var(--primary-300);
+}
+
+.favorite-select:focus {
+  border-color: var(--primary-500);
+  outline: none;
+}
+
+.favorite-sort-order-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.favorite-sort-order-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--primary-300);
+}
+
+/* 收藏夹分组 */
+.favorite-group {
+  margin-bottom: var(--space-1);
+}
+
+.favorite-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.favorite-group-icon {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+.favorite-group-name {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.favorite-group-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-quaternary);
+  padding: 1px 6px;
+  border-radius: var(--radius-round);
+}
+
+/* 文档计数 */
+.docs-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-quaternary);
+  padding: 1px 6px;
+  border-radius: var(--radius-round);
+  margin-left: var(--space-2);
+}

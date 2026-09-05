@@ -1,9 +1,11 @@
 @import './styles/animations.css';
+@import './styles/themes.css';
 @import './styles/app-layout.css';
 @import './styles/resize-handle.css';
 @import './styles/sidebar.css';
 @import './styles/docs-sidebar.css';
 @import './styles/editor.css';
+@import './styles/markdown-preview.css';
 @import './styles/start-page.css';
 @import './styles/favorite.css';
 @import './styles/trash.css';
@@ -17,4 +19,5 @@
 @import './styles/settings.css';
 @import './styles/quick-note.css';
 @import './styles/template-center.css';
+@import './styles/ai-writer.css';
 @import './styles/responsive.css';

@@ -12,6 +12,18 @@ dist
 dist-ssr
 *.local
 
+# 包管理器缓存
+.pnpm-store
+
+# 测试产物
+test-results
+playwright-report
+
+# AI 工具本地目录
+.claude
+.codebuddy
+.workbuddy
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

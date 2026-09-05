@@ -2,9 +2,14 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { NotesStore } from './types'
 import { createCoreSlice } from './slices/coreSlice'
+import { createVersionSlice } from './slices/versionSlice'
+import { createShareSlice } from './slices/shareSlice'
+import { createCommentSlice } from './slices/commentSlice'
 import { createTagSlice } from './slices/tagSlice'
 import { createSearchSlice } from './slices/searchSlice'
 import { createUndoRedoSlice } from './slices/undoRedoSlice'
+import { createQuickNoteSlice } from './slices/quickNoteSlice'
+import { createKeyboardSlice } from './slices/keyboardSlice'
 
 export type { SaveStatus } from './slices/coreSlice'
 export type { NotesStore }
@@ -12,17 +17,19 @@ export type { NotesStore }
 export const useNotesStore = create<NotesStore>()(
   immer((...a) => ({
     ...createCoreSlice(...a),
+    ...createVersionSlice(...a),
+    ...createShareSlice(...a),
+    ...createCommentSlice(...a),
     ...createTagSlice(...a),
     ...createSearchSlice(...a),
     ...createUndoRedoSlice(...a),
+    ...createQuickNoteSlice(...a),
+    ...createKeyboardSlice(...a),
   }))
 )
 
 export const selectActiveNotebook = (state: NotesStore) =>
   state.notebooks.find(nb => nb.id === state.activeNotebookId) ?? null
 
-export const selectActiveDoc = (state: NotesStore) => {
-  const notebook = state.notebooks.find(nb => nb.id === state.activeNotebookId)
-  if (!notebook) return null
-  return notebook.docs.find(doc => doc.id === state.activeDocId) ?? null
-}
+/** 使用 coreSlice 中缓存的 activeDoc，避免每次渲染都执行两次 find */
+export const selectActiveDoc = (state: NotesStore) => state.activeDoc

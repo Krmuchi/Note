@@ -15,9 +15,13 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
   const [showLaser, setShowLaser] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const pages = doc.content
-    ? doc.content.split(/(#{1,6}\s+.+)/g).filter(p => p.trim()).map(p => p.trim())
-    : ['暂无内容'];
+  // 分页策略：以标题为分界，标题与其后续正文归入同一页（旧实现把标题与正文拆成两页，
+  // 每页要么只有标题要么只有正文，演示效果割裂）
+  const pages = React.useMemo(() => {
+    if (!doc.content) return ['暂无内容'];
+    const rawPages = doc.content.split(/\n(?=#{1,6}\s)/g).map(p => p.trim()).filter(Boolean);
+    return rawPages.length > 0 ? rawPages : [doc.content];
+  }, [doc.content]);
 
   useEffect(() => {
     let interval: number;
@@ -39,12 +43,18 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         setCurrentPage(p => Math.max(p - 1, 0));
-      } else if (e.key === 's') {
-        setIsSpeakerMode(s => !s);
-      } else if (e.key === 'l') {
-        setShowLaser(l => !l);
-      } else if (e.key === 't') {
-        setIsTimerRunning(t => !t);
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        // 单字母快捷键须排除修饰键组合，否则 Ctrl+S 等系统快捷键会误触演示功能
+        if (e.key === 's') {
+          e.preventDefault();
+          setIsSpeakerMode(sp => !sp);
+        } else if (e.key === 'l') {
+          e.preventDefault();
+          setShowLaser(l => !l);
+        } else if (e.key === 't') {
+          e.preventDefault();
+          setIsTimerRunning(t => !t);
+        }
       }
     };
 
@@ -155,11 +165,22 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
         <div className="slide-container">
           <div className="slide-content">
             <div className="slide-page">
-              {pages[currentPage]?.startsWith('#') ? (
-                <h1 className="slide-title">{pages[currentPage]?.replace(/^#{1,6}\s*/, '')}</h1>
-              ) : (
-                <div className="slide-text">{pages[currentPage]}</div>
-              )}
+              {(() => {
+                const page = pages[currentPage] || '';
+                const headingMatch = page.match(/^(#{1,6})\s+(.+)$/m);
+                if (headingMatch) {
+                  // 页面 = 标题 + 其后续正文，标题进 slide-title，其余进 slide-text
+                  const headingIndex = page.indexOf(headingMatch[0]);
+                  const body = (page.slice(0, headingIndex) + page.slice(headingIndex + headingMatch[0].length)).trim();
+                  return (
+                    <>
+                      <h1 className="slide-title">{headingMatch[2]}</h1>
+                      {body && <div className="slide-text">{body}</div>}
+                    </>
+                  );
+                }
+                return <div className="slide-text">{page}</div>;
+              })()}
             </div>
           </div>
 

@@ -40,6 +40,7 @@ export const createTagSlice: TagSliceCreator = (set, get) => ({
       updatedAt: new Date().toISOString(),
     }
     set((state) => {
+      state.lastMutationAt = Date.now()
       state.tags.push(newTag)
     })
   },
@@ -49,6 +50,7 @@ export const createTagSlice: TagSliceCreator = (set, get) => ({
       const tag = state.tags.find(t => t.id === id)
       if (tag) {
         Object.assign(tag, updates, { updatedAt: new Date().toISOString() })
+        state.lastMutationAt = Date.now()
       }
     })
   },
@@ -61,6 +63,7 @@ export const createTagSlice: TagSliceCreator = (set, get) => ({
           doc.tags = doc.tags.filter(tagId => tagId !== id)
         })
       })
+      state.lastMutationAt = Date.now()
     })
   },
 
@@ -68,12 +71,17 @@ export const createTagSlice: TagSliceCreator = (set, get) => ({
     set((state) => {
       const notebook = state.notebooks.find(nb => nb.id === notebookId)
       const doc = notebook?.docs.find(d => d.id === docId)
-      if (doc && !doc.tags.includes(tagId)) {
-        doc.tags.push(tagId)
+      // 仅在标签真正挂到文档上时才调整计数，避免重复调用导致 usageCount 漂移
+      if (!doc || doc.tags.includes(tagId)) {
+        state.lastMutationAt = Date.now()
+        return
       }
+      doc.tags.push(tagId)
+      doc.updatedAt = new Date().toISOString()
 
       const tag = state.tags.find(t => t.id === tagId)
       if (tag) tag.usageCount++
+      state.lastMutationAt = Date.now()
     })
   },
 
@@ -81,12 +89,16 @@ export const createTagSlice: TagSliceCreator = (set, get) => ({
     set((state) => {
       const notebook = state.notebooks.find(nb => nb.id === notebookId)
       const doc = notebook?.docs.find(d => d.id === docId)
-      if (doc) {
-        doc.tags = doc.tags.filter(id => id !== tagId)
+      if (!doc || !doc.tags.includes(tagId)) {
+        state.lastMutationAt = Date.now()
+        return
       }
+      doc.tags = doc.tags.filter(id => id !== tagId)
+      doc.updatedAt = new Date().toISOString()
 
       const tag = state.tags.find(t => t.id === tagId)
       if (tag) tag.usageCount = Math.max(0, tag.usageCount - 1)
+      state.lastMutationAt = Date.now()
     })
   },
 
@@ -188,6 +200,7 @@ export const createTagSlice: TagSliceCreator = (set, get) => ({
           Object.assign(tag, updates, { updatedAt: new Date().toISOString() })
         }
       })
+      state.lastMutationAt = Date.now()
     })
   },
 

@@ -399,6 +399,39 @@
   color: var(--text-primary);
 }
 
+/* 置顶历史项 */
+.history-item.pinned {
+  background: var(--warning-50);
+  border-left: 3px solid var(--warning-500);
+  padding-left: var(--space-3);
+}
+
+.history-pin {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.history-item:hover .history-pin {
+  opacity: 1;
+}
+
+.history-pin:hover {
+  background: var(--bg-quaternary);
+  color: var(--warning-500);
+}
+
 .search-results {
   flex: 1;
   overflow-y: auto;

@@ -1,13 +1,4 @@
-import type { Notebook, TrashDoc, Tag, SearchHistory } from './notebook'
-
-export interface AppStore {
-  notebooks: Notebook[]
-  trash: TrashDoc[]
-  tags: Tag[]
-  searchHistory: SearchHistory[]
-  activeNotebookId?: string
-  activeDocId?: string
-}
+import type { AppStore, NoteDoc } from './notebook'
 
 declare global {
   interface Window {
@@ -15,9 +6,16 @@ declare global {
       load: () => Promise<AppStore>
       save: (payload: AppStore) => Promise<AppStore>
       exportDoc: (payload: { title: string; content: string }) => Promise<boolean>
-      exportNotebook: (payload: { title: string; docs: import('./notebook').NoteDoc[] }) => Promise<boolean>
-      exportNotebookZip: (payload: { title: string; docs: import('./notebook').NoteDoc[] }) => Promise<boolean>
+      exportNotebook: (payload: { title: string; docs: NoteDoc[] }) => Promise<boolean>
+      exportNotebookZip: (payload: { title: string; docs: NoteDoc[] }) => Promise<boolean>
+      exportAll: (payload: AppStore) => Promise<boolean>
+      exportHtml: (payload: { title: string; content: string }) => Promise<boolean>
+      exportPdf: (payload: { title: string; content: string }) => Promise<boolean>
+      importMd: () => Promise<{ title: string; content: string }[] | null>
+      importBackup: () => Promise<AppStore | null>
       saveImage: (payload: { name: string; data: string }) => Promise<string>
     }
   }
 }
+
+export {}

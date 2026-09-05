@@ -64,7 +64,7 @@
 
 .resize-handle-collapse-btn:hover {
   background: var(--primary-500);
-  color: #ffffff;
+  color: var(--text-inverse);
   border-color: var(--primary-500);
 }
 

@@ -1,9 +1,11 @@
-export { escapeRegExp, sanitizeHtml } from '@/utils/sanitize'
-
 export const compressImage = async (file: File, maxWidth: number = 1200): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    const release = () => URL.revokeObjectURL(objectUrl)
     img.onload = () => {
+      // 及时释放 ObjectURL，避免大图反复粘贴时内存缓慢增长
+      release()
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
       const scale = Math.min(1, maxWidth / img.width)
@@ -20,7 +22,10 @@ export const compressImage = async (file: File, maxWidth: number = 1200): Promis
         }
       }, 'image/jpeg', 0.8)
     }
-    img.onerror = () => reject(new Error('图片加载失败'))
-    img.src = URL.createObjectURL(file)
+    img.onerror = () => {
+      release()
+      reject(new Error('图片加载失败'))
+    }
+    img.src = objectUrl
   })
 }

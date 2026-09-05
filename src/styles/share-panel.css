@@ -13,7 +13,8 @@
 }
 
 .share-panel {
-  width: 520px;
+  /* 用 min() 做 vw 兜底，避免窄屏/移动端下固定宽度溢出 */
+  width: min(520px, 94vw);
   max-height: 80vh;
   background: var(--bg-elevated);
   border-radius: var(--radius-xl);
@@ -24,10 +25,7 @@
   border: 1px solid var(--border-color);
 }
 
-@keyframes scaleIn {
-  from { transform: scale(0.95); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
-}
+/* scaleIn 已在 index.css 中全局定义，此处不重复声明 */
 
 .share-panel-header {
   display: flex;
@@ -108,6 +106,28 @@
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 var(--space-3) 0;
+}
+
+.share-local-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--primary-50);
+  border: 1px solid var(--primary-200);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+}
+
+.share-local-hint .hint-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.share-local-hint .hint-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-link);
+  line-height: 1.4;
 }
 
 .share-form {
@@ -251,7 +271,7 @@
 .share-generate-btn {
   height: 40px;
   background: var(--primary-color);
-  color: #ffffff;
+  color: var(--text-inverse);
   border: none;
   border-radius: var(--radius-lg);
   font-size: var(--font-size-md);
@@ -407,7 +427,7 @@
 
 .share-link-item.link-expired {
   opacity: 0.6;
-  border-color: var(--error-200);
+  border-color: var(--error-500);
 }
 
 .share-link-item.link-expired .share-url-input {

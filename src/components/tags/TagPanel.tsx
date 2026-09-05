@@ -43,10 +43,26 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
   const tagsWithHierarchy = getTagsWithHierarchy(); // 获取带层级的标签列表
   const stats: TagStats = getTagStats();            // 获取标签统计信息
 
-  // 根据搜索文本过滤标签
-  const filteredTags = tags.filter(tag => 
+  // 根据搜索文本过滤标签（渲染层也必须使用过滤结果，否则搜索时列表纹丝不动，
+  // 且全选会选中不可见的标签造成误删）
+  const filteredTags = tags.filter(tag =>
     tag.name.toLowerCase().includes(searchText.toLowerCase())
   );
+
+  // 递归过滤层级树：保留命中的节点及其祖先链（保证父子结构完整）
+  const filterHierarchy = (nodes: (Tag & { children?: (Tag & { children?: unknown[] })[] })[]): typeof nodes => {
+    const result: typeof nodes = [];
+    for (const node of nodes) {
+      const filteredChildren = node.children ? filterHierarchy(node.children as typeof nodes) : [];
+      if (node.name.toLowerCase().includes(searchText.toLowerCase()) || filteredChildren.length > 0) {
+        result.push(filteredChildren.length > 0 ? { ...node, children: filteredChildren } : node);
+      }
+    }
+    return result;
+  };
+  const visibleHierarchy = searchText.trim()
+    ? filterHierarchy(tagsWithHierarchy as Parameters<typeof filterHierarchy>[0])
+    : tagsWithHierarchy;
 
   /**
    * 处理创建标签
@@ -247,7 +263,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
                   <span className="tag-empty-text">暂无标签</span>
                 </div>
               ) : (
-                renderTagTree(tagsWithHierarchy)
+                renderTagTree(visibleHierarchy)
               )}
             </div>
           )}

@@ -1,46 +1,43 @@
-// 导入 React 相关 hooks
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react"
 
-/**
- * Toast 组件属性接口
- */
 export interface ToastProps {
-  id: string;                                    // Toast 唯一标识
-  type: "success" | "error" | "warning" | "info"; // 提示类型
-  message: string;                               // 提示消息
-  onClose: (id: string) => void;                 // 关闭回调函数
-  duration?: number;                             // 自动关闭时长（毫秒），默认为 3000
+  id: string
+  type: "success" | "error" | "warning" | "info"
+  message: string
+  onClose: (id: string) => void
+  duration?: number
 }
 
-// Toast 类型与图标的映射
 const iconMap = {
-  success: "✓",   // 成功图标
-  error: "✗",     // 错误图标
-  warning: "⚠️",  // 警告图标
-  info: "ℹ️",     // 信息图标
-};
+  success: "✓",
+  error: "✗",
+  warning: "⚠️",
+  info: "ℹ️",
+}
 
-/**
- * Toast 单个提示项组件
- */
-export function ToastItem({ id, type, message, onClose, duration = 3000 }: ToastProps) {
-  const [isExiting, setIsExiting] = useState(false); // 退出动画状态
+const ToastItemInner = ({ id, type, message, onClose, duration = 3000 }: ToastProps) => {
+  const [isExiting, setIsExiting] = useState(false)
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
-  // 设置自动关闭定时器
   useEffect(() => {
+    // 统一登记所有定时器，卸载时全部清理，避免退出动画 timer 泄漏
     const timer = setTimeout(() => {
-      setIsExiting(true);           // 开始退出动画
-      setTimeout(() => onClose(id), 200); // 动画结束后关闭
-    }, duration);
+      setIsExiting(true)
+      const exitTimer = setTimeout(() => onClose(id), 200)
+      timersRef.current.push(exitTimer)
+    }, duration)
+    timersRef.current.push(timer)
 
-    return () => clearTimeout(timer); // 清理定时器
-  }, [id, duration, onClose]);
+    return () => {
+      timersRef.current.forEach(clearTimeout)
+      timersRef.current = []
+    }
+  }, [id, duration, onClose])
 
-  // 手动关闭处理
   const handleClose = useCallback(() => {
-    setIsExiting(true);
-    setTimeout(() => onClose(id), 200);
-  }, [id, onClose]);
+    setIsExiting(true)
+    setTimeout(() => onClose(id), 200)
+  }, [id, onClose])
 
   return (
     <div className={`toast toast-${type} ${isExiting ? "exit" : "enter"}`}>
@@ -50,20 +47,16 @@ export function ToastItem({ id, type, message, onClose, duration = 3000 }: Toast
         ×
       </button>
     </div>
-  );
+  )
 }
 
-/**
- * Toast 容器组件属性接口
- */
+export const ToastItem = memo(ToastItemInner)
+
 export interface ToastContainerProps {
-  toasts: ToastProps[];  // Toast 列表
-  onClose: (id: string) => void; // 关闭回调
+  toasts: ToastProps[]
+  onClose: (id: string) => void
 }
 
-/**
- * Toast 容器组件
- */
 export function ToastContainer({ toasts, onClose }: ToastContainerProps) {
   return (
     <div className="toast-container">
@@ -71,59 +64,71 @@ export function ToastContainer({ toasts, onClose }: ToastContainerProps) {
         <ToastItem key={toast.id} {...toast} onClose={onClose} />
       ))}
     </div>
-  );
+  )
 }
 
-// Toast 全局 ID 计数器
-let toastId = 0;
+let toastId = 0
 
-/**
- * Toast 消息接口
- */
 export interface ToastMessage {
-  type: "success" | "error" | "warning" | "info";
-  message: string;
-  duration?: number;
+  type: "success" | "error" | "warning" | "info"
+  message: string
+  duration?: number
 }
 
-/**
- * Toast 自定义 Hook
- * 提供 Toast 的添加和管理功能
- */
+type ToastListener = (message: ToastMessage) => void
+
+const toastListeners = new Set<ToastListener>()
+
+/** 全局 Toast 发射器：供 store slice / hooks 等非组件模块使用 */
+export function emitToast(message: ToastMessage): void {
+  toastListeners.forEach((listener) => listener(message))
+}
+
+/** 全局 Toast 便捷方法 */
+export const toast = {
+  success: (message: string, duration?: number) => emitToast({ type: "success", message, duration }),
+  error: (message: string, duration?: number) => emitToast({ type: "error", message, duration }),
+  warning: (message: string, duration?: number) => emitToast({ type: "warning", message, duration }),
+  info: (message: string, duration?: number) => emitToast({ type: "info", message, duration }),
+}
+
 export function useToast() {
-  const [toasts, setToasts] = useState<ToastProps[]>([]); // Toast 状态列表
+  const [toasts, setToasts] = useState<ToastProps[]>([])
 
-  // 移除指定 Toast
   const removeToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  }, []);
+    setToasts((prev) => prev.filter((toast) => toast.id !== id))
+  }, [])
 
-  // 添加新 Toast
   const addToast = useCallback((message: ToastMessage) => {
-    const id = `toast-${++toastId}`;
-    setToasts((prev) => [...prev, { ...message, id, onClose: () => removeToast(id) }]);
-    return id;
-  }, [removeToast]);
+    const id = `toast-${++toastId}`
+    setToasts((prev) => [...prev, { ...message, id, onClose: removeToast }])
+    return id
+  }, [removeToast])
 
-  // 快捷方法：成功提示
+  // 订阅全局 Toast 发射器，使 store slice / hooks 等非组件模块也能弹出提示
+  useEffect(() => {
+    const listener: ToastListener = (message) => addToast(message)
+    toastListeners.add(listener)
+    return () => {
+      toastListeners.delete(listener)
+    }
+  }, [addToast])
+
   const success = useCallback((message: string, duration?: number) => {
-    return addToast({ type: "success", message, duration });
-  }, [addToast]);
+    return addToast({ type: "success", message, duration })
+  }, [addToast])
 
-  // 快捷方法：错误提示
   const error = useCallback((message: string, duration?: number) => {
-    return addToast({ type: "error", message, duration });
-  }, [addToast]);
+    return addToast({ type: "error", message, duration })
+  }, [addToast])
 
-  // 快捷方法：警告提示
   const warning = useCallback((message: string, duration?: number) => {
-    return addToast({ type: "warning", message, duration });
-  }, [addToast]);
+    return addToast({ type: "warning", message, duration })
+  }, [addToast])
 
-  // 快捷方法：信息提示
   const info = useCallback((message: string, duration?: number) => {
-    return addToast({ type: "info", message, duration });
-  }, [addToast]);
+    return addToast({ type: "info", message, duration })
+  }, [addToast])
 
   return {
     toasts,
@@ -133,5 +138,5 @@ export function useToast() {
     error,
     warning,
     info,
-  };
+  }
 }

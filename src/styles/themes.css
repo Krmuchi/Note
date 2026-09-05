@@ -1,0 +1,247 @@
+/* ============================================
+   主题配置
+   支持多种预设主题和自定义主题色
+   ============================================ */
+
+/* ----- 预设主题: 护眼绿 ----- */
+[data-theme="green"] {
+  --primary-50: #e6f7e6;
+  --primary-100: #b3e6b3;
+  --primary-200: #80d480;
+  --primary-300: #4dc24d;
+  --primary-400: #2db82d;
+  --primary-500: #1a9e1a;
+  --primary-600: #158c15;
+  --primary-700: #0f7a0f;
+
+  --text-primary: #2d3a2d;
+  --text-secondary: #4a5c4a;
+  --text-tertiary: #6b7f6b;
+
+  --bg-primary: #f5faf5;
+  --bg-secondary: #e8f5e8;
+  --bg-tertiary: #d4ecd4;
+
+  --border-color: #c8e0c8;
+  --border-secondary: #d4ecd4;
+}
+
+/* ----- 预设主题: 暖色调 ----- */
+[data-theme="warm"] {
+  --primary-50: #fff5e6;
+  --primary-100: #ffe0b3;
+  --primary-200: #ffcc80;
+  --primary-300: #ffb74d;
+  --primary-400: #ffa726;
+  --primary-500: #ff9800;
+  --primary-600: #f57c00;
+  --primary-700: #e65100;
+
+  --text-primary: #3a2d1f;
+  --text-secondary: #5c4a38;
+  --text-tertiary: #7f6b55;
+
+  --bg-primary: #fdf8f0;
+  --bg-secondary: #f8f0e0;
+  --bg-tertiary: #f0e6d0;
+
+  --border-color: #e6d5be;
+  --border-secondary: #f0e6d0;
+}
+
+/* ----- 预设主题: 深邃蓝 ----- */
+[data-theme="deep-blue"] {
+  --primary-50: #e6f0ff;
+  --primary-100: #b3d1ff;
+  --primary-200: #80b3ff;
+  --primary-300: #4d94ff;
+  --primary-400: #2680ff;
+  --primary-500: #0066ff;
+  --primary-600: #0052cc;
+  --primary-700: #003d99;
+
+  --text-primary: #1a2a3a;
+  --text-secondary: #3a4a5c;
+  --text-tertiary: #5a6a7f;
+
+  --bg-primary: #f0f5ff;
+  --bg-secondary: #e0ecff;
+  --bg-tertiary: #d0e0ff;
+
+  --border-color: #b3ccee;
+  --border-secondary: #d0e0ff;
+}
+
+/* ----- 预设主题: 暗夜紫 ----- */
+[data-theme="purple-dark"] {
+  --primary-50: #1a0a2e;
+  --primary-100: #2d1050;
+  --primary-200: #4a1a7a;
+  --primary-300: #6b2fa0;
+  --primary-400: #8b45c0;
+  --primary-500: #a855f7;
+  --primary-600: #c084fc;
+  --primary-700: #d8b4fe;
+
+  --success-50: #0a1a0a;
+  --success-100: #103010;
+  --success-500: #22c55e;
+  --success-600: #4ade80;
+
+  --warning-50: #1a150a;
+  --warning-100: #302810;
+  --warning-500: #f59e0b;
+  --warning-600: #fbbf24;
+
+  --error-50: #1a0a0a;
+  --error-100: #301010;
+  --error-500: #ef4444;
+  --error-600: #f87171;
+
+  --gray-50: #0a0a14;
+  --gray-100: #141428;
+  --gray-200: #1e1e3c;
+  --gray-300: #2d2d50;
+  --gray-400: #4a4a6a;
+  --gray-500: #6b6b8a;
+  --gray-600: #8a8aaa;
+  --gray-700: #a8a8c0;
+  --gray-800: #c0c0d0;
+  --gray-900: #e0e0e8;
+
+  --text-primary: #e8e0f0;
+  --text-secondary: #c0b0d0;
+  --text-tertiary: #a090b8;
+  --text-placeholder: #706088;
+  --text-disabled: #504068;
+  --text-inverse: #0a0a14;
+  --text-link: #a855f7;
+
+  --bg-primary: #0f0a1a;
+  --bg-secondary: #1a1028;
+  --bg-tertiary: #251a38;
+  --bg-quaternary: #302548;
+  --bg-elevated: #1a1028;
+  --bg-overlay: rgba(10, 10, 20, 0.7);
+  --bg-mask: rgba(168, 85, 247, 0.06);
+
+  --border-color: #302548;
+  --border-secondary: #251a38;
+  --border-active: #a855f7;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 3px 6px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.35), 0 4px 8px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 12px 48px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* ----- 预设主题: 暗夜绿 ----- */
+[data-theme="green-dark"] {
+  --primary-50: #0a1a0a;
+  --primary-100: #103010;
+  --primary-200: #1a4a1a;
+  --primary-300: #2d6b2d;
+  --primary-400: #3d8b3d;
+  --primary-500: #22c55e;
+  --primary-600: #4ade80;
+  --primary-700: #86efac;
+
+  --success-50: #0a1a0a;
+  --success-100: #103010;
+  --success-500: #22c55e;
+  --success-600: #4ade80;
+
+  --warning-50: #1a150a;
+  --warning-100: #302810;
+  --warning-500: #f59e0b;
+  --warning-600: #fbbf24;
+
+  --error-50: #1a0a0a;
+  --error-100: #301010;
+  --error-500: #ef4444;
+  --error-600: #f87171;
+
+  --gray-50: #0a140a;
+  --gray-100: #142814;
+  --gray-200: #1e3c1e;
+  --gray-300: #2d502d;
+  --gray-400: #4a6a4a;
+  --gray-500: #6b8a6b;
+  --gray-600: #8aaa8a;
+  --gray-700: #a8c0a8;
+  --gray-800: #c0d0c0;
+  --gray-900: #e0e8e0;
+
+  --text-primary: #e0f0e0;
+  --text-secondary: #b0d0b0;
+  --text-tertiary: #90b890;
+  --text-placeholder: #608860;
+  --text-disabled: #406840;
+  --text-inverse: #0a140a;
+  --text-link: #22c55e;
+
+  --bg-primary: #0a140a;
+  --bg-secondary: #102010;
+  --bg-tertiary: #1a2c1a;
+  --bg-quaternary: #253825;
+  --bg-elevated: #102010;
+  --bg-overlay: rgba(10, 20, 10, 0.7);
+  --bg-mask: rgba(34, 197, 94, 0.06);
+
+  --border-color: #253825;
+  --border-secondary: #1a2c1a;
+  --border-active: #22c55e;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 3px 6px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.35), 0 4px 8px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 12px 48px rgba(0, 0, 0, 0.4), 0 6px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* ----- 自定义主题色变量 ----- */
+:root {
+  --custom-primary: var(--primary-500);
+  --custom-primary-light: var(--primary-100);
+  --custom-primary-dark: var(--primary-700);
+
+  /* 字体配置 */
+  --font-family-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-family-serif: Georgia, 'Times New Roman', serif;
+  --font-family-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+  --font-family-chinese: 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', 'WenQuanYi Micro Hei', sans-serif;
+}
+
+/* 字体主题: 默认无衬线 */
+[data-font="sans"] {
+  --font-family-base: var(--font-family-sans);
+}
+
+/* 字体主题: 衬线字体 */
+[data-font="serif"] {
+  --font-family-base: var(--font-family-serif);
+}
+
+/* 字体主题: 等宽字体 */
+[data-font="mono"] {
+  --font-family-base: var(--font-family-mono);
+}
+
+/* 字体主题: 中文优化 */
+[data-font="chinese"] {
+  --font-family-base: var(--font-family-chinese);
+}
+
+/* 字体主题: 思源黑体 */
+[data-font="noto-sans"] {
+  --font-family-base: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* 字体主题: 思源宋体 */
+[data-font="noto-serif"] {
+  --font-family-base: 'Noto Serif SC', 'SimSun', serif;
+}
+
+/* 字体主题: 霞鹜文楷 */
+[data-font="lxgw-wenkai"] {
+  --font-family-base: 'LXGW WenKai', 'KaiTi', serif;
+}

@@ -1,83 +1,49 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNotesStore } from '@/store';
-import { newId } from '@/store/storeUtils';
-
-interface QuickNote {
-  id: string;
-  content: string;
-  tags: string[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-const STORAGE_KEY = 'notes-quick-notes';
-
-const loadQuickNotes = (): QuickNote[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return []
-  }
-};
-
-const saveQuickNotes = (notes: QuickNote[]) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
-  } catch {
-    // storage unavailable
-  }
-};
+import { modKey } from '@/utils/platform';
+import { formatDateTime } from '@/utils/formatters';
+import { EmptyState } from '@/components/common/EmptyState';
 
 export default function QuickNotePanel() {
   const tags = useNotesStore(s => s.tags);
-  const [notes, setNotes] = useState<QuickNote[]>(loadQuickNotes);
+  const quickNotes = useNotesStore(s => s.quickNotes);
+  const addQuickNote = useNotesStore(s => s.addQuickNote);
+  const updateQuickNote = useNotesStore(s => s.updateQuickNote);
+  const deleteQuickNote = useNotesStore(s => s.deleteQuickNote);
+  const loadQuickNotes = useNotesStore(s => s.loadQuickNotes);
+
   const [inputValue, setInputValue] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
 
-  const persistNotes = useCallback((updated: QuickNote[]) => {
-    setNotes(updated);
-    saveQuickNotes(updated);
-  }, []);
+  // 加载快捷笔记
+  useEffect(() => {
+    loadQuickNotes();
+  }, [loadQuickNotes]);
 
   const handleAdd = useCallback(() => {
     if (!inputValue.trim()) return;
-    const newNote: QuickNote = {
-      id: newId(),
-      content: inputValue.trim(),
-      tags: selectedTags,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const updated = [newNote, ...notes];
-    persistNotes(updated);
+    addQuickNote(inputValue.trim(), selectedTags);
     setInputValue('');
     setSelectedTags([]);
-  }, [inputValue, selectedTags, notes, persistNotes]);
+  }, [inputValue, selectedTags, addQuickNote]);
 
   const handleDelete = useCallback((id: string) => {
-    const updated = notes.filter(n => n.id !== id);
-    persistNotes(updated);
-  }, [notes, persistNotes]);
+    deleteQuickNote(id);
+  }, [deleteQuickNote]);
 
-  const handleStartEdit = useCallback((note: QuickNote) => {
+  const handleStartEdit = useCallback((note: { id: string; content: string }) => {
     setEditingId(note.id);
     setEditingContent(note.content);
   }, []);
 
   const handleSaveEdit = useCallback(() => {
     if (!editingId || !editingContent.trim()) return;
-    const updated = notes.map(n =>
-      n.id === editingId
-        ? { ...n, content: editingContent.trim(), updatedAt: new Date().toISOString() }
-        : n
-    );
-    persistNotes(updated);
+    updateQuickNote(editingId, editingContent.trim());
     setEditingId(null);
     setEditingContent('');
-  }, [editingId, editingContent, notes, persistNotes]);
+  }, [editingId, editingContent, updateQuickNote]);
 
   const toggleTag = useCallback((tagId: string) => {
     setSelectedTags(prev =>
@@ -85,16 +51,8 @@ export default function QuickNotePanel() {
     );
   }, []);
 
-  const formatTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    if (diffDays === 0) return `今天 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
-    if (diffDays === 1) return '昨天';
-    if (diffDays < 7) return `${diffDays}天前`;
-    return date.toLocaleDateString('zh-CN');
-  };
+  const formatTime = (dateStr: string) =>
+    formatDateTime(dateStr, { prefixToday: true });
 
   return (
     <div className="quick-note-panel">
@@ -114,7 +72,7 @@ export default function QuickNotePanel() {
               handleAdd();
             }
           }}
-          placeholder="记点什么... (Ctrl+Enter 保存)"
+          placeholder={`记点什么... (${modKey}+Enter 保存)`}
           rows={3}
         />
         <div className="quick-note-input-footer">
@@ -141,13 +99,14 @@ export default function QuickNotePanel() {
       </div>
 
       <div className="quick-note-list">
-        {notes.length === 0 ? (
-          <div className="quick-note-empty">
-            <span className="quick-note-empty-icon">📝</span>
-            <span className="quick-note-empty-text">还没有小记，开始记录吧</span>
-          </div>
+        {quickNotes.length === 0 ? (
+          <EmptyState
+            icon="📝"
+            title="还没有小记"
+            description="快速记录想法、灵感、待办事项"
+          />
         ) : (
-          notes.map(note => (
+          quickNotes.map(note => (
             <div key={note.id} className="quick-note-item">
               {editingId === note.id ? (
                 <div className="quick-note-edit">

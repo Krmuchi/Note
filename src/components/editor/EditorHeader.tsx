@@ -1,11 +1,19 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import type { NoteDoc } from '@/types';
 import type { SaveStatus } from '@/store';
 import { useTheme } from '@/shared/hooks';
-import type { FormatType } from './Editor';
+import { modKey } from '@/utils/platform';
+import type { FormatType } from '@/hooks/useEditorFormatting';
+import type { PreviewMode } from './Editor';
+import { IconBtn } from './EditorHeaderIcon';
+import { EditorHeaderColorPicker, type ColorTab } from './EditorHeaderColorPicker';
+import { EditorHeaderTitleBar } from './EditorHeaderTitleBar';
+import { exportCurrentDocAsHtml, exportCurrentDocAsPdf } from './editorHeaderExports';
 
 interface EditorHeaderProps {
-  activeDoc: NoteDoc;
+  /** 仅传必要的展示字段而非整个 activeDoc，配合 React.memo 避免击键链路全量重渲染 */
+  docTitle: string;
+  isFavorite: boolean;
   activeNotebookId: string;
   activeDocId: string;
   saveStatus: SaveStatus;
@@ -14,7 +22,6 @@ interface EditorHeaderProps {
   updateDocContent: (updates: Partial<NoteDoc>) => void;
   toggleFavorite: (notebookId: string, docId: string) => void;
   handleCopyLink: () => void;
-  handleOpenInNewWindow: () => void;
   setShowSharePanel: (show: boolean) => void;
   setShowPresentationMenu: (show: boolean) => void;
   setFontSize: (size: string) => void;
@@ -32,48 +39,21 @@ interface EditorHeaderProps {
   onToggleCommentsPanel?: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  isFocusMode?: boolean;
+  onToggleFocusMode?: () => void;
+  previewMode?: PreviewMode;
+  onTogglePreviewMode?: () => void;
 }
 
 type HeadingLevel = 'paragraph' | 'h1' | 'h2' | 'h3';
-type ColorTab = 'text' | 'highlight';
 
 const FONT_SIZE_OPTIONS = ['12px', '13px', '14px', '15px', '16px', '18px', '20px'];
 
-const TEXT_COLORS = [
-  '#000000', '#262626', '#595959', '#8c8c8c', '#bfbfbf', '#1677ff', '#0958d9', '#003eb3',
-  '#52c41a', '#389e0d', '#13c2c2', '#08979c', '#722ed1', '#531dab', '#eb2f96', '#c41d7f',
-  '#fa8c16', '#d46b08', '#fa541c', '#d4380d', '#f5222d', '#cf1322', '#faad14', '#d48806',
-];
-
-const HIGHLIGHT_COLORS = [
-  '#fff3a0', '#ffe58f', '#ffd591', '#ffbb96', '#ff9c6e', '#d9f7be', '#b7eb8f', '#95de64',
-  '#91d5ff', '#69c0ff', '#40a9ff', '#1890ff', '#b5f5ec', '#87e8de', '#5cdbd3', '#36cfc9',
-  '#d3adf7', '#b37feb', '#9254de', '#722ed1', '#efdbff', '#ffadd2', '#ff85c0', '#f759ab',
-];
-
 const STORAGE_KEY = 'toolbarExpanded';
 
-const IconBtn: React.FC<{
-  title: string;
-  onClick?: () => void;
-  active?: boolean;
-  disabled?: boolean;
-  className?: string;
-  children: React.ReactNode;
-}> = ({ title, onClick, active, disabled, className = '', children }) => (
-  <button
-    type="button"
-    className={`eh-icon-btn ${active ? 'active' : ''} ${disabled ? 'disabled' : ''} ${className}`}
-    title={title}
-    onClick={onClick}
-    disabled={disabled}
-  >
-    {children}
-  </button>
-);
-
-export const EditorHeader: React.FC<EditorHeaderProps> = ({
-  activeDoc,
+const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
+  docTitle,
+  isFavorite,
   activeNotebookId,
   activeDocId,
   saveStatus,
@@ -82,7 +62,6 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   updateDocContent,
   toggleFavorite,
   handleCopyLink,
-  handleOpenInNewWindow,
   setShowSharePanel,
   setShowPresentationMenu,
   setFontSize,
@@ -100,6 +79,10 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   onToggleCommentsPanel,
   isFullscreen,
   onToggleFullscreen,
+  isFocusMode = false,
+  onToggleFocusMode,
+  previewMode = 'edit',
+  onTogglePreviewMode,
 }) => {
   const { theme, toggleTheme } = useTheme();
   const [toolbarExpanded, setToolbarExpanded] = useState<boolean>(() => {
@@ -116,7 +99,6 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   const [showColorPicker, setShowColorPicker] = useState<ColorTab | null>(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
-  const [titleEditing, setTitleEditing] = useState(false);
   const [winWidth, setWinWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1280);
 
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -125,6 +107,9 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   const alignMenuRef = useRef<HTMLDivElement>(null);
   const listMenuRef = useRef<HTMLDivElement>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
+  // 颜色选择器的触发按钮：不在 outside-click 判定范围内，
+  // 否则点击按钮会先"外点关闭"再触发按钮自身的 toggle，导致永远无法关闭
+  const colorTriggerRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
@@ -137,36 +122,41 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   }, [toolbarExpanded]);
 
   useEffect(() => {
-    const onResize = () => setWinWidth(window.innerWidth);
+    // rAF 节流：resize 高频触发时避免每帧多次 setState
+    let rafId: number | null = null;
+    const onResize = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        setWinWidth(window.innerWidth);
+      });
+    };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', onResize);
+    };
   }, []);
 
-  const isMobile = winWidth < 600;
+  // 与 useResizableLayout 的 MOBILE_BREAKPOINT(768) 保持一致，避免中间宽度行为不一致
+  const isMobile = winWidth < 768;
   const effectiveExpanded = !isMobile && toolbarExpanded;
-
-  useEffect(() => {
-    if (titleEditing) titleInputRef.current?.focus();
-  }, [titleEditing]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
+      const insideColorTrigger = colorTriggerRefs.current.some(el => el && el.contains(target));
       if (headingMenuRef.current && !headingMenuRef.current.contains(target)) setShowHeadingMenu(false);
       if (fontSizeMenuRef.current && !fontSizeMenuRef.current.contains(target)) setShowFontSizeMenu(false);
       if (alignMenuRef.current && !alignMenuRef.current.contains(target)) setShowAlignMenu(false);
       if (listMenuRef.current && !listMenuRef.current.contains(target)) setShowListMenu(false);
-      if (colorPickerRef.current && !colorPickerRef.current.contains(target)) setShowColorPicker(null);
+      if (colorPickerRef.current && !colorPickerRef.current.contains(target) && !insideColorTrigger) setShowColorPicker(null);
       if (moreMenuRef.current && !moreMenuRef.current.contains(target)) setShowMoreMenu(false);
       if (addMenuRef.current && !addMenuRef.current.contains(target)) setShowAddMenu(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    updateDocContent({ title: e.target.value });
-  };
 
   const currentHeading = (): HeadingLevel => {
     if (activeFormats.has('heading1')) return 'h1';
@@ -202,225 +192,66 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
     return '正文';
   };
 
-  const handleMoreAction = useCallback((action: () => void) => {
-    action();
-    setShowMoreMenu(false);
-  }, []);
-
   const handleAddAction = useCallback((action: () => void) => {
     action();
     setShowAddMenu(false);
   }, []);
 
-  const syncText = (): string => {
-    if (saveStatus === 'saving') return '正在保存...';
-    if (saveStatus === 'error') return '保存失败';
-    if (saveStatus === 'saved') return '已加载最新版本';
-    return '已加载最新版本';
-  };
+  // 导出逻辑已拆分至 editorHeaderExports.ts（从 store 读取最新内容）
+  const handleExportHtml = exportCurrentDocAsHtml;
+  const handleExportPdf = exportCurrentDocAsPdf;
 
-  const hideFormatPainter = winWidth < 1000;
   const hideRedo = winWidth < 1000;
   const hideTableAndDivider = winWidth < 800;
 
-  const renderColorPicker = () => {
-    if (!showColorPicker) return null;
-    const colors = showColorPicker === 'text' ? TEXT_COLORS : HIGHLIGHT_COLORS;
-    return (
-      <div className="eh-color-picker" ref={colorPickerRef}>
-        <div className="eh-color-tabs">
-          <button
-            className={`eh-color-tab ${showColorPicker === 'text' ? 'active' : ''}`}
-            onClick={() => setShowColorPicker('text')}
-          >
-            文字颜色
-          </button>
-          <button
-            className={`eh-color-tab ${showColorPicker === 'highlight' ? 'active' : ''}`}
-            onClick={() => setShowColorPicker('highlight')}
-          >
-            背景高亮
-          </button>
-        </div>
-        <div className="eh-color-grid">
-          {colors.map((color) => (
-            <button
-              key={color}
-              className="eh-color-swatch"
-              style={{ backgroundColor: color }}
-              title={color}
-              onClick={() => {
-                if (showColorPicker === 'text') applyFormat('textColor', { color });
-                else applyFormat('highlight', { color });
-                setShowColorPicker(null);
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  };
+  const renderColorPicker = () => (
+    <EditorHeaderColorPicker
+      tab={showColorPicker}
+      onTabChange={setShowColorPicker}
+      onPick={(type, color) => applyFormat(type, { color })}
+      onClose={() => setShowColorPicker(null)}
+      pickerRef={colorPickerRef}
+    />
+  );
 
   return (
     <header className="eh-header">
-      {/* ===== 第一层：文档标题栏 ===== */}
-      <div className="eh-title-bar">
-        <div className="eh-title-left">
-          <input
-            ref={titleInputRef}
-            className={`eh-title-input ${titleEditing ? 'editing' : ''}`}
-            value={activeDoc.title}
-            onChange={handleTitleChange}
-            onFocus={() => setTitleEditing(true)}
-            onBlur={() => setTitleEditing(false)}
-            placeholder="无标题"
-          />
-          <span className="eh-sync-status">
-            <svg className="eh-sync-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9v-2.5a2.5 2.5 0 0 1 5 0V20" />
-              <path d="M5 15a4 4 0 0 1 4-4h7" />
-            </svg>
-            {syncText()}
-          </span>
-        </div>
-
-        <div className="eh-title-right">
-          <IconBtn
-            title="收藏"
-            onClick={() => toggleFavorite(activeNotebookId, activeDocId)}
-            active={activeDoc.favorite}
-          >
-            {activeDoc.favorite ? (
-              <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-              </svg>
-            )}
-          </IconBtn>
-
-          <IconBtn title="历史版本" onClick={() => onShowVersionHistory?.()}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-          </IconBtn>
-
-          <IconBtn title="外链 - 在新窗口打开" onClick={handleOpenInNewWindow}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-              <polyline points="15 3 21 3 21 9" />
-              <line x1="10" y1="14" x2="21" y2="3" />
-            </svg>
-          </IconBtn>
-
-          <IconBtn title="分享" onClick={() => setShowSharePanel(true)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-              <polyline points="16 6 12 2 8 6" />
-              <line x1="12" y1="2" x2="12" y2="15" />
-            </svg>
-          </IconBtn>
-
-          <IconBtn title={isFullscreen ? '退出全屏' : '全屏'} onClick={() => onToggleFullscreen?.()} active={isFullscreen}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 3H5a2 2 0 0 0-2 2v3" />
-              <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
-              <path d="M3 16v3a2 2 0 0 0 2 2h3" />
-              <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
-            </svg>
-          </IconBtn>
-
-          <IconBtn title={theme === 'light' ? '切换到夜间模式' : '切换到日间模式'} onClick={toggleTheme}>
-            {theme === 'light' ? (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="5" />
-                <line x1="12" y1="1" x2="12" y2="3" />
-                <line x1="12" y1="21" x2="12" y2="23" />
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                <line x1="1" y1="12" x2="3" y2="12" />
-                <line x1="21" y1="12" x2="23" y2="12" />
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-              </svg>
-            )}
-          </IconBtn>
-
-          <div className="eh-dropdown" ref={moreMenuRef}>
-            <IconBtn title="更多" onClick={() => setShowMoreMenu(!showMoreMenu)} active={showMoreMenu}>
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="12" cy="12" r="2" />
-                <circle cx="12" cy="19" r="2" />
-              </svg>
-            </IconBtn>
-            {showMoreMenu && (
-              <div className="eh-dropdown-menu">
-                <div className="eh-menu-group">
-                  <div className="eh-group-label">操作</div>
-                  <button className="eh-menu-item" onClick={() => handleMoreAction(() => setShowPresentationMenu(true))}>
-                    <span className="eh-menu-icon">🎤</span>演示模式
-                  </button>
-                  <button className="eh-menu-item" onClick={() => handleMoreAction(() => onShowVersionHistory?.())}>
-                    <span className="eh-menu-icon">📋</span>版本历史
-                  </button>
-                  <button className="eh-menu-item" onClick={() => handleMoreAction(handleCopyLink)}>
-                    <span className="eh-menu-icon">🔗</span>复制链接
-                  </button>
-                  <button className="eh-menu-item" onClick={() => handleMoreAction(handleOpenInNewWindow)}>
-                    <span className="eh-menu-icon">↗</span>新窗口打开
-                  </button>
-                </div>
-                <div className="eh-menu-divider" />
-                <div className="eh-menu-group">
-                  <div className="eh-group-label">视图</div>
-                  <button className={`eh-menu-item ${showOutlinePanel ? 'active' : ''}`} onClick={() => handleMoreAction(() => onToggleOutlinePanel?.())}>
-                    <span className="eh-menu-icon">📑</span>目录大纲
-                  </button>
-                  <button className={`eh-menu-item ${showCommentsPanel ? 'active' : ''}`} onClick={() => handleMoreAction(() => onToggleCommentsPanel?.())}>
-                    <span className="eh-menu-icon">💬</span>评论
-                  </button>
-                  <button className="eh-menu-item" onClick={() => handleMoreAction(() => onToggleFullscreen?.())}>
-                    <span className="eh-menu-icon">⛶</span>{isFullscreen ? '退出全屏' : '全屏'}
-                  </button>
-                  <button className="eh-menu-item" onClick={() => handleMoreAction(toggleTheme)}>
-                    <span className="eh-menu-icon">{theme === 'light' ? '🌙' : '☀️'}</span>{theme === 'light' ? '夜间模式' : '日间模式'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {showPresentationMenu && (
-          <div className="eh-presentation-menu">
-            <button
-              className="eh-presentation-item"
-              onClick={() => {
-                setShowPresentationMenu(false);
-                onStartPresentation?.();
-              }}
-            >
-              <span className="eh-menu-icon">🎤</span>开始演示
-            </button>
-            <button className="eh-presentation-item" onClick={() => setShowPresentationMenu(false)}>
-              <span className="eh-menu-icon">📝</span>编辑演示分页
-            </button>
-          </div>
-        )}
-      </div>
+      {/* ===== 第一层：文档标题栏（已拆分为 EditorHeaderTitleBar） ===== */}
+      <EditorHeaderTitleBar
+        docTitle={docTitle}
+        saveStatus={saveStatus}
+        titleInputRef={titleInputRef}
+        isFavorite={isFavorite}
+        toggleFavorite={toggleFavorite}
+        activeNotebookId={activeNotebookId}
+        activeDocId={activeDocId}
+        onShowVersionHistory={onShowVersionHistory}
+        setShowSharePanel={setShowSharePanel}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={onToggleFullscreen}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        showOutlinePanel={showOutlinePanel}
+        showCommentsPanel={showCommentsPanel}
+        onToggleOutlinePanel={onToggleOutlinePanel}
+        onToggleCommentsPanel={onToggleCommentsPanel}
+        showPresentationMenu={showPresentationMenu}
+        setShowPresentationMenu={setShowPresentationMenu}
+        onStartPresentation={onStartPresentation}
+        onCopyLink={handleCopyLink}
+        onExportHtml={handleExportHtml}
+        onExportPdf={handleExportPdf}
+        moreMenuRef={moreMenuRef}
+        showMoreMenu={showMoreMenu}
+        setShowMoreMenu={setShowMoreMenu}
+        updateDocContent={updateDocContent}
+      />
 
       {/* ===== 第二层：可展开/收缩的格式工具栏 ===== */}
       <div className={`eh-toolbar ${effectiveExpanded ? 'expanded' : ''}`}>
         <div className="eh-toolbar-row eh-toolbar-row-primary">
           <div className="eh-toolbar-left">
+            {/* 添加内容按钮 */}
             <div className="eh-dropdown" ref={addMenuRef}>
               <button
                 className="eh-add-btn"
@@ -465,40 +296,38 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
               )}
             </div>
 
-            <IconBtn title="撤销 (Ctrl+Z)" onClick={undo} disabled={!canUndo}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="1 4 1 10 7 10" />
-                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-              </svg>
-            </IconBtn>
-
-            {!hideRedo && (
-              <IconBtn title="重做 (Ctrl+Y)" onClick={redo} disabled={!canRedo}>
+            {/* 分组1：历史操作 */}
+            <div className="eh-toolbar-group">
+              <IconBtn title={`撤销 (${modKey}+Z)`} onClick={undo} disabled={!canUndo}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+                  <polyline points="1 4 1 10 7 10" />
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
                 </svg>
               </IconBtn>
-            )}
 
-            {!hideFormatPainter && (
-              <IconBtn title="格式刷" onClick={() => applyFormat('formatPainter')}>
+              {!hideRedo && (
+                <IconBtn title={`重做 (${modKey}+Y)`} onClick={redo} disabled={!canRedo}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+                  </svg>
+                </IconBtn>
+              )}
+            </div>
+
+            <div className="eh-group-divider" />
+
+            {/* 分组2：插入功能 */}
+            <div className="eh-toolbar-group">
+              <IconBtn title="插入链接" onClick={() => applyFormat('link')}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 11h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z" />
-                  <path d="M5 4h11a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
-                  <line x1="9" y1="11" x2="9" y2="17" />
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                 </svg>
               </IconBtn>
-            )}
+            </div>
 
-            <IconBtn title="插入链接" onClick={() => applyFormat('link')}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-            </IconBtn>
-
-            <span className="eh-divider" />
+            <div className="eh-group-divider" />
 
             <div className="eh-dropdown" ref={headingMenuRef}>
               <button
@@ -553,27 +382,27 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
 
             <span className="eh-divider" />
 
-            <IconBtn title="粗体 (Ctrl+B)" onClick={() => applyFormat('bold')} active={activeFormats.has('bold')}>
+            <IconBtn title={`粗体 (${modKey}+B)`} onClick={() => applyFormat('bold')} active={activeFormats.has('bold')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
                 <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
               </svg>
             </IconBtn>
-            <IconBtn title="斜体 (Ctrl+I)" onClick={() => applyFormat('italic')} active={activeFormats.has('italic')}>
+            <IconBtn title={`斜体 (${modKey}+I)`} onClick={() => applyFormat('italic')} active={activeFormats.has('italic')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="19" y1="4" x2="10" y2="4" />
                 <line x1="14" y1="20" x2="5" y2="20" />
                 <line x1="15" y1="4" x2="9" y2="20" />
               </svg>
             </IconBtn>
-            <IconBtn title="删除线" onClick={() => applyFormat('strike')} active={activeFormats.has('strike')}>
+            <IconBtn title={`删除线 (${modKey}+Shift+X)`} onClick={() => applyFormat('strike')} active={activeFormats.has('strike')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M16 4H9a3 3 0 0 0-3 3 3 3 0 0 0 3 3h6" />
                 <line x1="4" y1="12" x2="20" y2="12" />
                 <path d="M15 12a3 3 0 1 1 0 6H8" />
               </svg>
             </IconBtn>
-            <IconBtn title="下划线" onClick={() => applyFormat('underline')}>
+            <IconBtn title={`下划线 (${modKey}+U)`} onClick={() => applyFormat('underline')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M6 3v7a6 6 0 0 0 12 0V3" />
                 <line x1="4" y1="21" x2="20" y2="21" />
@@ -582,6 +411,7 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
 
             <div className="eh-dropdown">
               <button
+                ref={(el) => { colorTriggerRefs.current[0] = el; }}
                 className="eh-icon-btn eh-btn-text eh-color-trigger"
                 onClick={() => setShowColorPicker(showColorPicker === 'text' ? null : 'text')}
                 title="文字颜色"
@@ -595,6 +425,7 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
 
             <div className="eh-dropdown">
               <button
+                ref={(el) => { colorTriggerRefs.current[1] = el; }}
                 className="eh-icon-btn eh-color-trigger"
                 onClick={() => setShowColorPicker(showColorPicker === 'highlight' ? null : 'highlight')}
                 title="高亮颜色"
@@ -678,6 +509,49 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
           </div>
 
           <div className="eh-toolbar-right">
+            {onTogglePreviewMode && (
+              <button
+                className={`eh-icon-btn eh-preview-btn ${previewMode !== 'edit' ? 'active' : ''}`}
+                onClick={onTogglePreviewMode}
+                title={`预览模式 (${modKey}+Shift+P)\n当前: ${previewMode === 'edit' ? '仅编辑' : previewMode === 'preview' ? '仅预览' : '分屏'}\n点击切换模式`}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  {previewMode === 'edit' ? (
+                    // 编辑图标：铅笔
+                    <>
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </>
+                  ) : previewMode === 'preview' ? (
+                    // 预览图标：眼睛
+                    <>
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </>
+                  ) : (
+                    // 分屏图标：左右分割
+                    <>
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                      <line x1="12" y1="3" x2="12" y2="21" />
+                      <line x1="3" y1="12" x2="12" y2="12" />
+                      <line x1="12" y1="12" x2="21" y2="12" />
+                    </>
+                  )}
+                </svg>
+              </button>
+            )}
+            {onToggleFocusMode && (
+              <button
+                className={`eh-icon-btn eh-focus-btn ${isFocusMode ? 'active' : ''}`}
+                onClick={onToggleFocusMode}
+                title={`专注模式 (${modKey}+Shift+E)\n${isFocusMode ? '退出专注模式' : '进入专注模式'}`}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+            )}
             <button
               className="eh-icon-btn eh-expand-btn"
               onClick={() => !isMobile && setToolbarExpanded(!toolbarExpanded)}
@@ -778,3 +652,6 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
     </header>
   );
 };
+
+/** memo 化：击键仅影响 docTitle 等少量字段，其余场景跳过组件的内部重渲染 */
+export const EditorHeader = memo(EditorHeaderInner);

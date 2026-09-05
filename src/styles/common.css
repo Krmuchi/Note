@@ -355,3 +355,260 @@
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
 }
+
+/* ----- 空状态组件 ----- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+  min-height: 200px;
+}
+
+.empty-state-icon-wrapper {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-2xl);
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-6);
+  animation: emptyStateFloat 3s ease-in-out infinite;
+}
+
+@keyframes emptyStateFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.empty-state-icon {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.empty-state-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+
+.empty-state-description {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  margin: 0 0 var(--space-6);
+  max-width: 300px;
+  line-height: var(--line-height-relaxed);
+}
+
+.empty-state-actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.empty-state-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 1px solid transparent;
+}
+
+.empty-state-btn.primary {
+  background: var(--primary-500);
+  color: var(--text-inverse);
+}
+
+.empty-state-btn.primary:hover {
+  background: var(--primary-600);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.empty-state-btn.secondary {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.empty-state-btn.secondary:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--primary-300);
+}
+
+.empty-state-btn-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .empty-state {
+    padding: var(--space-8) var(--space-4);
+  }
+
+  .empty-state-icon-wrapper {
+    width: 64px;
+    height: 64px;
+  }
+
+  .empty-state-icon {
+    font-size: 28px;
+  }
+}
+
+/* ----- 微交互动画类 ----- */
+
+/* 按钮点击反馈 */
+.btn-interactive {
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-interactive:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-interactive:active {
+  animation: buttonPress 0.2s ease;
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+/* 列表项动画 */
+.list-item-animated {
+  animation: listItemEnter 0.3s ease forwards;
+}
+
+.list-item-animated.exiting {
+  animation: listItemExit 0.3s ease forwards;
+}
+
+/* 面板动画 */
+.panel-animated {
+  animation: panelExpand 0.2s ease forwards;
+}
+
+.panel-animated.closing {
+  animation: panelCollapse 0.2s ease forwards;
+}
+
+/* 成功反馈 */
+.success-feedback {
+  animation: successPulse 0.3s ease;
+}
+
+/* 错误反馈 */
+.error-feedback {
+  animation: errorShake 0.4s ease;
+}
+
+/* 涟漪效果容器 */
+.ripple-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple-effect {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(0);
+  animation: ripple 0.6s linear;
+  pointer-events: none;
+}
+
+/* 悬停提升效果 */
+.hover-lift {
+  transition: all var(--transition-fast);
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* 悬停发光效果 */
+.hover-glow {
+  transition: all var(--transition-fast);
+}
+
+.hover-glow:hover {
+  box-shadow: 0 0 20px rgba(22, 119, 255, 0.15);
+}
+
+/* 平滑展开/收起 */
+.collapse-transition {
+  transition: max-height 0.3s ease, opacity 0.3s ease;
+  overflow: hidden;
+}
+
+.collapse-transition.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* 加载状态动画 */
+.loading-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.loading-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* 拖拽预览效果 */
+.drag-preview {
+  opacity: 0.8;
+  transform: rotate(2deg) scale(1.02);
+  box-shadow: var(--shadow-xl);
+  transition: all var(--transition-fast);
+}
+
+/* 选中状态动画 */
+.selected-glow {
+  box-shadow: 0 0 0 2px var(--primary-500);
+  transition: box-shadow var(--transition-fast);
+}
+
+/* 渐入渐出 */
+.fade-in {
+  animation: fadeIn var(--transition-base) forwards;
+}
+
+.fade-out {
+  animation: fadeIn var(--transition-base) reverse forwards;
+}
+
+/* 滑入滑出 */
+.slide-in-right {
+  animation: slideInRight var(--transition-base) forwards;
+}
+
+.slide-in-left {
+  animation: slideInLeft var(--transition-base) forwards;
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}

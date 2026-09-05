@@ -1,9 +1,9 @@
 import type { StateCreator } from 'zustand'
-import type { SearchHistory, SearchSuggestion, SearchFilter, SearchResult } from '@/types'
+import type { SearchHistory, SearchSuggestion, SearchFilter, SearchResult, NoteDoc } from '@/types'
 import type { NotesStore } from '@/store/types'
 import { newId } from '@/store/storeUtils'
 
-const tokenizeChinese = (text: string): string[] => {
+export const tokenizeChinese = (text: string): string[] => {
   const tokens: string[] = []
   let currentToken = ''
 
@@ -35,11 +35,13 @@ const tokenizeChinese = (text: string): string[] => {
 
 export interface SearchSlice {
   searchHistory: SearchHistory[]
-  search: (query: string, filters?: SearchFilter) => SearchResult[]
+  search: (query: string, filters?: SearchFilter, limit?: number) => SearchResult[]
   getSearchSuggestions: (query: string) => SearchSuggestion[]
   addSearchHistory: (query: string, resultCount: number) => void
   clearSearchHistory: () => void
   removeSearchHistoryItem: (id: string) => void
+  togglePinSearchHistory: (id: string) => void
+  getPopularSearches: (limit?: number) => SearchHistory[]
 }
 
 type SearchSliceCreator = StateCreator<
@@ -49,10 +51,38 @@ type SearchSliceCreator = StateCreator<
   SearchSlice
 >
 
+/**
+ * 文档可搜索文本缓存（小写形式）。
+ * 全文搜索原实现对每个文档每次查询都重复做整篇 content 的 toLowerCase（多次大字符串分配，
+ * 复杂度 O(文档数 × 内容大小 × 词条数)）。以文档对象为键 + updatedAt 失效缓存小写文本，
+ * 文档未变更时搜索零拷贝。
+ */
+interface CachedSearchText {
+  updatedAt: string
+  title: string
+  content: string
+}
+
+const searchTextCache = new WeakMap<NoteDoc, CachedSearchText>()
+
+const getSearchableText = (doc: NoteDoc): CachedSearchText => {
+  const cached = searchTextCache.get(doc)
+  if (cached && cached.updatedAt === doc.updatedAt) {
+    return cached
+  }
+  const next: CachedSearchText = {
+    updatedAt: doc.updatedAt,
+    title: doc.title.toLowerCase(),
+    content: (doc.content || '').toLowerCase(),
+  }
+  searchTextCache.set(doc, next)
+  return next
+}
+
 export const createSearchSlice: SearchSliceCreator = (set, get) => ({
   searchHistory: [],
 
-  search: (query, filters) => {
+  search: (query, filters, limit = 50) => {
     const { notebooks, tags } = get()
     const results: SearchResult[] = []
 
@@ -83,9 +113,9 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
 
     const terms = parseQuery(query)
 
-    const matchesQuery = (text: string | undefined): boolean => {
-      if (!text) return false
-      const lowerText = text.toLowerCase()
+    // 接收已小写的文本，避免每次匹配重复 toLowerCase 整篇内容
+    const matchesQuery = (lowerText: string | undefined): boolean => {
+      if (!lowerText) return false
 
       return terms.every(({ term, isNot, isExact }) => {
         let found: boolean
@@ -112,13 +142,22 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
     const matchesDateFilter = (updatedAt: string) => {
       if (!filters?.dateRange) return true
       const docDate = new Date(updatedAt)
-      const startDate = new Date(filters.dateRange.start)
-      const endDate = new Date(filters.dateRange.end)
-      return docDate >= startDate && docDate <= endDate
+      if (Number.isNaN(docDate.getTime())) return false
+      // 起止日期可能只填一边，缺失的一侧不做限制，避免 Invalid Date 把所有结果过滤掉
+      const startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : null
+      const endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : null
+      if (startDate && !Number.isNaN(startDate.getTime()) && docDate < startDate) return false
+      if (endDate && !Number.isNaN(endDate.getTime())) {
+        // 结束日期按当天 23:59:59 处理，确保当天的文档能被搜到
+        const endOfDay = new Date(endDate)
+        endOfDay.setHours(23, 59, 59, 999)
+        if (docDate > endOfDay) return false
+      }
+      return true
     }
 
-    const getSnippet = (content: string, term: string, radius: number = 40): string => {
-      const lowerContent = content.toLowerCase()
+    // 复用调用方缓存的小写文本做片段定位，避免每词条再整篇 toLowerCase 一次
+    const getSnippet = (content: string, lowerContent: string, term: string, radius: number = 40): string => {
       const lowerTerm = term.toLowerCase()
       const idx = lowerContent.indexOf(lowerTerm)
       if (idx === -1) {
@@ -139,33 +178,43 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
     }
 
     notebooks.forEach(notebook => {
+      // type 过滤对两类结果都要生效：选"只搜知识库"时不应再返回文档，反之亦然
       if (filters?.type === 'all' || filters?.type === 'notebook') {
-        if (matchesQuery(notebook.title)) {
+        if (matchesQuery(notebook.title.toLowerCase())) {
+          // 取最新文档的更新时间（原实现取首个文档，排序失真）
+          const latestDocTime = notebook.docs.reduce<string | null>(
+            (max, d) => (!max || d.updatedAt > max ? d.updatedAt : max),
+            null,
+          )
           results.push({
             type: 'notebook',
             id: notebook.id,
             title: notebook.title,
             tags: [],
-            updatedAt: notebook.docs[0]?.updatedAt || new Date().toISOString(),
+            updatedAt: latestDocTime || new Date().toISOString(),
           })
         }
       }
 
-      notebook.docs.forEach(doc => {
-        const tagNames = doc.tags.map(tagId => tags.find(t => t.id === tagId)?.name || '').join(' ')
-        const fullText = `${doc.title} ${doc.content || ''} ${tagNames}`
+      if (filters?.type === 'notebook') return
 
-        if (matchesQuery(fullText) && matchesTagFilter(doc.tags) && matchesDateFilter(doc.updatedAt)) {
+      notebook.docs.forEach(doc => {
+        const cached = getSearchableText(doc)
+        const tagNames = doc.tags.map(tagId => tags.find(t => t.id === tagId)?.name || '').join(' ')
+        // 全文（已小写）：标题 + 内容缓存 + 标签名
+        const fullTextLower = `${cached.title} ${cached.content} ${tagNames.toLowerCase()}`
+
+        if (matchesQuery(fullTextLower) && matchesTagFilter(doc.tags) && matchesDateFilter(doc.updatedAt)) {
           const highlights: { field: string; text: string }[] = []
 
-          if (doc.title && terms.some(t => doc.title.toLowerCase().includes(t.term))) {
+          if (doc.title && terms.some(t => cached.title.includes(t.term))) {
             highlights.push({ field: 'title', text: doc.title })
           }
           if (doc.content) {
             const seenSnippets = new Set<string>()
             terms.forEach(t => {
               if (t.isNot) return
-              const snippet = getSnippet(doc.content!, t.term)
+              const snippet = getSnippet(doc.content!, cached.content, t.term)
               if (snippet && !seenSnippets.has(snippet)) {
                 seenSnippets.add(snippet)
                 highlights.push({ field: 'content', text: snippet })
@@ -187,7 +236,9 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
       })
     })
 
-    return results.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    return results
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, limit)
   },
 
   getSearchSuggestions: (query) => {
@@ -242,16 +293,22 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
       if (existing) {
         existing.timestamp = new Date().toISOString()
         existing.resultCount = resultCount
+        existing.useCount = (existing.useCount || 0) + 1
       } else {
         const newHistory: SearchHistory = {
           id: newId(),
           query,
           timestamp: new Date().toISOString(),
           resultCount,
+          pinned: false,
+          useCount: 1,
         }
         state.searchHistory.unshift(newHistory)
         if (state.searchHistory.length > 20) {
-          state.searchHistory = state.searchHistory.slice(0, 20)
+          // 保留置顶的项目
+          const pinned = state.searchHistory.filter(h => h.pinned)
+          const unpinned = state.searchHistory.filter(h => !h.pinned)
+          state.searchHistory = [...pinned, ...unpinned.slice(0, 20 - pinned.length)]
         }
       }
     })
@@ -267,5 +324,21 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
     set((state) => {
       state.searchHistory = state.searchHistory.filter(h => h.id !== id)
     })
+  },
+
+  togglePinSearchHistory: (id) => {
+    set((state) => {
+      const item = state.searchHistory.find(h => h.id === id)
+      if (item) {
+        item.pinned = !item.pinned
+      }
+    })
+  },
+
+  getPopularSearches: (limit = 5) => {
+    const { searchHistory } = get()
+    return [...searchHistory]
+      .sort((a, b) => (b.useCount || 0) - (a.useCount || 0))
+      .slice(0, limit)
   },
 })

@@ -78,8 +78,10 @@
 
 .sidebar-tooltip {
   position: fixed;
-  background: var(--gray-800);
-  color: #ffffff;
+  /* 暗色主题 --gray-800 是浅灰色，配白字对比度不足；改用主题浮层变量保证亮暗可读 */
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
@@ -97,7 +99,7 @@
   top: 50%;
   transform: translateY(-50%);
   border: 4px solid transparent;
-  border-right-color: var(--gray-800);
+  border-right-color: var(--border-color);
 }
 
 .sidebar-header {
@@ -230,7 +232,7 @@
   border-radius: 50%;
   border: none;
   background: var(--primary-color);
-  color: #ffffff;
+  color: var(--text-inverse);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -462,6 +464,7 @@
 
 .notebook-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -568,17 +571,16 @@
   position: relative;
 }
 
-.more-menu {
-  position: absolute;
-  bottom: 100%;
-  right: var(--space-2);
+.sidebar-footer .more-menu {
+  position: fixed;
+  bottom: 56px;
+  left: 10px;
   width: 200px;
   background: var(--bg-elevated);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   padding: var(--space-2) 0;
-  margin-bottom: var(--space-2);
-  z-index: 100;
+  z-index: 1000;
   border: 1px solid var(--border-color);
   animation: fadeInUp var(--transition-base);
 }
@@ -635,7 +637,7 @@
 
 .more-menu-badge {
   background: var(--error-500);
-  color: #ffffff;
+  color: var(--text-inverse);
   font-size: var(--font-size-xs);
   padding: 1px 6px;
   border-radius: var(--radius-round);

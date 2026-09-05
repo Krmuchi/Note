@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { ShareLink } from "@/types";
 
 /**
@@ -54,6 +54,7 @@ export default function SharePanel({
   const [showPassword, setShowPassword] = useState(false);
   const [expireOption, setExpireOption] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const copiedTimerRef = useRef<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -79,12 +80,13 @@ export default function SharePanel({
   };
 
   /**
-   * 处理复制链接
+   * 处理复制链接（记录定时器 id，避免面板关闭后 setState）
    */
   const handleCopy = (url: string) => {
     onCopyLink(url);
     setCopiedUrl(url);
-    setTimeout(() => setCopiedUrl(null), 2000);
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = window.setTimeout(() => setCopiedUrl(null), 2000);
   };
 
   /**
@@ -152,6 +154,10 @@ export default function SharePanel({
           {/* 新建分享链接 */}
           <div className="share-section">
             <h4 className="share-section-title">新建分享链接</h4>
+            <div className="share-local-hint">
+              <span className="hint-icon">ℹ️</span>
+              <span className="hint-text">生成的链接为本地预览标识，可用于导出分享，不支持在线访问</span>
+            </div>
             
             <div className="share-form">
               {/* 权限选择 */}

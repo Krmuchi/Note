@@ -1,0 +1,283 @@
+/* Markdown 预览样式 */
+
+.markdown-preview {
+  padding: 24px 32px;
+  overflow-y: auto;
+  line-height: 1.7;
+  color: var(--text-primary);
+  font-size: 15px;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-color);
+  flex: 1;
+  min-height: 0;
+}
+
+.markdown-preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-placeholder);
+  font-size: 14px;
+}
+
+/* 标题样式 */
+.markdown-preview h1 {
+  font-size: 2em;
+  font-weight: 700;
+  margin: 1em 0 0.5em;
+  padding-bottom: 0.3em;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.markdown-preview h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.markdown-preview h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+}
+
+.markdown-preview h4 {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 0.5em 0 0.2em;
+}
+
+.markdown-preview h5,
+.markdown-preview h6 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.4em 0 0.2em;
+  color: var(--text-secondary);
+}
+
+/* 段落和文本 */
+.markdown-preview p {
+  margin: 0.8em 0;
+}
+
+.markdown-preview strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.markdown-preview em {
+  font-style: italic;
+}
+
+.markdown-preview del {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+
+/* 链接 */
+.markdown-preview a {
+  color: var(--primary-500);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.markdown-preview a:hover {
+  border-bottom-color: var(--primary-500);
+}
+
+/* 列表 */
+.markdown-preview ul,
+.markdown-preview ol {
+  margin: 0.8em 0;
+  padding-left: 2em;
+}
+
+.markdown-preview li {
+  margin: 0.3em 0;
+}
+
+.markdown-preview ul li {
+  list-style-type: disc;
+}
+
+.markdown-preview ol li {
+  list-style-type: decimal;
+}
+
+/* 任务列表 */
+.markdown-preview ul li:has(input[type="checkbox"]) {
+  list-style-type: none;
+  margin-left: -1.5em;
+}
+
+.markdown-preview input[type="checkbox"] {
+  margin-right: 0.5em;
+  accent-color: var(--primary-500);
+}
+
+/* 引用块 */
+.markdown-preview blockquote {
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  border-left: 4px solid var(--primary-500);
+  background: var(--bg-secondary);
+  border-radius: 0 4px 4px 0;
+  color: var(--text-secondary);
+}
+
+.markdown-preview blockquote p {
+  margin: 0.3em 0;
+}
+
+/* 代码 */
+.markdown-preview code {
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+  font-size: 0.9em;
+  padding: 0.2em 0.4em;
+  background: var(--bg-secondary);
+  border-radius: 3px;
+  color: var(--error-500);
+}
+
+.markdown-preview pre {
+  margin: 1em 0;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.markdown-preview pre code {
+  display: block;
+  padding: 1em;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ===== 代码块高亮（CodeBlock 组件）=====
+   配色随主题：亮色用浅底深字，暗色用深底浅字。
+   Token 类由 MarkdownPreview 的单趟 tokenizer 生成。 */
+.md-codeblock {
+  margin: 1em 0;
+  border-radius: 6px;
+  font-size: 14px;
+  overflow: auto;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
+}
+
+.md-codeblock pre {
+  margin: 0;
+  padding: 1em;
+  overflow: auto;
+  color: var(--text-primary);
+  font-family: 'Fira Code', Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  tab-size: 4;
+  white-space: pre;
+}
+
+.md-codeblock code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.md-codeblock .tok-kw {
+  color: var(--primary-500);
+  font-weight: 600;
+}
+
+.md-codeblock .tok-str {
+  color: var(--success-600);
+}
+
+.md-codeblock .tok-num {
+  color: var(--warning-600);
+}
+
+.md-codeblock .tok-comment {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* ===== 行内高亮标记（<mark>）=====
+   底色/文字色随主题，避免暗色下白字配浅黄底不可读 */
+.md-mark-highlight,
+.markdown-preview mark {
+  background: var(--warning-100);
+  color: var(--warning-600);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* 表格 */
+.markdown-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 14px;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  padding: 0.6em 1em;
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.markdown-preview th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+
+.markdown-preview tr:nth-child(even) {
+  background: var(--bg-secondary);
+}
+
+/* 水平线 */
+.markdown-preview hr {
+  margin: 1.5em 0;
+  border: none;
+  border-top: 2px solid var(--border-color);
+}
+
+/* 图片 */
+.markdown-preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 1em 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .markdown-preview {
+    padding: 16px;
+    font-size: 14px;
+  }
+
+  .markdown-preview h1 {
+    font-size: 1.6em;
+  }
+
+  .markdown-preview h2 {
+    font-size: 1.3em;
+  }
+
+  .markdown-preview h3 {
+    font-size: 1.1em;
+  }
+}

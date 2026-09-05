@@ -46,8 +46,16 @@ export default function TagEditModal({
     onClose();
   };
 
-  // 过滤掉当前编辑的标签（避免自己作为父标签）
-  const parentTags = availableTags.filter(t => t.id !== tag?.id);
+  // 过滤掉当前编辑的标签及其所有后代（选中后代作为父标签会形成环，导致层级渲染递归溢出）
+  const forbiddenIds = new Set<string>();
+  if (tag) {
+    const collectDescendants = (id: string) => {
+      forbiddenIds.add(id);
+      availableTags.filter(t => t.parentId === id).forEach(t => collectDescendants(t.id));
+    };
+    collectDescendants(tag.id);
+  }
+  const parentTags = availableTags.filter(t => !forbiddenIds.has(t.id));
 
   return (
     <div className="tag-modal-overlay" onClick={onClose}>

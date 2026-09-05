@@ -19,6 +19,8 @@ export interface UndoRedoSlice {
   pushRedoSnapshot: (docId: string, snapshot: DocSnapshot) => void
   popRedoSnapshot: (docId: string) => DocSnapshot | null
   clearHistory: (docId: string) => void
+  /** 仅清空重做栈（新编辑使"未来"失效，但保留撤销历史） */
+  clearRedoStack: (docId: string) => void
 }
 
 type UndoRedoSliceCreator = StateCreator<
@@ -77,6 +79,14 @@ export const createUndoRedoSlice: UndoRedoSliceCreator = (set, get) => ({
   clearHistory: (docId) => {
     set((state) => {
       delete state.history[docId]
+    })
+  },
+
+  clearRedoStack: (docId) => {
+    const h = get().history[docId]
+    if (!h || h.future.length === 0) return
+    set((state) => {
+      state.history[docId].future = []
     })
   },
 })

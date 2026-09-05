@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const path = require("node:path");
-const fs = require("node:fs/promises");
-const JSZip = require("jszip");
+const { createStorageHandlers } = require("./ipc/handlers-storage.cjs");
+const { createExportHandlers } = require("./ipc/handlers-export.cjs");
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
 let dataPath = null;
@@ -10,6 +10,25 @@ let dataPath = null;
 let mainWindow = null;
 
 console.log("[main] starting main process", { node: process.version, platform: process.platform, argv: process.argv });
+
+// 修复白屏：部分环境（远程桌面/虚拟机/受限沙箱/显卡驱动异常）下 GPU 进程会反复崩溃
+// （日志表现为 "GPU process exited unexpectedly" 直至 "GPU process isn't usable. Goodbye."），
+// 导致窗口创建后无法绘制任何内容，呈现白屏。
+// 笔记类应用对 GPU 渲染无强需求，禁用硬件加速可彻底规避这一类问题。
+// disableHardwareAcceleration 在部分 Chromium 版本下不足以阻止 GPU 进程初始化，
+// 因此同时追加 --disable-gpu 命令行开关双保险。
+// 如确认本机 GPU 正常且需要 GPU 渲染（如复杂动画），可设置环境变量 NOTES_ENABLE_GPU=1 恢复。
+if (process.env.NOTES_ENABLE_GPU !== "1") {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch("disable-gpu");
+}
+
+// GPU 进程崩溃兜底：若运行时 GPU 进程仍然崩溃，降级为软件渲染而不是直接退出
+app.on("child-process-gone", (_event, details) => {
+  if (details.type === "GPU") {
+    console.warn("[main] GPU process gone, reason:", details.reason, "- 继续使用软件渲染");
+  }
+});
 
 process.on('uncaughtException', (err) => {
   console.error('[main] uncaughtException', err && err.stack ? err.stack : err);
@@ -43,51 +62,6 @@ const defaultData = {
   trash: [],
 };
 
-async function ensureStoreFile() {
-  try {
-    await fs.access(dataPath);
-  } catch {
-    await fs.mkdir(path.dirname(dataPath), { recursive: true });
-    await fs.writeFile(dataPath, JSON.stringify(defaultData, null, 2), "utf-8");
-  }
-}
-
-async function readStore() {
-  await ensureStoreFile();
-  const raw = await fs.readFile(dataPath, "utf-8");
-  return JSON.parse(raw);
-}
-
-async function writeStore(payload) {
-  const tempPath = dataPath + ".tmp";
-  await fs.writeFile(tempPath, JSON.stringify(payload, null, 2), "utf-8");
-  await fs.rename(tempPath, dataPath);
-  return payload;
-}
-
-async function createBackup() {
-  try {
-    const backupDir = path.join(app.getPath("userData"), "backups");
-    await fs.mkdir(backupDir, { recursive: true });
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupPath = path.join(backupDir, `backup-${timestamp}.json`);
-    
-    const raw = await fs.readFile(dataPath, "utf-8");
-    await fs.writeFile(backupPath, raw, "utf-8");
-    
-    const files = await fs.readdir(backupDir);
-    if (files.length > 10) {
-      const sorted = files.sort();
-      const toDelete = sorted.slice(0, files.length - 10);
-      await Promise.all(toDelete.map(f => fs.unlink(path.join(backupDir, f))));
-    }
-  } catch (err) {
-    console.warn("Backup creation failed:", err);
-  }
-}
-
-const safeName = (name) => (name || "note").replace(/[\\/:*?"<>|]/g, "_");
-
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -104,12 +78,45 @@ function createWindow() {
 
   if (isDev) {
     console.log("Loading dev server:", process.env.VITE_DEV_SERVER_URL);
-    win.loadURL(process.env.VITE_DEV_SERVER_URL).catch((err) => console.error("Failed to load URL:", err));
-    // 自动打开开发者工具以便调试
+    win.loadURL(process.env.VITE_DEV_SERVER_URL)
+      .then(() => console.log("[main] loadURL success"))
+      .catch((err) => console.error("[main] Failed to load URL:", err));
     win.webContents.openDevTools({ mode: "right" });
+    win.webContents.on('did-finish-load', () => console.log('[main] did-finish-load'));
+    win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+      console.error('[main] did-fail-load', errorCode, errorDescription);
+    });
   } else {
     win.loadFile(path.join(__dirname, "../dist/index.html"));
   }
+
+  win.webContents.on('will-navigate', (event, url) => {
+    const allowedHosts = isDev ? ['localhost', '127.0.0.1'] : [];
+    const parsed = new URL(url);
+    if (!allowedHosts.includes(parsed.hostname)) {
+      event.preventDefault();
+    }
+  })
+
+  // 渲染进程崩溃/无响应时的自愈与诊断日志，避免静默白屏
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[main] render-process-gone:', details.reason, details.exitCode);
+    if (details.reason !== 'clean-exit' && details.reason !== 'killed') {
+      win.webContents.reload();
+    }
+  });
+  win.webContents.on('unresponsive', () => {
+    console.error('[main] renderer unresponsive');
+  });
+  win.webContents.on('console-message', (_event, _level, message) => {
+    if (/error|failed/i.test(message)) {
+      console.error('[renderer]', message);
+    }
+  });
+
+  // 禁止渲染进程通过 window.open 打开新窗口（生产环境无此需求，防钓鱼/防逃逸）
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+
   // keep reference
   mainWindow = win;
   win.on('closed', () => {
@@ -119,6 +126,27 @@ function createWindow() {
 
 app.whenReady().then(() => {
   dataPath = path.join(app.getPath("userData"), "notes-data.json");
+
+  const { session } = require("electron");
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (isDev) {
+      // 开发模式：移除所有 CSP 限制，避免影响 Vite HMR
+      const headers = { ...details.responseHeaders };
+      delete headers["content-security-policy"];
+      delete headers["Content-Security-Policy"];
+      callback({ responseHeaders: headers });
+    } else {
+      // 生产模式：保持严格 CSP
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Content-Security-Policy": [
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; font-src 'self' data:; connect-src 'self' ws:;",
+          ],
+        },
+      });
+    }
+  });
 
   // 设置中文菜单（开发模式下也可见）
   try {
@@ -179,141 +207,11 @@ app.whenReady().then(() => {
     console.warn("设置应用菜单失败", err);
   }
 
-  ipcMain.handle("notes:load", async () => {
-    return readStore();
-  });
+  const storage = createStorageHandlers({ app, ipcMain, getDataPath: () => dataPath, defaultData });
+  const exporter = createExportHandlers({ ipcMain, BrowserWindow, dialog, JSZip: require("jszip") });
 
-  ipcMain.handle("notes:save", async (_event, payload) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid save payload');
-    }
-    const result = await writeStore(payload);
-    createBackup();
-    return result;
-  });
-
-  ipcMain.handle("notes:export-doc", async (_event, payload) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid export payload');
-    }
-    const win = BrowserWindow.getFocusedWindow();
-    const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
-      title: "导出 Markdown 文档",
-      defaultPath: `${safeName(payload.title)}.md`,
-      filters: [{ name: "Markdown", extensions: ["md"] }],
-    });
-    if (canceled || !filePath) return false;
-    await fs.writeFile(filePath, payload.content ?? "", "utf-8");
-    return true;
-  });
-
-  ipcMain.handle("notes:export-notebook", async (_event, payload) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid export payload');
-    }
-    const win = BrowserWindow.getFocusedWindow();
-    const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
-      title: "导出知识库 Markdown",
-      defaultPath: `${safeName(payload.title)}.md`,
-      filters: [{ name: "Markdown", extensions: ["md"] }],
-    });
-    if (canceled || !filePath) return false;
-    const text = (payload.docs ?? [])
-      .map((doc) => `# ${doc.title || "未命名文档"}\n\n${doc.content || ""}\n`)
-      .join("\n---\n\n");
-    await fs.writeFile(filePath, text, "utf-8");
-    return true;
-  });
-
-  ipcMain.handle("notes:export-notebook-zip", async (_event, payload) => {
-    if (!payload || typeof payload !== 'object') {
-      throw new Error('Invalid export payload');
-    }
-    const win = BrowserWindow.getFocusedWindow();
-    const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
-      title: "导出知识库 ZIP",
-      defaultPath: `${safeName(payload.title)}.zip`,
-      filters: [{ name: "Zip", extensions: ["zip"] }],
-    });
-    if (canceled || !filePath) return false;
-
-    const zip = new JSZip();
-    const titleCount = new Map();
-    (payload.docs ?? []).forEach((doc, index) => {
-      const base = safeName(doc.title || `文档-${index + 1}`);
-      const count = titleCount.get(base) ?? 0;
-      titleCount.set(base, count + 1);
-      const name = count > 0 ? `${base}-${count + 1}.md` : `${base}.md`;
-      zip.file(name, doc.content || "");
-    });
-    const buffer = await zip.generateAsync({ type: "nodebuffer" });
-    await fs.writeFile(filePath, buffer);
-    return true;
-  });
-
-  ipcMain.handle("notes:save-image", async (_event, payload) => {
-    try {
-      if (!payload || typeof payload !== 'object') {
-        throw new Error('Invalid image payload');
-      }
-      const { name, data } = payload || {};
-      if (!data) return "";
-      const imagesDir = path.join(app.getPath("userData"), "images");
-      await fs.mkdir(imagesDir, { recursive: true });
-      // data is expected to be a data URL: data:<mime>;base64,<base64>
-      const match = String(data).match(/^data:(.+);base64,(.*)$/);
-      let ext = path.extname(name) || "";
-      let buffer;
-      if (match) {
-        const b64 = match[2];
-        buffer = Buffer.from(b64, "base64");
-        const mime = match[1];
-        if (!ext) {
-          // rudimentary mime -> ext mapping
-          if (mime === "image/png") ext = ".png";
-          else if (mime === "image/jpeg") ext = ".jpg";
-          else if (mime === "image/gif") ext = ".gif";
-          else if (mime === "image/webp") ext = ".webp";
-          else if (mime === "image/svg+xml") ext = ".svg";
-          else {
-            // Default to png if mime type is unknown
-            ext = ".png";
-          }
-        }
-      } else {
-        // if not data URL, assume base64 raw
-        buffer = Buffer.from(String(data), "base64");
-      }
-      
-      // Validate file extension to prevent malicious uploads
-      const allowedExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'];
-      if (!allowedExtensions.includes(ext.toLowerCase())) {
-        throw new Error(`Invalid file extension: ${ext}. Only image files are allowed.`);
-      }
-      
-      // Sanitize filename to prevent path traversal attacks
-      const cleanBaseName = path.basename(name, path.extname(name))
-        .replace(/[^a-zA-Z0-9-_]/g, '_')
-        .substring(0, 100); // Limit length to prevent extremely long filenames
-      
-      const filename = `${cleanBaseName}-${Date.now()}${ext}`;
-      const dest = path.join(imagesDir, filename);
-      
-      // Double-check that the destination is within the intended directory
-      const resolvedDest = path.resolve(dest);
-      const resolvedImagesDir = path.resolve(imagesDir);
-      if (!resolvedDest.startsWith(resolvedImagesDir + path.sep) && resolvedDest !== resolvedImagesDir) {
-        throw new Error("Invalid file path - path traversal detected");
-      }
-      
-      await fs.writeFile(dest, buffer);
-      // return file:// URL for renderer
-      return `file://${dest.replace(/\\/g, "/")}`;
-    } catch (err) {
-      console.error("save-image failed", err);
-      return "";
-    }
-  });
+  storage.register();
+  exporter.register();
 
   createWindow();
 

@@ -1,19 +1,20 @@
 // 导入 React 相关 hooks 和类型定义
 import { useState, useMemo } from "react";
+import { useNotesStore } from "@/store";
+import { formatDateTime } from "@/utils/formatters";
 import type { NoteDoc, Notebook } from "@/types";
 import type { Template } from "@/types/templates";
 import TemplateCenter from "@/components/templates/TemplateCenter";
+import AiWriter from "@/components/ai/AiWriter";
 
 /**
  * 开始页组件属性接口
  */
 interface StartPageProps {
-  notebooks: Notebook[];                                    // 知识库列表
   recentViews: { docId: string; notebookId: string; viewedAt: string }[]; // 最近浏览记录
   onViewDoc: (notebookId: string, docId: string) => void;   // 查看文档回调
   onCreateDoc: (notebookId: string, parentId: string | null, docData?: Partial<NoteDoc>) => void; // 新建文档回调
   onCreateNotebook: (title: string) => void;                // 新建知识库回调
-  onOpenTemplates: () => void;                              // 打开模板中心回调
 }
 
 // 文档过滤类型
@@ -22,71 +23,94 @@ type FilterType = "edited" | "viewed" | "mentioned" | "liked" | "commented" | "c
 /**
  * 快捷操作配置
  */
-const quickActions = [
+interface QuickAction {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  hasDropdown: boolean;
+  /** 未启用时卡片置灰且不可点击 */
+  enabled?: boolean;
+  /** 标记"即将推出" */
+  comingSoon?: boolean;
+}
+
+const quickActions: QuickAction[] = [
   {
     id: "new-doc",
     title: "新建文档",
-    description: "文档、表格、画板、数据表",
+    description: "快速创建一篇新文档",
     icon: "📄",
-    hasDropdown: true,
-    menuItems: ["新建文档", "新建表格", "新建画板", "新建数据表"]
+    hasDropdown: false,
+    enabled: true,
   },
   {
     id: "new-notebook",
     title: "新建知识库",
     description: "使用知识库整理知识",
     icon: "📚",
-    hasDropdown: false
+    hasDropdown: false,
+    enabled: true,
   },
   {
     id: "templates",
     title: "模板中心",
     description: "从模板中获取灵感",
     icon: "🎨",
-    hasDropdown: false
+    hasDropdown: false,
+    enabled: true,
   },
   {
     id: "ai-write",
     title: "AI 帮你写",
     description: "AI 助手帮你一键生成文档",
     icon: "🤖",
-    hasDropdown: false
+    hasDropdown: false,
+    enabled: true,
   }
 ];
 
 /**
  * 过滤标签配置
  */
-const filterTabs: { id: FilterType; label: string }[] = [
+const filterTabs: { id: FilterType; label: string; enabled?: boolean }[] = [
   { id: "edited", label: "编辑过" },
   { id: "viewed", label: "浏览过" },
-  { id: "mentioned", label: "提到我" },
   { id: "liked", label: "我点赞的" },
   { id: "commented", label: "我评论过" },
-  { id: "collaborated", label: "邀我协作" },
-  { id: "shared", label: "分享中的" }
+  { id: "shared", label: "分享中的" },
+  { id: "mentioned", label: "提到我", enabled: false },
+  { id: "collaborated", label: "邀我协作", enabled: false },
 ];
 
 /**
  * 开始页主组件
  */
 export default function StartPage({
-  notebooks,
   recentViews,
   onViewDoc,
   onCreateDoc,
-  onCreateNotebook,
-  onOpenTemplates
+  onCreateNotebook
 }: StartPageProps) {
+  // 组件内自行订阅 notebooks，避免 App 顶层订阅整个 notebooks 导致每次击键全 App 重渲染
+  const notebooks = useNotesStore((s) => s.notebooks);
   const [activeFilter, setActiveFilter] = useState<FilterType>("edited"); // 当前激活的过滤器
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [showAiWriter, setShowAiWriter] = useState(false);
+  const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(null); // 按知识库筛选
 
   /**
    * 根据过滤器类型过滤文档列表
    */
   const filteredDocs = useMemo((): (NoteDoc & { notebook?: Notebook; viewedAt?: string })[] => {
+    // 按知识库筛选
+    const filteredNotebooks = selectedNotebookId
+      ? notebooks.filter(nb => nb.id === selectedNotebookId)
+      : notebooks;
+
     if (activeFilter === "viewed") {
       return recentViews
+        .filter(view => !selectedNotebookId || view.notebookId === selectedNotebookId)
         .map(view => {
           const notebook = notebooks.find(nb => nb.id === view.notebookId);
           const doc = notebook?.docs.find(d => d.id === view.docId);
@@ -97,7 +121,7 @@ export default function StartPage({
     }
 
     const allDocs: { doc: NoteDoc; notebook: Notebook }[] = [];
-    notebooks.forEach(notebook => {
+    filteredNotebooks.forEach(notebook => {
       notebook.docs.forEach(doc => {
         allDocs.push({ doc, notebook });
       });
@@ -131,7 +155,7 @@ export default function StartPage({
           .sort((a, b) => new Date(b.doc.updatedAt).getTime() - new Date(a.doc.updatedAt).getTime())
           .map(item => ({ ...item.doc, notebook: item.notebook }));
     }
-  }, [notebooks, recentViews, activeFilter]);
+  }, [notebooks, recentViews, activeFilter, selectedNotebookId]);
 
   /**
    * 处理快捷操作点击
@@ -148,10 +172,18 @@ export default function StartPage({
     } else if (actionId === "templates") {
       // 打开模板中心
       setShowTemplateModal(true);
-      onOpenTemplates?.();
-    } else {
-      // 其他功能开发中
-      alert(`${actionId} 功能开发中`);
+    } else if (actionId === "ai-write") {
+      // 打开 AI 写作助手
+      setShowAiWriter(true);
+    }
+  };
+
+  /**
+   * 处理 AI 写作助手插入
+   */
+  const handleAiInsert = (title: string, content: string) => {
+    if (notebooks.length > 0) {
+      onCreateDoc(notebooks[0].id, null, { title, content });
     }
   };
 
@@ -194,24 +226,10 @@ export default function StartPage({
   };
 
   /**
-   * 格式化时间显示
+   * 格式化时间显示（统一使用 utils/formatters）
    */
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) {
-      return `今天 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
-    } else if (diffDays === 1) {
-      return `昨天 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
-    } else if (diffDays < 7) {
-      return `${diffDays} 天前`;
-    } else {
-      return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-    }
-  };
+  const formatTime = (dateString: string) =>
+    formatDateTime(dateString, { prefixToday: true, fallbackWithTime: true });
 
   /**
    * 获取个性化问候语
@@ -242,18 +260,18 @@ export default function StartPage({
           {quickActions.slice(0, 3).map((action) => (
             <div
               key={action.id}
-              className="quick-action-card"
-              onClick={() => handleActionClick(action.id)}
+              className={`quick-action-card ${!action.enabled ? 'disabled' : ''}`}
+              onClick={() => action.enabled && handleActionClick(action.id)}
             >
               <div className="action-header">
                 <span className="action-icon">{action.icon}</span>
                 <div className="action-info">
-                  <span className="action-title">{action.title}</span>
+                  <span className="action-title">
+                    {action.title}
+                    {action.comingSoon && <span className="coming-soon-badge">即将推出</span>}
+                  </span>
                   <span className="action-desc">{action.description}</span>
                 </div>
-                {action.hasDropdown && (
-                  <span className="action-arrow">▼</span>
-                )}
               </div>
             </div>
           ))}
@@ -263,13 +281,16 @@ export default function StartPage({
         <div className="quick-actions-row full-width">
           <div
             key={quickActions[3].id}
-            className="quick-action-card"
-            onClick={() => handleActionClick(quickActions[3].id)}
+            className={`quick-action-card ${!quickActions[3].enabled ? 'disabled' : ''}`}
+            onClick={() => quickActions[3].enabled && handleActionClick(quickActions[3].id)}
           >
             <div className="action-header">
               <span className="action-icon">{quickActions[3].icon}</span>
               <div className="action-info">
-                <span className="action-title">{quickActions[3].title}</span>
+                <span className="action-title">
+                  {quickActions[3].title}
+                  {quickActions[3].comingSoon && <span className="coming-soon-badge">即将推出</span>}
+                </span>
                 <span className="action-desc">{quickActions[3].description}</span>
               </div>
             </div>
@@ -288,34 +309,27 @@ export default function StartPage({
           {filterTabs.map((tab) => (
             <button
               key={tab.id}
-              className={`filter-tab ${activeFilter === tab.id ? "active" : ""}`}
-              onClick={() => setActiveFilter(tab.id)}
+              className={`filter-tab ${activeFilter === tab.id ? "active" : ""} ${tab.enabled === false ? "disabled" : ""}`}
+              onClick={() => tab.enabled !== false && setActiveFilter(tab.id)}
+              title={tab.enabled === false ? "即将推出" : undefined}
             >
               {tab.label}
+              {tab.enabled === false && <span className="coming-soon-dot" />}
             </button>
           ))}
         </div>
 
-        {/* 右侧筛选器 */}
+        {/* 右侧筛选器 - 按知识库筛选 */}
         <div className="docs-filters-right">
-          <select className="filter-select">
-            <option>类型</option>
-            <option>全部</option>
-            <option>文档</option>
-            <option>表格</option>
-            <option>画板</option>
-          </select>
-          <select className="filter-select">
-            <option>归属</option>
-            <option>全部</option>
+          <select
+            className="filter-select"
+            value={selectedNotebookId || ''}
+            onChange={(e) => setSelectedNotebookId(e.target.value || null)}
+          >
+            <option value="">全部知识库</option>
             {notebooks.map(nb => (
-              <option key={nb.id}>{nb.title}</option>
+              <option key={nb.id} value={nb.id}>{nb.title}</option>
             ))}
-          </select>
-          <select className="filter-select">
-            <option>创建者</option>
-            <option>全部</option>
-            <option>我</option>
           </select>
         </div>
 
@@ -360,6 +374,13 @@ export default function StartPage({
           </div>
         </div>
       )}
+
+      {/* AI 写作助手 */}
+      <AiWriter
+        isOpen={showAiWriter}
+        onClose={() => setShowAiWriter(false)}
+        onInsert={handleAiInsert}
+      />
     </div>
   );
 }

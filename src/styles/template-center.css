@@ -184,14 +184,14 @@
 
 .category-btn.active {
   background: var(--primary-color);
-  color: #ffffff;
+  color: var(--text-inverse);
   border-color: var(--primary-color);
   font-weight: 500;
 }
 
 .category-btn.active .category-count {
   background: rgba(255, 255, 255, 0.25);
-  color: #ffffff;
+  color: var(--text-inverse);
 }
 
 .category-icon {
@@ -268,13 +268,15 @@
 }
 
 .template-card {
-  background: var(--bg-primary);
+  background: var(--bg-elevated);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl);
-  overflow: hidden;
+  border-radius: 12px;
+  overflow: visible;
   cursor: pointer;
-  transition: all var(--transition-base);
+  transition: all 0.2s ease;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .template-card:hover {
@@ -290,12 +292,14 @@
 .template-card-list {
   display: flex;
   align-items: stretch;
+  overflow: visible;
 }
 
 .template-card-list .template-card-preview {
   width: 80px;
   min-height: 80px;
   border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+  overflow: visible;
 }
 
 .template-card-list .template-info {
@@ -314,6 +318,7 @@
 .template-card-list .template-desc {
   flex: 1;
   margin-bottom: 0;
+  -webkit-line-clamp: 1;
 }
 
 .template-card-list .template-meta {
@@ -327,14 +332,18 @@
   align-items: center;
   justify-content: center;
   min-height: 140px;
-  background: linear-gradient(135deg, var(--primary-50), var(--bg-tertiary));
-  overflow: hidden;
+  background: var(--primary-50);
+  overflow: visible;
 }
 
 .template-icon-large {
   font-size: 48px;
-  opacity: 0.8;
+  line-height: 1;
+  opacity: 1;
   transition: transform var(--transition-base);
+  z-index: 1;
+  display: block;
+  text-align: center;
 }
 
 .template-card:hover .template-icon-large {
@@ -351,11 +360,14 @@
   background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(2px);
   opacity: 0;
-  transition: opacity var(--transition-fast);
+  visibility: hidden;
+  transition: opacity var(--transition-fast), visibility var(--transition-fast);
+  z-index: 10;
 }
 
 .template-card:hover .template-preview-overlay {
   opacity: 1;
+  visibility: visible;
 }
 
 .template-preview-overlay .preview-btn,
@@ -375,12 +387,12 @@
 }
 
 .template-preview-overlay .preview-btn:hover {
-  background: #ffffff;
+  background: var(--bg-primary);
 }
 
 .template-preview-overlay .use-btn {
   background: var(--primary-color);
-  color: #ffffff;
+  color: var(--text-inverse);
 }
 
 .template-preview-overlay .use-btn:hover {
@@ -388,64 +400,72 @@
 }
 
 .template-info {
-  padding: var(--space-3) var(--space-4);
+  padding: 12px 16px;
+  background: var(--bg-elevated);
+  flex: 1;
+  min-height: 100px;
 }
 
 .template-info-header {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-1);
+  gap: 8px;
+  margin-bottom: 4px;
 }
 
 .template-icon-small {
-  font-size: var(--font-size-md);
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .template-name {
-  font-size: var(--font-size-base);
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
 }
 
 .template-desc {
-  font-size: var(--font-size-sm);
-  color: var(--text-tertiary);
-  margin: 0 0 var(--space-2);
-  line-height: var(--line-height-relaxed);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 4px 0 8px;
+  line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  min-height: 36px;
 }
 
 .template-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: 8px;
+  margin-top: auto;
 }
 
 .template-tags {
   display: flex;
-  gap: var(--space-1);
+  gap: 4px;
 }
 
 .template-tags .tag {
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--primary-50);
-  color: var(--primary-600);
+  border-radius: 4px;
+  background: var(--success-50);
+  color: var(--success-600);
   white-space: nowrap;
 }
 
 .template-usage {
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
 }
@@ -453,27 +473,21 @@
 .template-preview-overlay-bg {
   position: fixed;
   inset: 0;
-  background: var(--bg-overlay);
-  z-index: 10002;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
   animation: fadeIn var(--transition-fast);
-}
-
-.template-preview-overlay {
-  position: absolute;
-  inset: 0;
-  background: var(--bg-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10002;
-  animation: fadeIn var(--transition-fast);
 }
+
+
 
 .template-preview-panel {
   width: 640px;
   max-width: 90vw;
   max-height: 80vh;
-  background: var(--bg-elevated);
+  background: var(--bg-primary);
   border-radius: var(--radius-2xl);
   box-shadow: var(--shadow-xl);
   display: flex;
@@ -500,6 +514,7 @@
 
 .preview-icon {
   font-size: 28px;
+  line-height: 1;
 }
 
 .preview-title {
@@ -660,6 +675,7 @@
 .preview-actions {
   display: flex;
   gap: var(--space-2);
+  align-items: center;
 }
 
 .preview-actions .btn-cancel {
@@ -682,8 +698,8 @@
   padding: var(--space-2) var(--space-5);
   border-radius: var(--radius-lg);
   border: none;
-  background: var(--primary-color);
-  color: #ffffff;
+  background: var(--primary-500);
+  color: var(--text-inverse);
   font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
@@ -702,3 +718,251 @@
   padding: 0 !important;
   overflow: hidden !important;
 }
+
+/* 搜索高亮 */
+.search-highlight {
+  background: var(--warning-100);
+  color: var(--text-primary);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* 排序选择器 */
+.sort-select-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.sort-select {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  outline: none;
+}
+
+.sort-select:focus {
+  border-color: var(--primary-400);
+}
+
+/* 收藏按钮 */
+.template-fav-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  line-height: 1;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.template-fav-btn:hover {
+  color: var(--warning-600);
+  transform: scale(1.2);
+}
+
+.template-fav-btn.active {
+  color: var(--warning-600);
+}
+
+/* 预览面板中的收藏按钮 */
+.preview-fav-btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.preview-fav-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--warning-600);
+}
+
+.preview-fav-btn.active {
+  color: var(--warning-600);
+  border-color: var(--warning-600);
+}
+
+/* 模板卡片中的信息布局调整 */
+.template-info-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.template-info-header .template-name {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 自定义模板模态框样式 */
+.custom-template-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.custom-template-modal {
+  width: 600px;
+  max-width: 90vw;
+  max-height: 85vh;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  animation: scaleIn 0.2s ease;
+  overflow: hidden;
+}
+
+.custom-template-modal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.custom-template-modal .modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.custom-template-modal .modal-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.custom-template-modal .modal-close:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.custom-template-modal .modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.custom-template-modal .modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color);
+}
+
+.custom-template-modal .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.custom-template-modal .form-group label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.custom-template-modal .form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.custom-template-modal .form-input,
+.custom-template-modal .form-select,
+.custom-template-modal .form-textarea {
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.custom-template-modal .form-input:focus,
+.custom-template-modal .form-select:focus,
+.custom-template-modal .form-textarea:focus {
+  outline: none;
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.custom-template-modal .form-textarea {
+  resize: vertical;
+  min-height: 200px;
+  font-family: monospace;
+  line-height: 1.6;
+}
+
+.custom-template-modal .btn-secondary {
+  padding: 10px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.custom-template-modal .btn-secondary:hover {
+  background: var(--bg-secondary);
+}
+
+.custom-template-modal .btn-primary {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary-500);
+  color: var(--text-inverse);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.custom-template-modal .btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.custom-template-modal .btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* fadeIn 与 scaleIn 已在 index.css 中全局定义，此处不重复声明 */

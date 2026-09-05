@@ -3,6 +3,8 @@ export interface SearchHistory {
   query: string
   timestamp: string
   resultCount: number
+  pinned?: boolean
+  useCount?: number
 }
 
 export interface SearchSuggestion {

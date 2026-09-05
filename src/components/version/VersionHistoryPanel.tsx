@@ -1,12 +1,11 @@
 // 导入 React hooks 和类型定义
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { DocVersion } from '@/types';
 import { useNotesStore } from '@/store';
-import './VersionHistoryPanel.css';
 
 /**
- * 版本历史面板属性接口
+  * 版本历史面板属性接口
  */
 interface VersionHistoryPanelProps {
   notebookId: string;  // 知识库 ID
@@ -18,17 +17,19 @@ interface VersionHistoryPanelProps {
  * 版本历史面板组件
  */
 function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanelProps) {
-  const { notebooks, getDocVersions, restoreVersion, updateDoc } = useNotesStore(useShallow((s) => ({
+  const { notebooks, restoreVersion, updateDoc } = useNotesStore(useShallow((s) => ({
     notebooks: s.notebooks,
-    getDocVersions: s.getDocVersions,
     restoreVersion: s.restoreVersion,
     updateDoc: s.updateDoc,
   })));
   
-  // 获取文档的所有版本
-  const versions = useMemo(() => {
-    return getDocVersions(notebookId, docId) || [];
-  }, [getDocVersions, notebookId, docId]);
+  // 获取当前知识库和文档
+  const activeNotebook = notebooks.find(nb => nb.id === notebookId);
+  const currentDoc = activeNotebook?.docs.find(d => d.id === docId);
+
+  // 直接派生（getDocVersions 内部同样只是查找返回，等价且省一次 memo 依赖协调）。
+  // 给版本打标签/备注通过 updateDoc 更新 versions 数组，此处随 currentDoc 引用自动刷新
+  const versions = currentDoc?.versions ?? [];
 
   const [selectedVersion, setSelectedVersion] = useState<DocVersion | null>(null); // 当前选中的版本
   const [compareVersion, setCompareVersion] = useState<DocVersion | null>(null);   // 用于对比的版本
@@ -36,10 +37,6 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   const [showTagModal, setShowTagModal] = useState(false);                         // 是否显示标签弹窗
   const [versionTag, setVersionTag] = useState('');                                // 版本标签
   const [versionComment, setVersionComment] = useState('');                        // 版本备注
-
-  // 获取当前知识库和文档
-  const activeNotebook = notebooks.find(nb => nb.id === notebookId);
-  const currentDoc = activeNotebook?.docs.find(d => d.id === docId);
 
   /**
    * 处理选择版本
@@ -134,7 +131,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   };
 
   /**
-   * 获取版本类型样式类
+   * 获取版本类型样式类名
    */
   const getVersionTypeClass = (type: string) => {
     switch (type) {
@@ -147,19 +144,56 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   /**
    * 渲染版本对比视图
    */
+  /** 基于 LCS 的行级 diff 算法 */
   const computeDiff = (currentLines: string[], compareLines: string[]) => {
-    const currentSet = new Set(currentLines)
-    const compareSet = new Set(compareLines)
-    return {
-      current: currentLines.map(line => ({
-        text: line,
-        type: compareSet.has(line) ? 'unchanged' as const : 'added' as const,
-      })),
-      compare: compareLines.map(line => ({
-        text: line,
-        type: currentSet.has(line) ? 'unchanged' as const : 'removed' as const,
-      })),
+    const m = currentLines.length
+    const n = compareLines.length
+    // 构建 LCS 矩阵
+    const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = currentLines[i - 1] === compareLines[j - 1]
+          ? dp[i - 1][j - 1] + 1
+          : Math.max(dp[i - 1][j], dp[i][j - 1])
+      }
     }
+
+    // 回溯生成 diff 操作序列
+    type DiffOp = { type: 'unchanged' | 'added' | 'removed' | 'modified'; current?: string; compare?: string }
+    const ops: DiffOp[] = []
+    let i = m, j = n
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && currentLines[i - 1] === compareLines[j - 1]) {
+        ops.unshift({ type: 'unchanged', current: currentLines[i - 1], compare: compareLines[j - 1] })
+        i--; j--
+      } else if (i > 0 && j > 0 && dp[i - 1][j - 1] >= dp[i - 1][j] && dp[i - 1][j - 1] >= dp[i][j - 1]) {
+        // 相邻行不同，视为"修改"
+        ops.unshift({ type: 'modified', current: currentLines[i - 1], compare: compareLines[j - 1] })
+        i--; j--
+      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+        ops.unshift({ type: 'removed', compare: compareLines[j - 1] })
+        j--
+      } else {
+        ops.unshift({ type: 'added', current: currentLines[i - 1] })
+        i--
+      }
+    }
+
+    // 分别生成两侧显示行
+    const current = ops
+      .filter(op => op.type !== 'removed')
+      .map(op => ({
+        text: op.current!,
+        type: (op.type === 'modified' ? 'added' : op.type) as 'unchanged' | 'added',
+      }))
+    const compare = ops
+      .filter(op => op.type !== 'added')
+      .map(op => ({
+        text: op.compare!,
+        type: (op.type === 'modified' ? 'removed' : op.type) as 'unchanged' | 'removed',
+      }))
+
+    return { current, compare }
   }
 
   const renderDiff = () => {
@@ -390,34 +424,34 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
 
         {/* 添加版本标签弹窗 */}
         {showTagModal && (
-          <div className="tag-modal-overlay" onClick={() => setShowTagModal(false)}>
-            <div className="tag-modal" onClick={(e) => e.stopPropagation()}>
-              <div className="tag-modal-header">
-                <span className="tag-modal-title">添加版本标签</span>
-                <button className="tag-modal-close" onClick={() => setShowTagModal(false)}>×</button>
+          <div className="vh-tag-modal-overlay" onClick={() => setShowTagModal(false)}>
+            <div className="vh-tag-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="vh-tag-modal-header">
+                <span className="vh-tag-modal-title">添加版本标签</span>
+                <button className="vh-tag-modal-close" onClick={() => setShowTagModal(false)}>×</button>
               </div>
-              <div className="tag-modal-body">
-                <label className="tag-modal-label">标签名称</label>
+              <div className="vh-tag-modal-body">
+                <label className="vh-tag-modal-label">标签名称</label>
                 <input 
-                  className="tag-modal-input"
+                  className="vh-tag-modal-input"
                   value={versionTag}
                   onChange={(e) => setVersionTag(e.target.value)}
                   placeholder="例如: v1.0.0"
                 />
-                <label className="tag-modal-label">备注（可选）</label>
+                <label className="vh-tag-modal-label">备注（可选）</label>
                 <textarea 
-                  className="tag-modal-textarea"
+                  className="vh-tag-modal-textarea"
                   value={versionComment}
                   onChange={(e) => setVersionComment(e.target.value)}
                   placeholder="添加备注说明..."
                   rows={3}
                 />
               </div>
-              <div className="tag-modal-footer">
-                <button className="tag-modal-btn secondary" onClick={() => setShowTagModal(false)}>
+              <div className="vh-tag-modal-footer">
+                <button className="vh-tag-modal-btn secondary" onClick={() => setShowTagModal(false)}>
                   取消
                 </button>
-                <button className="tag-modal-btn primary" onClick={handleAddTag}>
+                <button className="vh-tag-modal-btn primary" onClick={handleAddTag}>
                   确定
                 </button>
               </div>

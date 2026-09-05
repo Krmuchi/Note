@@ -18,5 +18,10 @@ contextBridge.exposeInMainWorld("notesApi", {
   exportDoc: withErrorHandling((payload) => ipcRenderer.invoke("notes:export-doc", payload)),
   exportNotebook: withErrorHandling((payload) => ipcRenderer.invoke("notes:export-notebook", payload)),
   exportNotebookZip: withErrorHandling((payload) => ipcRenderer.invoke("notes:export-notebook-zip", payload)),
+  exportAll: withErrorHandling((payload) => ipcRenderer.invoke("notes:export-all", payload)),
+  exportHtml: withErrorHandling((payload) => ipcRenderer.invoke("notes:export-html", payload)),
+  exportPdf: withErrorHandling((payload) => ipcRenderer.invoke("notes:export-pdf", payload)),
+  importMd: withErrorHandling(() => ipcRenderer.invoke("notes:import-md")),
+  importBackup: withErrorHandling(() => ipcRenderer.invoke("notes:import-backup")),
   saveImage: withErrorHandling((payload) => ipcRenderer.invoke("notes:save-image", payload)),
 })

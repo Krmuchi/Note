@@ -1,11 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import type { Comment } from '@/types';
+import { formatDateTime } from '@/utils/formatters';
 
 interface CommentsPanelProps {
   comments: Comment[];
   docId: string;
   onAddComment: (docId: string, content: string) => void;
   onDeleteComment: (docId: string, commentId: string) => void;
+  onAddReply?: (docId: string, commentId: string, content: string) => void;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -15,10 +17,13 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
   docId,
   onAddComment,
   onDeleteComment,
+  onAddReply,
   isOpen,
   onClose,
 }) => {
   const [newComment, setNewComment] = useState('');
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyContent, setReplyContent] = useState('');
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -28,22 +33,15 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
     }
   }, [newComment, docId, onAddComment]);
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
-    if (days === 0) {
-      return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    } else if (days === 1) {
-      return '昨天';
-    } else if (days < 7) {
-      return `${days}天前`;
-    } else {
-      return date.toLocaleDateString('zh-CN');
+  const handleReplySubmit = useCallback((commentId: string) => {
+    if (replyContent.trim() && onAddReply) {
+      onAddReply(docId, commentId, replyContent.trim());
+      setReplyContent('');
+      setReplyingTo(null);
     }
-  };
+  }, [replyContent, docId, onAddReply]);
+
+  const formatDate = (dateString: string) => formatDateTime(dateString);
 
   if (!isOpen) return null;
 
@@ -76,10 +74,74 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
                 </div>
                 <div className="comment-content">{comment.content}</div>
                 <div className="comment-actions">
+                  {onAddReply && (
+                    <button
+                      className="comment-action-btn reply-btn"
+                      onClick={() => {
+                        setReplyingTo(replyingTo === comment.id ? null : comment.id);
+                        setReplyContent('');
+                      }}
+                    >
+                      回复
+                    </button>
+                  )}
                   <button className="comment-action-btn" onClick={() => onDeleteComment(docId, comment.id)}>
                     删除
                   </button>
                 </div>
+
+                {/* 显示回复列表 */}
+                {comment.replies && comment.replies.length > 0 && (
+                  <div className="comment-replies">
+                    {comment.replies.map((reply) => (
+                      <div key={reply.id} className="reply-item">
+                        <div className="reply-header">
+                          <span className="reply-author">
+                            <span className="author-avatar">👤</span>
+                            <span className="author-name">{reply.author}</span>
+                          </span>
+                          <span className="reply-time">{formatDate(reply.createdAt)}</span>
+                        </div>
+                        <div className="reply-content">{reply.content}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 回复输入框 */}
+                {replyingTo === comment.id && (
+                  <div className="reply-form">
+                    <textarea
+                      className="reply-input"
+                      value={replyContent}
+                      onChange={(e) => setReplyContent(e.target.value)}
+                      placeholder="写下你的回复..."
+                      rows={2}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                          e.preventDefault();
+                          handleReplySubmit(comment.id);
+                        }
+                        if (e.key === 'Escape') {
+                          setReplyingTo(null);
+                        }
+                      }}
+                    />
+                    <div className="reply-form-actions">
+                      <button className="reply-cancel-btn" onClick={() => setReplyingTo(null)}>
+                        取消
+                      </button>
+                      <button
+                        className="reply-submit-btn"
+                        onClick={() => handleReplySubmit(comment.id)}
+                        disabled={!replyContent.trim()}
+                      >
+                        回复
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

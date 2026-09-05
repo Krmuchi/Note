@@ -5,6 +5,8 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 // 导入错误边界组件
 import ErrorBoundary from './ErrorBoundary'
+// 导入骨架屏，作为懒加载主应用的加载占位
+import { SidebarSkeleton, EditorSkeleton } from './components/common/Skeleton'
 
 // 使用懒加载方式导入主应用组件，优化首屏加载性能
 const App = lazy(() => import('./App.tsx'))
@@ -16,8 +18,11 @@ createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       {/* Suspense：处理懒加载组件的加载状态 */}
       <Suspense fallback={
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontSize: '16px', color: '#666' }}>
-          加载中...
+        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+          <SidebarSkeleton />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <EditorSkeleton />
+          </div>
         </div>
       }>
         <App />

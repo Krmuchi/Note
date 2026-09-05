@@ -248,3 +248,141 @@ describe('coreSlice - share link operations', () => {
     expect(link.permission).toBe('manage')
   })
 })
+
+describe('coreSlice - data safety (trash restore / load-failed guard)', () => {
+  beforeEach(() => {
+    useNotesStore.setState({
+      notebooks: [],
+      trash: [],
+      tags: [],
+      searchHistory: [],
+      activeNotebookId: '',
+      activeDocId: '',
+      activeDoc: null,
+      searchText: '',
+      saveStatus: 'idle',
+      lastSavedAt: null,
+      loadFailed: false,
+    })
+  })
+
+  it('restores doc to an existing notebook after its source notebook was deleted (no data loss)', () => {
+    const { createNotebook, createDoc, deleteNotebook, restoreFromTrash } = useNotesStore.getState()
+    createNotebook('Notebook A')
+    createNotebook('Notebook B')
+    const state1 = useNotesStore.getState()
+    const notebookAId = state1.notebooks[0].id
+    const notebookBId = state1.notebooks[1].id
+
+    createDoc(notebookAId, null, { title: 'Doc in A' })
+    const docId = useNotesStore.getState().notebooks[0].docs[0].id
+
+    // 删除整个知识库 A → 文档进入回收站，notebookId 指向已不存在的知识库
+    deleteNotebook(notebookAId)
+    expect(useNotesStore.getState().trash).toHaveLength(1)
+
+    restoreFromTrash(docId)
+
+    const state2 = useNotesStore.getState()
+    // 文档必须真实存在于某个知识库中，绝不能从 trash 移除后丢弃
+    expect(state2.trash).toHaveLength(0)
+    const allDocs = state2.notebooks.flatMap(nb => nb.docs)
+    expect(allDocs.some(d => d.id === docId)).toBe(true)
+    expect(state2.notebooks.find(nb => nb.id === notebookBId)!.docs.some(d => d.id === docId)).toBe(true)
+    expect(state2.activeDocId).toBe(docId)
+  })
+
+  it('creates a recovery notebook when restoring with no notebooks left', () => {
+    const { createNotebook, createDoc, deleteNotebook, restoreFromTrash } = useNotesStore.getState()
+    createNotebook('Only Notebook')
+    const notebookId = useNotesStore.getState().notebooks[0].id
+    createDoc(notebookId, null, { title: 'Last Doc' })
+    const docId = useNotesStore.getState().notebooks[0].docs[0].id
+
+    deleteNotebook(notebookId)
+    restoreFromTrash(docId)
+
+    const state = useNotesStore.getState()
+    expect(state.notebooks).toHaveLength(1)
+    expect(state.notebooks[0].docs.some(d => d.id === docId)).toBe(true)
+  })
+
+  it('recalculates activeDoc after deleting the active notebook', () => {
+    const { createNotebook, createDoc, setActiveNotebookId, setActiveDocId, deleteNotebook } = useNotesStore.getState()
+    createNotebook('A')
+    createNotebook('B')
+    const state1 = useNotesStore.getState()
+    const idA = state1.notebooks[0].id
+    const idB = state1.notebooks[1].id
+
+    createDoc(idA, null, { title: 'Doc in A' })
+    const docId = useNotesStore.getState().notebooks[0].docs[0].id
+    setActiveNotebookId(idA)
+    setActiveDocId(docId)
+    expect(useNotesStore.getState().activeDoc?.id).toBe(docId)
+
+    deleteNotebook(idA)
+
+    const state2 = useNotesStore.getState()
+    // 幽灵文档会导致后续输入被静默丢弃，activeDoc 必须重算
+    expect(state2.activeDoc).toBeNull()
+    expect(state2.activeNotebookId).toBe(idB)
+  })
+
+  it('blocks saveNotes when data failed to load', async () => {
+    useNotesStore.setState({ loadFailed: true, saveStatus: 'error' })
+    await useNotesStore.getState().saveNotes()
+    // 守卫生效：不应进入 saving/saved 流程，避免空状态覆盖磁盘数据
+    expect(useNotesStore.getState().saveStatus).toBe('error')
+  })
+
+  it('restoreVersion backs up current content before overwriting', () => {
+    useNotesStore.setState({
+      notebooks: [{
+        id: 'nb1',
+        title: 'NB',
+        docs: [{
+          id: 'doc1',
+          title: 'Doc',
+          content: 'current content',
+          parentId: null,
+          tags: [],
+          favorite: false,
+          pinned: false,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          versions: [{
+            id: 'v1',
+            docId: 'doc1',
+            notebookId: 'nb1',
+            title: 'Doc',
+            content: 'old content',
+            tags: [],
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            type: 'auto',
+          }],
+        }],
+      }],
+      trash: [],
+      tags: [],
+      searchHistory: [],
+      activeNotebookId: 'nb1',
+      activeDocId: 'doc1',
+      activeDoc: null,
+      searchText: '',
+      saveStatus: 'idle',
+      lastSavedAt: null,
+      loadFailed: false,
+    })
+
+    useNotesStore.getState().restoreVersion('nb1', 'doc1', 'v1')
+
+    const doc = useNotesStore.getState().notebooks[0].docs[0]
+    expect(doc.content).toBe('old content')
+    // 恢复前备份必须存在，且内容是恢复前的当前内容
+    const backup = doc.versions!.find(v => v.content === 'current content')
+    expect(backup).toBeTruthy()
+    expect(backup!.type).toBe('manual')
+  })
+})

@@ -100,7 +100,7 @@
 .quick-note-add-btn {
   padding: var(--space-2) var(--space-5);
   background: var(--primary-color);
-  color: #ffffff;
+  color: var(--text-inverse);
   border: none;
   border-radius: var(--radius-lg);
   font-size: var(--font-size-base);
@@ -260,7 +260,7 @@
 .quick-note-edit-save {
   padding: var(--space-1) var(--space-4);
   background: var(--primary-color);
-  color: #ffffff;
+  color: var(--text-inverse);
   border: none;
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);

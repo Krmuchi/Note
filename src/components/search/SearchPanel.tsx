@@ -1,9 +1,11 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect, memo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useNotesStore } from "@/store";
+import { tokenizeChinese } from "@/store/slices/searchSlice";
 import type { SearchFilter, SearchResult, SearchSuggestion } from "@/types";
 import { escapeRegExp } from "@/utils/sanitize";
 import { debounce } from "@/utils/debounce";
+import { formatDateTime } from "@/utils/formatters";
 
 /**
  * 搜索面板属性接口
@@ -12,6 +14,40 @@ interface SearchPanelProps {
   isOpen: boolean;     // 面板是否打开
   onClose: () => void; // 关闭回调
 }
+
+/**
+ * 高亮匹配文本（组件定义在模块层，避免每次渲染重建组件类型导致子树无法复用）
+ * 分词逻辑与 searchSlice 的 tokenizeChinese 保持一致，保证中文搜索结果的高亮与命中匹配
+ */
+const HighlightMatch = memo(function HighlightMatch({ text, query }: { text: string; query: string }) {
+  const highlightTerms = useMemo(() => {
+    if (!query.trim()) return [];
+    // 与搜索逻辑一致：先按空格拆词，再对每个词做中文分词
+    return query.split(/\s+/).filter(Boolean).flatMap(term => {
+      const tokens = tokenizeChinese(term);
+      return tokens.length > 0 ? tokens : [term];
+    });
+  }, [query]);
+
+  const parts = useMemo(() => {
+    if (highlightTerms.length === 0) return null;
+    const pattern = Array.from(new Set(highlightTerms.map(t => t.toLowerCase())))
+      .map(escapeRegExp)
+      .join('|');
+    return text.split(new RegExp(`(${pattern})`, 'gi'));
+  }, [text, highlightTerms]);
+
+  if (!parts) return <>{text}</>;
+
+  const lowerTerms = new Set(highlightTerms.map(t => t.toLowerCase()));
+  return (
+    <>
+      {parts.map((part, i) =>
+        lowerTerms.has(part.toLowerCase()) ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>
+      )}
+    </>
+  );
+});
 
 /**
  * 搜索面板组件
@@ -23,6 +59,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     addSearchHistory,
     clearSearchHistory,
     removeSearchHistoryItem,
+    togglePinSearchHistory,
     notebooks,
     tags,
     searchHistory,
@@ -34,6 +71,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     addSearchHistory: s.addSearchHistory,
     clearSearchHistory: s.clearSearchHistory,
     removeSearchHistoryItem: s.removeSearchHistoryItem,
+    togglePinSearchHistory: s.togglePinSearchHistory,
     notebooks: s.notebooks,
     tags: s.tags,
     searchHistory: s.searchHistory,
@@ -80,12 +118,15 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
       return;
     }
     setIsSearching(true);
-    const searchResults = search(searchQuery, searchFilters);
-    setResults(searchResults);
-    setShowResults(true);
-    setShowSuggestions(false);
-    setIsSearching(false);
-    setActiveIndex(-1);
+    // 让 spinner 先渲染一帧再执行同步搜索，否则 isSearching 一帧内被复位，用户永远看不到加载反馈
+    window.setTimeout(() => {
+      const searchResults = search(searchQuery, searchFilters);
+      setResults(searchResults);
+      setShowResults(true);
+      setShowSuggestions(false);
+      setIsSearching(false);
+      setActiveIndex(-1);
+    }, 0);
   }, [search])
 
   const debouncedSearch = useMemo(
@@ -93,10 +134,14 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     [performSearch]
   )
 
-  const handleQueryChange = useCallback((value: string) => {
+  const handleQueryChange = useCallback((value: string, options?: { skipSearch?: boolean }) => {
     setQuery(value);
     setActiveIndex(-1);
     debouncedUpdateSuggestions(value);
+    if (options?.skipSearch) {
+      debouncedSearch.cancel?.();
+      return;
+    }
     if (value.trim().length === 0) {
       setResults([]);
       setShowResults(false);
@@ -106,7 +151,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
       setShowSuggestions(true);
       setShowResults(false);
     }
-  }, [debouncedUpdateSuggestions])
+  }, [debouncedUpdateSuggestions, debouncedSearch])
 
   useEffect(() => {
     if (query.trim().length >= 2) {
@@ -114,18 +159,34 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     }
   }, [query, filters, debouncedSearch])
 
+  // 打开面板时聚焦输入框：Ctrl+K 唤起后应可直接键盘输入，无需先用鼠标点击
+  useEffect(() => {
+    if (isOpen) {
+      inputRef.current?.focus();
+    }
+  }, [isOpen])
+
   /**
    * 执行搜索
+   * 支持传入显式关键词：setState 是异步的，点击建议/历史后立即搜索时
+   * 闭包中的 query 仍是旧值，必须显式传递才能搜到新关键词
+   * 搜索计算延后一帧执行：大库遍历为同步主线程操作，延帧可让 spinner
+   * 先渲染、输入不卡顿，计算结果再一次性提交
    */
-  const handleSearch = () => {
-    if (!query.trim()) return;
-    
-    const searchResults = search(query, filters);
-    setResults(searchResults);
-    setShowResults(true);
-    setShowSuggestions(false);
-    setActiveIndex(-1);
-    addSearchHistory(query, searchResults.length);
+  const handleSearch = (explicitQuery?: string) => {
+    const q = (explicitQuery ?? query).trim();
+    if (!q) return;
+
+    setIsSearching(true);
+    window.setTimeout(() => {
+      const searchResults = search(q, filters);
+      setResults(searchResults);
+      setShowResults(true);
+      setShowSuggestions(false);
+      setIsSearching(false);
+      setActiveIndex(-1);
+      addSearchHistory(q, searchResults.length);
+    }, 0);
   };
 
   /**
@@ -158,8 +219,9 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
         if (showResults && results[activeIndex]) {
           handleResultClick(results[activeIndex]);
         } else if (!showResults && query.length === 0 && searchHistory[activeIndex]) {
-          handleQueryChange(searchHistory[activeIndex].query);
-          handleSearch();
+          const historyQuery = searchHistory[activeIndex].query;
+          handleQueryChange(historyQuery);
+          handleSearch(historyQuery);
         } else if (!showResults && suggestions[activeIndex]) {
           handleSuggestionClick(suggestions[activeIndex]);
         }
@@ -172,11 +234,12 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
   };
 
   /**
-   * 点击搜索建议
+   * 点击搜索建议：只更新输入框并立即执行一次搜索。
+   * handleQueryChange 内部有防抖搜索 effect，此处再手动调 handleSearch 是同一关键词搜两遍，结果会闪烁
    */
   const handleSuggestionClick = (suggestion: SearchSuggestion) => {
-    handleQueryChange(suggestion.text);
-    handleSearch();
+    handleQueryChange(suggestion.text, { skipSearch: true });
+    handleSearch(suggestion.text);
   };
 
   /**
@@ -206,47 +269,17 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
   };
 
   /**
-   * 高亮匹配文本
+   * 格式化日期显示（统一使用 utils/formatters）
    */
-  const HighlightMatch: React.FC<{ text: string; query: string }> = ({ text, query }) => {
-    if (!query.trim()) return <>{text}</>
-    
-    const parts = text.split(new RegExp(`(${query.split(/\s+/).filter(Boolean).map(escapeRegExp).join('|')})`, 'gi'))
-    
-    return (
-      <>
-        {parts.map((part, i) => {
-          const isMatch = query.split(/\s+/).filter(Boolean).some(
-            q => part.toLowerCase() === q.toLowerCase()
-          )
-          return isMatch ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>
-        })}
-      </>
-    )
-  }
-
-  /**
-   * 格式化日期显示
-   */
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return '今天';
-    if (diffDays === 1) return '昨天';
-    if (diffDays < 7) return `${diffDays}天前`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)}周前`;
-    return date.toLocaleDateString('zh-CN');
-  };
+  const formatDate = (dateStr: string) =>
+    formatDateTime(dateStr, { prefixToday: true, prefixYesterday: true });
 
   // 如果面板未打开，返回 null
   if (!isOpen) return null;
 
   return (
     <div className="search-panel-overlay" onClick={onClose}>
-      <div className="search-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="search-panel" ref={listRef} onClick={(e) => e.stopPropagation()}>
         {/* 搜索框区域 */}
         <div className="search-panel-header">
           <div className="search-input-wrapper">
@@ -348,7 +381,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
 
         {/* 搜索建议 */}
         {showSuggestions && suggestions.length > 0 && !showResults && (
-          <div className="search-suggestions" ref={listRef}>
+          <div className="search-suggestions">
             {suggestions.map((suggestion, index) => (
               <div
                 key={`${suggestion.text}-${index}`}
@@ -376,15 +409,31 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
 
         {/* 搜索历史 */}
         {showSuggestions && query.length === 0 && !showResults && searchHistory.length > 0 && (
-          <div className="search-history" ref={listRef}>
+          <div className="search-history">
             <div className="history-header">
               <span>搜索历史</span>
               <button className="clear-history" onClick={clearSearchHistory}>
                 清空
               </button>
             </div>
-            {searchHistory.map((history, index) => (
-              <div key={history.id} className={`history-item ${activeIndex === index ? 'active' : ''}`} data-search-item>
+            {[...searchHistory]
+              .sort((a, b) => {
+                if (a.pinned && !b.pinned) return -1
+                if (!a.pinned && b.pinned) return 1
+                return 0
+              })
+              .map((history, index) => (
+              <div key={history.id} className={`history-item ${activeIndex === index ? 'active' : ''} ${history.pinned ? 'pinned' : ''}`} data-search-item>
+                <button 
+                  className="history-pin"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePinSearchHistory(history.id);
+                  }}
+                  title={history.pinned ? '取消置顶' : '置顶'}
+                >
+                  {history.pinned ? '📌' : '📍'}
+                </button>
                 <button 
                   className="history-text"
                   onClick={() => {
@@ -411,7 +460,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
 
         {/* 搜索结果 */}
         {showResults && (
-          <div className="search-results" ref={listRef}>
+          <div className="search-results">
             <div className="results-header">
               <span aria-live="polite">找到 {results.length} 条结果</span>
               <button 

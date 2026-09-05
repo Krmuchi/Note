@@ -559,19 +559,19 @@
   transition: border-color var(--transition-fast);
 }
 
+.tag-form-textarea {
+  min-height: 72px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: var(--line-height-base);
+}
+
 .tag-form-input:focus,
 .tag-form-select:focus,
 .tag-form-textarea:focus {
   outline: none;
   border-color: var(--primary-500);
   box-shadow: 0 0 0 2px var(--primary-50);
-}
-
-.tag-form-textarea {
-  min-height: 72px;
-  resize: vertical;
-  font-family: inherit;
-  line-height: var(--line-height-base);
 }
 
 .tag-color-options {
@@ -657,7 +657,7 @@
 
 .tag-modal-btn.confirm {
   background: var(--primary-color);
-  color: #ffffff;
+  color: var(--text-inverse);
   border-color: var(--primary-color);
 }
 

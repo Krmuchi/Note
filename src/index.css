@@ -125,19 +125,17 @@
   --scrollbar-thumb: #d9d9d9;
   --scrollbar-thumb-hover: #bfbfbf;
 
-  /* 旧变量别名 (兼容过渡) */
-  --primary-color: #1677ff;
-  --success-color: #52c41a;
-  --warning-color: #fa8c16;
-  --error-color: #ff4d4f;
-  --text-color: #262626;
-  --text-color-secondary: #595959;
-  --bg-color: #ffffff;
-  --bg-color-secondary: #fafafa;
-  --border-radius-sm: 4px;
-  --border-radius-md: 6px;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 3px 6px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.05);
+  /* 旧变量别名 (兼容过渡)
+     统一指向上面的语义变量，这样切换主题时旧类名写法的样式也会跟着变，
+     且不再重复声明 --border-radius-* / --shadow-*（此前在 :root 内声明了两次，后者覆盖前者） */
+  --primary-color: var(--primary-500);
+  --success-color: var(--success-500);
+  --warning-color: var(--warning-500);
+  --error-color: var(--error-500);
+  --text-color: var(--text-primary);
+  --text-color-secondary: var(--text-secondary);
+  --bg-color: var(--bg-primary);
+  --bg-color-secondary: var(--bg-secondary);
 }
 
 /* ----- 暗色主题 ----- */
@@ -202,22 +200,10 @@
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3);
   --shadow-xl: 0 12px 48px rgba(0, 0, 0, 0.5), 0 6px 12px rgba(0, 0, 0, 0.4);
 
+  /* 旧变量别名已统一指向语义变量（见 :root），主题切换自动生效，此处无需重复覆盖 */
+
   --scrollbar-thumb: #434343;
   --scrollbar-thumb-hover: #595959;
-
-  /* 旧变量别名 (兼容过渡) */
-  --primary-color: #69b1ff;
-  --success-color: #73d13d;
-  --warning-color: #ffc53d;
-  --error-color: #ff7875;
-  --text-color: #ffffff;
-  --text-color-secondary: #a6a6a6;
-  --bg-color: #1a1a1a;
-  --bg-color-secondary: #222222;
-  --border-radius-sm: var(--radius-sm);
-  --border-radius-md: var(--radius-md);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 3px 6px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 /* ============================================
@@ -234,16 +220,8 @@
 
 body {
   margin: 0;
-  font-family:
-    "Segoe UI",
-    "PingFang SC",
-    "Microsoft YaHei",
-    "Hiragino Sans GB",
-    "Helvetica Neue",
-    Helvetica,
-    Arial,
-    system-ui,
-    sans-serif;
+  /* 字体设置（设置面板 data-font）通过 --font-family-base 生效，此处为默认兜底值 */
+  font-family: var(--font-family-base, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif);
   font-size: var(--font-size-md);
   line-height: var(--line-height-base);
   color: var(--text-primary);
@@ -285,6 +263,40 @@ select option {
 input,
 textarea {
   font-family: inherit;
+}
+
+/* ---------- 统一交互状态反馈 ---------- */
+
+/* 全局键盘焦点环：解决多处 outline: none 之后键盘导航看不到焦点的问题。
+   仅在键盘操作时显示，鼠标点击不出现难看的轮廓。 */
+:focus-visible {
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* 所有按钮类交互元素的通用状态：hover / active / disabled */
+button {
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast),
+    color var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast);
+}
+
+button:disabled,
+button[aria-disabled="true"],
+input:disabled,
+textarea:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* 文本截断工具类：单行省略，需在父级 flex 容器上配合 min-width: 0 使用 */
+.text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 a {
@@ -421,8 +433,9 @@ a:hover {
   background: var(--bg-elevated);
   border-radius: var(--border-radius-xl);
   padding: var(--space-6);
-  min-width: 320px;
-  max-width: 420px;
+  /* 极窄屏下 min-width 会导致横向溢出，同样加 vw 兜底 */
+  min-width: min(320px, 92vw);
+  max-width: min(420px, 94vw);
   box-shadow: var(--shadow-xl);
   animation: scaleIn var(--transition-base);
 }
@@ -433,6 +446,71 @@ a:hover {
 
 .confirm-dialog-danger {
   border-left: 4px solid var(--error-500);
+}
+
+/* 标题行：danger 时带警示图标 */
+.confirm-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.confirm-dialog-header h3 {
+  margin: 0;
+}
+
+.confirm-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-round);
+  background: var(--error-50);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+/* danger 弹窗内"取消"按钮 hover 保持中性色（避免误导向主色） */
+.confirm-dialog-danger .confirm-dialog-actions button:first-child:hover {
+  border-color: var(--border-active);
+  color: var(--text-primary);
+}
+
+/* ===== 草稿恢复弹窗（RecoveryDialog） ===== */
+.recovery-icon {
+  background: var(--primary-50);
+}
+
+.recovery-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-5);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+}
+
+.recovery-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  line-height: 1.6;
+}
+
+.recovery-label {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.recovery-value {
+  color: var(--text-primary);
+  font-weight: 500;
+  word-break: break-all;
 }
 
 .confirm-dialog h3 {
@@ -473,7 +551,7 @@ a:hover {
 
 .confirm-dialog-actions .btn-primary {
   background: var(--primary-color);
-  color: #fff;
+  color: var(--text-inverse);
   border-color: var(--primary-color);
 }
 
@@ -484,10 +562,23 @@ a:hover {
 
 .confirm-dialog-actions .btn-danger {
   background: var(--error-500);
-  color: #fff;
+  color: var(--text-inverse);
   border-color: var(--error-500);
 }
 
 .confirm-dialog-actions .btn-danger:hover {
   opacity: 0.9;
+}
+
+/* ===== 无障碍：晕动症豁免 =====
+   系统开启"减少动态效果"时，禁用全部动画与过渡（保留最终视觉状态） */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
