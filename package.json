@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "main": "electron/main.cjs",
+  "packageManager": "pnpm@11.22.0",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
     "dev:web": "vite",
