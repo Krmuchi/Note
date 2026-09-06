@@ -389,7 +389,11 @@ export const Editor: React.FC<EditorProps> = ({
             </div>
           )}
           {showPreview && (
-            <div className={`preview-content-wrapper ${previewMode === 'split' ? 'preview-content-split' : ''}`}>
+            <div
+              className={`preview-content-wrapper ${previewMode === 'split' ? 'preview-content-split' : ''}`}
+              // 预览正文跟随工具栏字号设置（markdown-preview.css 消费此变量）
+              style={{ '--preview-font-size': fontSize } as React.CSSProperties}
+            >
               <MarkdownPreview
                 content={activeDoc.content || ''}
                 syncScroll={previewMode === 'split'}

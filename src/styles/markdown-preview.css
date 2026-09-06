@@ -5,7 +5,9 @@
   overflow-y: auto;
   line-height: 1.7;
   color: var(--text-primary);
-  font-size: 15px;
+  /* 跟随编辑器工具栏的字号设置（Editor 在预览容器上注入 --preview-font-size），
+     未注入时回退 15px；演示模式幻灯片的 18px 规则特异性更高，不受影响 */
+  font-size: var(--preview-font-size, 15px);
   background: var(--bg-primary);
   border-left: 1px solid var(--border-color);
   flex: 1;
@@ -266,7 +268,7 @@
 @media (max-width: 768px) {
   .markdown-preview {
     padding: 16px;
-    font-size: 14px;
+    font-size: var(--preview-font-size, 14px);
   }
 
   .markdown-preview h1 {
