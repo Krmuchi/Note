@@ -23,6 +23,8 @@ playwright-report
 .claude
 .codebuddy
 .workbuddy
+.mimosa
+.zcode
 
 # Editor directories and files
 .vscode/*

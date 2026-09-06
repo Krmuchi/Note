@@ -15,7 +15,7 @@ import type { NoteDoc } from '@/types';
 export type FormatType =
   | 'bold' | 'italic' | 'strike' | 'underline' | 'code'
   | 'link' | 'image'
-  | 'heading1' | 'heading2' | 'heading3' | 'paragraph'
+  | 'heading1' | 'heading2' | 'heading3'
   | 'ulist' | 'olist' | 'tasklist'
   | 'quote' | 'codeblock'
   | 'alignLeft' | 'alignCenter' | 'alignRight'
@@ -30,6 +30,8 @@ interface UseEditorFormattingOptions {
   textareaNode: HTMLTextAreaElement | null;
   activeDoc: NoteDoc | null;
   updateDocContent: (changes: Partial<NoteDoc>) => void;
+  /** 插入链接时改走弹窗流程（由 Editor 捕获选区并弹出 LinkDialog），未传则退回插入字面量 `](url)` */
+  onLinkInsert?: () => void;
 }
 
 export function useEditorFormatting({
@@ -37,6 +39,7 @@ export function useEditorFormatting({
   textareaNode,
   activeDoc,
   updateDocContent,
+  onLinkInsert,
 }: UseEditorFormattingOptions) {
   const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
 
@@ -213,7 +216,11 @@ export function useEditorFormatting({
           newContent = wrapSelection(ta, '`', '`');
           break;
         case 'link':
-          newContent = wrapSelection(ta, '[', '](url)');
+          if (onLinkInsert) {
+            onLinkInsert();
+          } else {
+            newContent = wrapSelection(ta, '[', '](url)');
+          }
           break;
         case 'textColor':
           newContent = wrapSelection(ta, `<span style="color:${options?.color || '#1677ff'}">`, '</span>');
@@ -232,9 +239,6 @@ export function useEditorFormatting({
           break;
         case 'heading3':
           newContent = insertBlockMark(ta, '### ');
-          break;
-        case 'paragraph':
-          newContent = insertBlockMark(ta, '');
           break;
         case 'ulist':
           newContent = insertBlockMark(ta, '- ');
@@ -302,7 +306,7 @@ export function useEditorFormatting({
         updateDocContent({ content: newContent });
       }
     },
-    [activeDoc, updateDocContent, textareaRef, handleInsertImage]
+    [activeDoc, updateDocContent, textareaRef, handleInsertImage, onLinkInsert]
   );
 
   return {

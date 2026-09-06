@@ -130,6 +130,11 @@ function createExportHandlers({ ipcMain, BrowserWindow, dialog, JSZip }) {
     th { background: #f5f5f5; }
     img { max-width: 100%; height: auto; }
     a { color: #0066cc; }
+    u { text-decoration: underline; }
+    mark { background: #fff3a0; padding: 0 2px; }
+    del { text-decoration: line-through; color: #999; }
+    input[type="checkbox"] { margin-right: 6px; }
+    hr { border: none; border-top: 2px solid #eee; margin: 1.5em 0; }
     .doc-meta { color: #666; font-size: 14px; margin-bottom: 2em; border-bottom: 1px solid #eee; padding-bottom: 1em; }
   </style>
 </head>
@@ -180,9 +185,14 @@ function createExportHandlers({ ipcMain, BrowserWindow, dialog, JSZip }) {
     pre { background: #f5f5f5; padding: 16px; border-radius: 6px; overflow-x: auto; }
     blockquote { border-left: 4px solid #ddd; margin: 1em 0; padding: 0.5em 1em; color: #666; }
     table { border-collapse: collapse; width: 100%; margin: 1em 0; }
-    th, td { border: 1px solid #ddd; padding: 8px 12px; }
+    th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
     th { background: #f5f5f5; }
     img { max-width: 100%; height: auto; }
+    u { text-decoration: underline; }
+    mark { background: #fff3a0; padding: 0 2px; }
+    del { text-decoration: line-through; color: #999; }
+    input[type="checkbox"] { margin-right: 6px; }
+    hr { border: none; border-top: 2px solid #eee; margin: 1.5em 0; }
   </style>
 </head>
 <body>

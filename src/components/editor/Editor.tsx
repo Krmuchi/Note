@@ -11,6 +11,7 @@ import { PresentationMode } from '@/components/presentation/PresentationMode';
 import { DocumentOutline } from '@/components/outline/DocumentOutline';
 import { CommentsPanel } from '@/components/comments/CommentsPanel';
 import { EmptyState } from '@/components/common/EmptyState';
+import { LinkDialog } from '@/components/dialogs/LinkDialog';
 import { copyToClipboard } from '@/utils/clipboard';
 import type { NoteDoc } from '@/types';
 
@@ -67,6 +68,8 @@ export const Editor: React.FC<EditorProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [previewMode, setPreviewMode] = useState<PreviewMode>('edit');
+  /** 插入链接弹窗：打开时捕获的选区（start/end/text），确认时据此拼接 [text](url) */
+  const [linkDialog, setLinkDialog] = useState<{ start: number; end: number; text: string } | null>(null);
 
   const toggleFullscreen = useCallback(() => {
     const el = editorPanelRef.current;
@@ -125,6 +128,39 @@ export const Editor: React.FC<EditorProps> = ({
     [activeNotebookId, activeDocId, updateDoc, recordSnapshot]
   );
 
+  // 插入链接：点击工具栏时捕获选区并弹出 LinkDialog，确认后用 [文本](url) 替换选区
+  const handleOpenLinkDialog = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    setLinkDialog({ start, end, text: ta.value.substring(start, end) });
+  }, [textareaRef]);
+
+  const handleLinkConfirm = useCallback((text: string, url: string) => {
+    const sel = linkDialog;
+    setLinkDialog(null);
+    const ta = textareaRef.current;
+    if (!sel || !ta) return;
+
+    const content = ta.value;
+    let { start, end } = sel;
+    // 弹窗打开期间内容可能被草稿恢复等流程改写，选区失配时退化为当前光标处插入
+    if (content.substring(start, end) !== sel.text) {
+      start = ta.selectionStart;
+      end = ta.selectionEnd;
+    }
+    const md = `[${text}](${url})`;
+    updateDocContent({ content: content.substring(0, start) + md + content.substring(end) });
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (el) {
+        el.focus();
+        el.selectionStart = el.selectionEnd = start + md.length;
+      }
+    });
+  }, [linkDialog, textareaRef, updateDocContent]);
+
   // 使用格式化 hook
   const {
     activeFormats,
@@ -136,6 +172,7 @@ export const Editor: React.FC<EditorProps> = ({
     textareaNode,
     activeDoc,
     updateDocContent,
+    onLinkInsert: handleOpenLinkDialog,
   });
 
   // 字号选择：有选中文本时作用于选区（span style，与颜色/高亮一致），
@@ -148,6 +185,21 @@ export const Editor: React.FC<EditorProps> = ({
       onFontSizeChange(size);
     }
   }, [applyFormat, onFontSizeChange]);
+
+  // 预览任务列表勾选回写。基于最新 activeDocRef 内容校验目标行，
+  // 防止预览 200ms 防抖期间内容错位或行内 HTML checkbox 误触
+  const handleToggleTask = useCallback((lineIndex: number, checked: boolean) => {
+    const current = activeDocRef.current;
+    if (!current) return;
+    const lines = (current.content || '').split('\n');
+    const line = lines[lineIndex];
+    if (line === undefined || !/^\s*[-*+]\s+\[[ xX]\]/.test(line)) return;
+    lines[lineIndex] = line.replace(
+      /^(\s*[-*+]\s+\[)([ xX])(\])/,
+      (_, head: string, _state: string, tail: string) => `${head}${checked ? 'x' : ' '}${tail}`,
+    );
+    updateDocContent({ content: lines.join('\n') });
+  }, [updateDocContent]);
 
   // 仅在切换文档时记录一次初始快照，并清理上一个文档的撤销历史，
   // 避免历史无限增长（每文档最多 200 份全量快照常驻内存）。
@@ -343,6 +395,7 @@ export const Editor: React.FC<EditorProps> = ({
                 syncScroll={previewMode === 'split'}
                 onScrollChange={handlePreviewScroll}
                 onRegisterEditorScrollSync={handleRegisterPreviewSync}
+                onToggleTask={handleToggleTask}
               />
             </div>
           )}
@@ -366,6 +419,13 @@ export const Editor: React.FC<EditorProps> = ({
       </main>
       {showPresentation && activeDoc && (
         <PresentationMode doc={activeDoc} onClose={() => setShowPresentation(false)} />
+      )}
+      {linkDialog && (
+        <LinkDialog
+          initialText={linkDialog.text}
+          onConfirm={handleLinkConfirm}
+          onCancel={() => setLinkDialog(null)}
+        />
       )}
     </>
   );

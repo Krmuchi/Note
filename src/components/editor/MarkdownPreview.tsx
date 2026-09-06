@@ -21,6 +21,11 @@ interface MarkdownPreviewProps {
    * 避免每个滚动帧重渲染整个编辑面板
    */
   onRegisterEditorScrollSync?: (fn: ((pct: number) => void) | null) => void;
+  /**
+   * 任务列表勾选回写：lineIndex 为源内容中的 0 基行号。
+   * 未传时任务 checkbox 保持只读。
+   */
+  onToggleTask?: (lineIndex: number, checked: boolean) => void;
 }
 
 /** 高亮语言关键词表（省略部分同 tsx/jsx 以减小体积） */
@@ -188,6 +193,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   syncScroll = true,
   onScrollChange,
   onRegisterEditorScrollSync,
+  onToggleTask,
 }) => {
   const previewRef = useRef<HTMLDivElement>(null);
   const isScrollingRef = useRef(false);
@@ -199,6 +205,39 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
     const timer = setTimeout(() => setDebouncedContent(content), 200);
     return () => clearTimeout(timer);
   }, [content]);
+
+  // 任务列表行的 0 基行号（按文档顺序）。GFM 任务 checkbox 由 mdast-util-to-hast
+  // 生成、无 position 信息，无法从 hast 节点定位源行。改为渲染后按 DOM 顺序
+  // 在 effect 中给每个 checkbox 标 data-task-line（见下方 effect）
+  const taskLines = useMemo(() => {
+    const idx: number[] = [];
+    (debouncedContent || '').split('\n').forEach((line, i) => {
+      if (/^\s*[-*+]\s+\[[ xX]\]/.test(line)) idx.push(i);
+    });
+    return idx;
+  }, [debouncedContent]);
+
+  // 任务 checkbox 勾选回写：渲染后按 DOM 顺序标注源行号，并委托 change 事件。
+  // 不在组件渲染期定位（react-hooks/refs 禁止渲染期读写 ref），也天然覆盖
+  // 行内 HTML 的 checkbox——越界/错位由 Editor 端的行内容校验兜底拒绝
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el) return;
+    const boxes = el.querySelectorAll('input[type="checkbox"]');
+    boxes.forEach((box, idx) => {
+      const line = taskLines[idx];
+      if (line !== undefined) box.setAttribute('data-task-line', String(line));
+    });
+    if (!onToggleTask) return;
+    const handler = (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      if (target.type !== 'checkbox') return;
+      const line = target.getAttribute('data-task-line');
+      if (line !== null) onToggleTask(Number(line), target.checked);
+    };
+    el.addEventListener('change', handler);
+    return () => el.removeEventListener('change', handler);
+  }, [taskLines, onToggleTask, debouncedContent]);
 
   // 注册"编辑器 → 预览"同步函数：编辑区滚动时按百分比设置预览滚动位置
   useEffect(() => {
@@ -261,7 +300,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       );
     },
     span(props) {
-      const { style, children, ...rest } = props;
+      const { style: _style, children, ...rest } = props;
       return (
         <span style={withParsedStyle(props)} {...stripNode(rest)}>
           {children}
@@ -269,7 +308,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       );
     },
     div(props) {
-      const { style, children, ...rest } = props;
+      const { style: _style, children, ...rest } = props;
       return (
         <div style={withParsedStyle(props)} {...stripNode(rest)}>
           {children}
@@ -277,7 +316,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       );
     },
     mark(props) {
-      const { style, children, ...rest } = props;
+      const { style: _style, children, ...rest } = props;
       return (
         // 无内联样式时回退到主题化高亮底色（md-mark-highlight）
         <mark className="md-mark-highlight" style={withParsedStyle(props)} {...stripNode(rest)}>
@@ -302,19 +341,19 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         </div>
       );
     },
-    input({ type, checked, ...props }) {
-      if (type === 'checkbox') {
-        return (
-          <input
-            type="checkbox"
-            checked={checked}
-            readOnly
-            style={{ marginRight: '0.5em' }}
-            {...props}
-          />
-        );
-      }
-      return <input type={type} {...props} />;
+    input(props) {
+      const { node: _node, ...rest } = props;
+      // 勾选回写由容器上的 change 事件委托处理（见上方 effect），
+      // readOnly 仅用于消除 React 对 checked 无 onChange 的警告，不会阻止点击
+      return (
+        <input
+          type={rest.type}
+          checked={rest.checked}
+          readOnly
+          style={{ marginRight: '0.5em' }}
+          {...stripNode(rest)}
+        />
+      );
     },
   }), []);
 

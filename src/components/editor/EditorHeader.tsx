@@ -412,10 +412,16 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
                 <path d="M15 12a3 3 0 1 1 0 6H8" />
               </svg>
             </IconBtn>
-            <IconBtn title={`下划线 (${modKey}+U)`} onClick={() => applyFormat('underline')}>
+            <IconBtn title={`下划线 (${modKey}+U)`} onClick={() => applyFormat('underline')} active={activeFormats.has('underline')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M6 3v7a6 6 0 0 0 12 0V3" />
                 <line x1="4" y1="21" x2="20" y2="21" />
+              </svg>
+            </IconBtn>
+            <IconBtn title={`行内代码 (${modKey}+E)`} onClick={() => applyFormat('code')} active={activeFormats.has('code')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
               </svg>
             </IconBtn>
 

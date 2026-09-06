@@ -1,0 +1,368 @@
+/* ============================================
+   演示模式（PresentationMode）
+   全部规则收在 .presentation-container 作用域内：
+   toolbar-btn / progress-bar / preview-title 等
+   类名与编辑器、开始页共用，不可裸写。
+   ============================================ */
+
+/* 舞台：近黑画布，幻灯片卡片与演讲者面板分列 */
+.presentation-container {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  background: #16171c;
+  overflow: hidden;
+  animation: fadeIn var(--transition-base);
+}
+
+.presentation-container .presentation-main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== 顶部悬浮工具栏 ===== */
+.presentation-container .presentation-toolbar {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* editor.css 的 .toolbar-btn 面向格式气泡预览，这里完整覆盖为悬浮圆钮 */
+.presentation-container .toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-md);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.presentation-container .toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.presentation-container .toolbar-btn.active {
+  background: var(--primary-400);
+}
+
+.presentation-container .toolbar-btn.timer-btn {
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.presentation-container .toolbar-btn.timer-btn.paused {
+  opacity: 0.6;
+}
+
+/* ===== 进度条 ===== */
+.presentation-container .presentation-progress {
+  height: 4px;
+  margin: var(--space-3) var(--space-6) 0;
+  border-radius: var(--radius-round);
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.presentation-container .progress-bar {
+  height: 100%;
+  border-radius: var(--radius-round);
+  background: var(--primary-400);
+  transition: width var(--transition-base);
+}
+
+/* ===== 幻灯片区域 ===== */
+.presentation-container .slide-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--space-8) var(--space-4);
+}
+
+.presentation-container .slide-content {
+  width: 100%;
+  max-width: 960px;
+}
+
+/* 幻灯片卡片随应用主题（明/暗），在近黑舞台上形成经典"投影"观感 */
+.presentation-container .slide-page {
+  background: var(--bg-elevated);
+  border-radius: var(--border-radius-xl);
+  box-shadow: var(--shadow-xl);
+  padding: clamp(28px, 5vw, 56px) clamp(32px, 6vw, 64px);
+  animation: fadeIn var(--transition-base);
+}
+
+.presentation-container .slide-title {
+  margin: 0 0 var(--space-5);
+  font-size: clamp(26px, 3.4vw, 40px);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+/* 幻灯片正文 = MarkdownPreview：去默认内边距/边框/背景并放大字号适配投影 */
+.presentation-container .slide-text.markdown-preview {
+  flex: initial;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  border-left: none;
+  overflow: visible;
+  font-size: 18px;
+}
+
+.presentation-container .slide-text.markdown-preview > :first-child {
+  margin-top: 0;
+}
+
+.presentation-container .slide-text.markdown-preview > :last-child {
+  margin-bottom: 0;
+}
+
+/* ===== 底部翻页导航 ===== */
+.presentation-container .slide-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-4) 0 var(--space-5);
+}
+
+.presentation-container .nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: var(--radius-round);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.presentation-container .nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.presentation-container .nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.presentation-container .nav-dots {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.presentation-container .nav-dot {
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-round);
+  background: rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.presentation-container .nav-dot:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.presentation-container .nav-dot.active {
+  background: #fff;
+  transform: scale(1.25);
+}
+
+/* ===== 激光笔 ===== */
+.presentation-container .laser-pointer {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-round);
+  background: radial-gradient(circle, #ff2020 0%, rgba(255, 32, 32, 0.6) 45%, rgba(255, 32, 32, 0) 75%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* ===== 演讲者面板 ===== */
+.presentation-container .speaker-panel {
+  width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  margin: var(--space-4);
+  border-radius: var(--border-radius-xl);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  animation: slideInRight var(--transition-base);
+}
+
+.presentation-container .speaker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.presentation-container .speaker-header h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presentation-container .speaker-close-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--border-radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.presentation-container .speaker-close-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.presentation-container .speaker-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.presentation-container .preview-title,
+.presentation-container .notes-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+}
+
+.presentation-container .preview-content {
+  padding: var(--space-3);
+  border-radius: var(--border-radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  max-height: 30vh;
+  overflow: hidden;
+}
+
+.presentation-container .notes-content .next-preview {
+  padding: var(--space-3);
+  border-radius: var(--border-radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+}
+
+.presentation-container .next-label {
+  margin-bottom: var(--space-1);
+  color: var(--text-tertiary);
+}
+
+.presentation-container .no-next {
+  color: var(--text-placeholder);
+  font-size: var(--font-size-sm);
+}
+
+.presentation-container .speaker-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-color);
+}
+
+.presentation-container .timer-display {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.presentation-container .timer-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+}
+
+.presentation-container .timer-value {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.presentation-container .timer-value.running {
+  color: var(--primary-400);
+}
+
+.presentation-container .timer-value.paused {
+  opacity: 0.6;
+}
+
+.presentation-container .progress-info {
+  font-size: var(--font-size-md);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* ===== 窄屏：演讲者面板改为全覆盖，避免挤压幻灯片 ===== */
+@media (max-width: 900px) {
+  .presentation-container {
+    flex-direction: column-reverse;
+  }
+
+  .presentation-container .speaker-panel {
+    width: auto;
+    flex: 1;
+    margin: var(--space-2);
+  }
+
+  .presentation-container .slide-container {
+    padding: var(--space-4) var(--space-4) 0;
+  }
+}

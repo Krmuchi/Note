@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { NoteDoc } from '@/types';
+import { MarkdownPreview } from '@/components/editor/MarkdownPreview';
 
 interface PresentationModeProps {
   doc: NoteDoc;
@@ -175,11 +176,11 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
                   return (
                     <>
                       <h1 className="slide-title">{headingMatch[2]}</h1>
-                      {body && <div className="slide-text">{body}</div>}
+                      {body && <MarkdownPreview content={body} className="slide-text" syncScroll={false} />}
                     </>
                   );
                 }
-                return <div className="slide-text">{page}</div>;
+                return <MarkdownPreview content={page} className="slide-text" syncScroll={false} />;
               })()}
             </div>
           </div>

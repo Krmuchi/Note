@@ -6,8 +6,8 @@ interface EditorContentProps {
   fontSize: string;
   updateDocContent: (updates: Partial<NoteDoc>) => void;
   handlePaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
-  /** 编辑器内 Ctrl/Cmd+B、Ctrl/Cmd+I、Ctrl/Cmd+U、Ctrl/Cmd+Shift+X 快捷键回调 */
-  onFormatShortcut?: (type: 'bold' | 'italic' | 'underline' | 'strike') => void;
+  /** 编辑器内 Ctrl/Cmd+B、Ctrl/Cmd+I、Ctrl/Cmd+U、Ctrl/Cmd+Shift+X、Ctrl/Cmd+E 快捷键回调 */
+  onFormatShortcut?: (type: 'bold' | 'italic' | 'underline' | 'strike' | 'code') => void;
   activeView?: string;
   /** 仅内部使用：内部 ref 供文本操作读取 */
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
@@ -72,6 +72,11 @@ export const EditorContent: React.FC<EditorContentProps> = ({
     if (meta && e.shiftKey && key === 'x') {
       e.preventDefault();
       onFormatShortcut('strike');
+      return;
+    }
+    if (meta && key === 'e') {
+      e.preventDefault();
+      onFormatShortcut('code');
       return;
     }
 

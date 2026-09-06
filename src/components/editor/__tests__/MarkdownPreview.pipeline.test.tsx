@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, fireEvent } from '@testing-library/react'
 import { MarkdownPreview } from '@/components/editor/MarkdownPreview'
 
 describe('MarkdownPreview - 编辑器 HTML 功能渲染', () => {
@@ -62,6 +62,26 @@ describe('MarkdownPreview - 编辑器 HTML 功能渲染', () => {
     const sized = container.querySelector('span[style*="20px"]')
     expect(sized).toBeTruthy()
     expect(sized?.textContent).toBe('大字')
+  })
+
+  it('任务列表 checkbox 勾选回调携带源行号', () => {
+    const onToggleTask = vi.fn()
+    const { container } = render(
+      <MarkdownPreview content={'- [ ] 待办\n- [x] 已办'} onToggleTask={onToggleTask} />,
+    )
+    const boxes = container.querySelectorAll('input[type="checkbox"]')
+    expect(boxes.length).toBe(2)
+    // 第二个任务勾选状态翻转后触发 change，应回写源内容第 1 行（0 基）
+    ;(boxes[1] as HTMLInputElement).checked = true
+    fireEvent.change(boxes[1])
+    expect(onToggleTask).toHaveBeenCalledWith(1, true)
+  })
+
+  it('未传 onToggleTask 时任务 checkbox 保持只读', () => {
+    const { container } = render(<MarkdownPreview content={'- [ ] 待办'} />)
+    const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement
+    expect(box).toBeTruthy()
+    expect(box.readOnly).toBe(true)
   })
 
   it('普通 Markdown 仍正常渲染', () => {
