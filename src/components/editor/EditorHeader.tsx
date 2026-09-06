@@ -25,6 +25,8 @@ interface EditorHeaderProps {
   setShowSharePanel: (show: boolean) => void;
   setShowPresentationMenu: (show: boolean) => void;
   setFontSize: (size: string) => void;
+  /** 字号菜单选择：有选区时作用于选中文本，无选区时回退 setFontSize 调整基础字号 */
+  onFontSizeSelect?: (size: string) => void;
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
@@ -65,6 +67,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   setShowSharePanel,
   setShowPresentationMenu,
   setFontSize,
+  onFontSizeSelect,
   undo,
   redo,
   canUndo,
@@ -371,7 +374,14 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
                     <button
                       key={val}
                       className={`eh-menu-item ${fontSize === val ? 'active' : ''}`}
-                      onClick={() => { setFontSize(val); setShowFontSizeMenu(false); }}
+                      onClick={() => {
+                        if (onFontSizeSelect) {
+                          onFontSizeSelect(val);
+                        } else {
+                          setFontSize(val);
+                        }
+                        setShowFontSizeMenu(false);
+                      }}
                     >
                       {val}
                     </button>

@@ -21,6 +21,7 @@ export type FormatType =
   | 'alignLeft' | 'alignCenter' | 'alignRight'
   | 'indent' | 'outdent'
   | 'textColor' | 'highlight'
+  | 'fontSize'
   | 'table' | 'divider' | 'clearFormat';
 
 interface UseEditorFormattingOptions {
@@ -189,7 +190,7 @@ export function useEditorFormatting({
 
   /** 对 textarea 选中文本应用格式化 */
   const applyFormat = useCallback(
-    (type: FormatType, options?: { color?: string }) => {
+    (type: FormatType, options?: { color?: string; size?: string }) => {
       const ta = textareaRef.current;
       if (!ta || !activeDoc) return;
 
@@ -219,6 +220,9 @@ export function useEditorFormatting({
           break;
         case 'highlight':
           newContent = wrapSelection(ta, `<mark style="background-color:${options?.color || '#fff3a0'}">`, '</mark>');
+          break;
+        case 'fontSize':
+          newContent = wrapSelection(ta, `<span style="font-size:${options?.size || '15px'}">`, '</span>');
           break;
         case 'heading1':
           newContent = insertBlockMark(ta, '# ');

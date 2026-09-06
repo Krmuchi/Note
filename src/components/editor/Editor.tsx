@@ -138,6 +138,17 @@ export const Editor: React.FC<EditorProps> = ({
     updateDocContent,
   });
 
+  // 字号选择：有选中文本时作用于选区（span style，与颜色/高亮一致），
+  // 无选区时回退为调整整个编辑器的基础字号
+  const handleFontSizeSelect = useCallback((size: string) => {
+    const ta = textareaRef.current;
+    if (ta && ta.selectionStart !== ta.selectionEnd) {
+      applyFormat('fontSize', { size });
+    } else {
+      onFontSizeChange(size);
+    }
+  }, [applyFormat, onFontSizeChange]);
+
   // 仅在切换文档时记录一次初始快照，并清理上一个文档的撤销历史，
   // 避免历史无限增长（每文档最多 200 份全量快照常驻内存）。
   // 注意：不能依赖 activeDoc（内容每次击键都变），否则会把"变更后"的内容
@@ -290,6 +301,7 @@ export const Editor: React.FC<EditorProps> = ({
           setShowSharePanel={handleOpenSharePanel}
           setShowPresentationMenu={setShowPresentationMenu}
           setFontSize={onFontSizeChange}
+          onFontSizeSelect={handleFontSizeSelect}
           undo={undo}
           redo={redo}
           canUndo={canUndo}

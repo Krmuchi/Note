@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
 import { Mermaid } from '@/components/common/Mermaid';
 import 'katex/dist/katex.min.css';
 
@@ -138,74 +139,46 @@ const CodeBlock = React.memo(({ language, children }: { language: string; childr
 
 CodeBlock.displayName = 'CodeBlock';
 
-// 自定义标记的正则表达式
-const CUSTOM_MARK_REGEX = /‡U‡(.*?)‡\/U‡|‡MARK‡(.*?)‡\/MARK‡|‡COLOR_(#[a-fA-F0-9]+)‡(.*?)‡\/COLOR‡/g;
-
-/** 处理字符串中的自定义标记，返回React节点数组 */
-function processCustomMarks(text: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match;
-
-  CUSTOM_MARK_REGEX.lastIndex = 0;
-
-  while ((match = CUSTOM_MARK_REGEX.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.substring(lastIndex, match.index));
-    }
-
-    if (match[1] !== undefined) {
-      parts.push(<u key={`u-${match.index}`} style={{ textDecoration: 'underline' }}>{match[1]}</u>);
-    } else if (match[2] !== undefined) {
-      // 高亮底色/文字色随主题（CSS 类），避免暗色主题下白字配浅黄底不可读
-      parts.push(<mark key={`mark-${match.index}`} className="md-mark-highlight">{match[2]}</mark>);
-    } else if (match[3] !== undefined && match[4] !== undefined) {
-      parts.push(<span key={`color-${match.index}`} style={{ color: match[3] }}>{match[4]}</span>);
-    }
-
-    lastIndex = match.index + match[0].length;
+/**
+ * 把 rehype-raw 产出的 style 字符串（如 "color:#ff0000;text-align:center"）
+ * 解析为 React 需要的样式对象。React 会忽略字符串形式的 style，
+ * 导致编辑器插入的文字颜色/高亮/对齐在预览中全部失效。
+ */
+function parseStyleAttribute(styleStr?: string): React.CSSProperties | undefined {
+  if (!styleStr || typeof styleStr !== 'string') return undefined;
+  const out: Record<string, string> = {};
+  for (const decl of styleStr.split(';')) {
+    const idx = decl.indexOf(':');
+    if (idx === -1) continue;
+    const prop = decl.slice(0, idx).trim().toLowerCase();
+    const value = decl.slice(idx + 1).trim();
+    if (!prop || !value) continue;
+    const camel = prop.startsWith('--') ? prop : prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+    out[camel] = value;
   }
-
-  if (lastIndex < text.length) {
-    parts.push(text.substring(lastIndex));
-  }
-
-  return parts.length > 0 ? parts : [text];
+  return out as React.CSSProperties;
 }
 
-/** 递归处理React节点树，处理自定义标记 */
-function processReactNode(node: React.ReactNode): React.ReactNode {
-  if (typeof node === 'string') {
-    const result = processCustomMarks(node);
-    return result.length === 1 && typeof result[0] === 'string' ? result[0] : <>{result}</>;
-  }
-
-  if (Array.isArray(node)) {
-    return node.map((item, index) => {
-      const processed = processReactNode(item);
-      return React.isValidElement(processed) && !processed.key ?
-        React.cloneElement(processed as React.ReactElement, { key: index }) :
-        processed;
-    });
-  }
-
-  if (React.isValidElement(node)) {
-    const props = node.props as any;
-    if (props.children) {
-      const children = React.Children.map(props.children, (child) => processReactNode(child));
-      return React.cloneElement(node, {}, children);
-    }
-  }
-
-  return node;
+/**
+ * 编辑器插入的行内样式标签共用处理。
+ *
+ * react-markdown 依赖 style-to-js@1.0.0 把 hast 的 style 字符串转成对象，
+ * 但该包的 CJS 导出形态（{__esModule, default}）在 Vite/Vitest 互操作下会
+ * 解析失败并产出空对象，导致颜色/高亮/对齐在预览中丢失。
+ * 因此当 style 为空对象时，回退到 hast node 上保留的原始 style 字符串自行解析。
+ */
+function withParsedStyle(props: { style?: unknown; node?: unknown }): React.CSSProperties | undefined {
+  const s = props.style;
+  if (typeof s === 'string') return parseStyleAttribute(s);
+  if (s && typeof s === 'object' && Object.keys(s).length > 0) return s as React.CSSProperties;
+  const raw = (props.node as { properties?: { style?: unknown } } | undefined)?.properties?.style;
+  if (typeof raw === 'string') return parseStyleAttribute(raw);
+  return undefined;
 }
 
-/** 预处理内容：将HTML标签转换为自定义标记 */
-function preprocessContent(content: string): string {
-  let processed = content.replace(/<u>(.*?)<\/u>/g, '‡U‡$1‡/U‡');
-  processed = processed.replace(/<mark[^>]*>(.*?)<\/mark>/g, '‡MARK‡$1‡/MARK‡');
-  processed = processed.replace(/<span style="color:([^"]+)">(.*?)<\/span>/g, '‡COLOR_$1‡$2‡/COLOR‡');
-  return processed;
+/** react-markdown 会传入 hast node，不能透传到 DOM */
+function stripNode({ node: _node, ...rest }: Record<string, unknown>) {
+  return rest;
 }
 
 /** Markdown 实时预览组件 */
@@ -255,7 +228,10 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
     }, 50);
   }, [syncScroll, onScrollChange]);
 
-  const processedContent = useMemo(() => preprocessContent(debouncedContent), [debouncedContent]);
+  // rehype-raw：让预览原生支持编辑器插入的 HTML（<u>/<mark>/<span style>/<div align>），
+  // 且 HTML 与 Markdown 语法（粗体/链接等）混排时能正确嵌套解析。
+  // 旧方案用 ‡ 占位符二次替换，遇到占位符被 Markdown 语法拆开时标记字符会原样泄露。
+  const processedContent = debouncedContent;
 
   const components = useMemo<Components>(() => ({
     code({ className, children, ...props }) {
@@ -277,15 +253,36 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         </code>
       );
     },
-    p({ children }) {
-      const processed = processReactNode(children);
-      return <p>{processed}</p>;
-    },
     a({ href, children }) {
       return (
         <a href={href} target="_blank" rel="noopener noreferrer">
           {children}
         </a>
+      );
+    },
+    span(props) {
+      const { style, children, ...rest } = props;
+      return (
+        <span style={withParsedStyle(props)} {...stripNode(rest)}>
+          {children}
+        </span>
+      );
+    },
+    div(props) {
+      const { style, children, ...rest } = props;
+      return (
+        <div style={withParsedStyle(props)} {...stripNode(rest)}>
+          {children}
+        </div>
+      );
+    },
+    mark(props) {
+      const { style, children, ...rest } = props;
+      return (
+        // 无内联样式时回退到主题化高亮底色（md-mark-highlight）
+        <mark className="md-mark-highlight" style={withParsedStyle(props)} {...stripNode(rest)}>
+          {children}
+        </mark>
       );
     },
     img({ src, alt }) {
@@ -344,7 +341,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex]}
+        rehypePlugins={[rehypeRaw, rehypeKatex]}
         components={components}
       >
         {processedContent}
