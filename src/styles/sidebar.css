@@ -76,6 +76,64 @@
   padding: var(--space-2);
 }
 
+/* ===== 移动端导航抽屉 ===== */
+/* 开关按钮默认隐藏，仅在窄窗口（≤768px）由 responsive.css 显示 */
+.mobile-nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.mobile-nav-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.mobile-nav-toggle.active {
+  background: var(--primary-50);
+  color: var(--primary-500);
+}
+
+.mobile-nav-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mobile-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: var(--bg-overlay);
+  animation: fadeIn var(--transition-fast);
+}
+
+/* 面板挂在顶部条（.main-sidebar-mobile 为 position: relative）下方，无需写死高度 */
+.mobile-nav-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-color);
+  border-bottom-left-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: fadeInDown var(--transition-fast);
+}
+
 .sidebar-tooltip {
   position: fixed;
   /* 暗色主题 --gray-800 是浅灰色，配白字对比度不足；改用主题浮层变量保证亮暗可读 */

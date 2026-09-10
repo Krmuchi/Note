@@ -9,6 +9,10 @@ interface SidebarHeaderProps {
   activeNotebookId: string;
   /** 新建文档后打开该文档（切换到编辑器视图） */
   onOpenDoc?: (notebookId: string, docId: string) => void;
+  /** 移动端：显示导航抽屉开关按钮 */
+  showMenuButton?: boolean;
+  menuOpen?: boolean;
+  onToggleMenu?: () => void;
 }
 
 export const SidebarHeader: React.FC<SidebarHeaderProps> = ({
@@ -17,11 +21,39 @@ export const SidebarHeader: React.FC<SidebarHeaderProps> = ({
   onSearchPanelOpen,
   activeNotebookId,
   onOpenDoc,
+  showMenuButton = false,
+  menuOpen = false,
+  onToggleMenu,
 }) => {
   const [searchFocused, setSearchFocused] = useState(false);
 
   return (
     <div className="sidebar-header">
+      {showMenuButton && (
+        <button
+          type="button"
+          className={`mobile-nav-toggle ${menuOpen ? 'active' : ''}`}
+          onClick={onToggleMenu}
+          aria-label={menuOpen ? '关闭导航菜单' : '打开导航菜单'}
+          aria-expanded={menuOpen}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {menuOpen ? (
+              <>
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </>
+            ) : (
+              <>
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </>
+            )}
+          </svg>
+        </button>
+      )}
+
       <div className="brand">
         <div className="brand-icon-wrapper">
           <span className="brand-icon" aria-hidden="true">📝</span>

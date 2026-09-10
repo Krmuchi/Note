@@ -1,13 +1,36 @@
 import React, { useRef, useState, useCallback } from 'react';
 import type { NoteDoc } from '@/types';
+import type { FormatType } from '@/hooks/useEditorFormatting';
+import { autoPairMarker, changeIndent, continueBlockOnEnter, detectSlashToken, getCaretPixelPosition } from '@/utils/editorTextOps';
+import { eventToKeys } from '@/utils/shortcuts';
+
+/** 可由快捷键直接触发的格式化动作（id 与 FormatType / keyboardSlice 对齐） */
+const FORMAT_ACTIONS = new Set<string>([
+  'bold', 'italic', 'underline', 'strike', 'code',
+  'heading1', 'heading2', 'heading3', 'heading4', 'heading5', 'heading6',
+  'ulist', 'olist', 'tasklist', 'quote', 'link',
+]);
+
+/** 斜杠命令触发状态（由编辑区检测后上抛给 Editor 统一持有） */
+export interface SlashTriggerState {
+  start: number;
+  end: number;
+  query: string;
+  caret: { top: number; left: number };
+}
 
 interface EditorContentProps {
   activeDoc: NoteDoc | null;
   fontSize: string;
   updateDocContent: (updates: Partial<NoteDoc>) => void;
   handlePaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
-  /** 编辑器内 Ctrl/Cmd+B、Ctrl/Cmd+I、Ctrl/Cmd+U、Ctrl/Cmd+Shift+X、Ctrl/Cmd+E 快捷键回调 */
-  onFormatShortcut?: (type: 'bold' | 'italic' | 'underline' | 'strike' | 'code') => void;
+  /** 编辑器内格式化快捷键回调（含标题、列表、引用、链接等块级格式） */
+  onFormatShortcut?: (type: FormatType) => void;
+  /**
+   * 把按键组合解析为 keyboardSlice 中的动作 id；返回 null 表示未命中。
+   * 由 Editor 注入（从 store 读取，含用户自定义键位），保证键位只有一份定义
+   */
+  resolveShortcut?: (combo: string[]) => string | null;
   activeView?: string;
   /** 仅内部使用：内部 ref 供文本操作读取 */
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
@@ -17,6 +40,13 @@ interface EditorContentProps {
   onScroll?: () => void;
   /** 图片插入回调 */
   onInsertImage?: (file: File) => void;
+  /** 非图片附件插入回调（落盘后插入链接语法） */
+  onInsertFile?: (file: File) => void;
+  /**
+   * 斜杠命令触发状态变化。
+   * source='input' 表示由输入触发（可唤出面板）；'cursor' 表示仅光标移动（只用于关闭/同步）
+   */
+  onSlashChange?: (state: SlashTriggerState | null, source: 'input' | 'cursor') => void;
 }
 
 export const EditorContent: React.FC<EditorContentProps> = ({
@@ -25,15 +55,22 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   updateDocContent,
   handlePaste,
   onFormatShortcut,
+  resolveShortcut,
   activeView = 'notebooks',
   onTextareaMount,
   onScroll,
   onInsertImage,
+  onInsertFile,
+  onSlashChange,
 }) => {
   const internalRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaRef = internalRef;
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
+  /** Ctrl+Shift+V：下一次粘贴走纯文本（keydown 阶段置位，paste 阶段消费） */
+  const plainTextPasteRef = useRef(false);
+  /** Ctrl+Alt+C：下一次复制写入 Markdown 源码 */
+  const copyAsMarkdownRef = useRef(false);
 
   // useCallback 稳定引用：普通函数每次渲染都是新引用，React 会先 detach(null) 再 attach(node)，
   // 造成 onTextareaMount(null→node) 抖动与监听器反复重绑
@@ -42,18 +79,118 @@ export const EditorContent: React.FC<EditorContentProps> = ({
     onTextareaMount?.(node);
   }, [onTextareaMount]);
 
+  /** 同步斜杠命令触发状态（仅 O(当前行) 计算） */
+  const syncSlash = useCallback((el: HTMLTextAreaElement, source: 'input' | 'cursor') => {
+    if (!onSlashChange) return;
+    const token = detectSlashToken(el);
+    onSlashChange(
+      token ? { ...token, caret: getCaretPixelPosition(el, token.start) } : null,
+      source,
+    );
+  }, [onSlashChange]);
+
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (activeDoc) {
       updateDocContent({ content: e.target.value });
     }
+    syncSlash(e.target, 'input');
+  };
+
+  /** 光标移动/点击时仅同步关闭，避免把光标落在已有 "/xxx" 文本上也唤出面板 */
+  const handleCursorMove = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    syncSlash(e.currentTarget, 'cursor');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 块续写与缩进：不依赖 onFormatShortcut，优先于格式化快捷键处理
+    const ta = textareaRef.current;
+    if (ta && activeDoc && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // 行内标记自动补全：` ` ` * ~
+      if (e.key === '`' || e.key === '*' || e.key === '~') {
+        if (autoPairMarker(ta, e.key)) {
+          e.preventDefault();
+          updateDocContent({ content: ta.value });
+          return;
+        }
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        const next = continueBlockOnEnter(ta);
+        if (next !== null) {
+          e.preventDefault();
+          updateDocContent({ content: next });
+          return;
+        }
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const next = changeIndent(ta, !e.shiftKey);
+        if (next !== null) updateDocContent({ content: next });
+        return;
+      }
+    }
+
+    // 快捷键：优先由 keyboardSlice（单一数据源）解析，未命中再走历史硬编码兜底
+    const combo = eventToKeys(e);
+    const actionId = combo.length > 0 ? resolveShortcut?.(combo) ?? null : null;
+
+    if (actionId) {
+      if (FORMAT_ACTIONS.has(actionId)) {
+        e.preventDefault();
+        onFormatShortcut?.(actionId as FormatType);
+        return;
+      }
+      switch (actionId) {
+        case 'duplicateLine':
+          e.preventDefault();
+          duplicateLine();
+          return;
+        case 'moveLineUp':
+          e.preventDefault();
+          moveLine(-1);
+          return;
+        case 'moveLineDown':
+          e.preventDefault();
+          moveLine(1);
+          return;
+        case 'deleteLine':
+          e.preventDefault();
+          deleteLine();
+          return;
+        case 'indent':
+          e.preventDefault();
+          indentLine(true);
+          return;
+        case 'outdent':
+          e.preventDefault();
+          indentLine(false);
+          return;
+        case 'insertLineBelow':
+          e.preventDefault();
+          insertLineBelow();
+          return;
+        case 'insertLineAbove':
+          e.preventDefault();
+          insertLineAbove();
+          return;
+        case 'plainTextPaste':
+          // 置位后交由 onPaste 消费（keydown 阶段拿不到剪贴板数据）
+          plainTextPasteRef.current = true;
+          return;
+        case 'copyAsMarkdown':
+          // 置位后交由 onCopy 消费
+          copyAsMarkdownRef.current = true;
+          return;
+        default:
+          // 命中全局动作（撤销/搜索/保存等）：不拦截，交给 window 监听器处理
+          return;
+      }
+    }
+
     if (!onFormatShortcut) return;
     const meta = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
-    
-    // 基本格式化快捷键
+
+    // 兜底：store 未覆盖时的历史硬编码（保留既有行为，避免自定义键位丢失后失效）
     if (meta && key === 'b') {
       e.preventDefault();
       onFormatShortcut('bold');
@@ -79,8 +216,6 @@ export const EditorContent: React.FC<EditorContentProps> = ({
       onFormatShortcut('code');
       return;
     }
-
-    // 文本编辑快捷键
     if (meta && key === 'd') {
       e.preventDefault();
       duplicateLine();
@@ -113,8 +248,48 @@ export const EditorContent: React.FC<EditorContentProps> = ({
       } else {
         insertLineBelow();
       }
+    }
+  };
+
+  /** 纯文本粘贴：丢弃 HTML 富文本，仅插入 text/plain */
+  const handlePasteLocal = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!plainTextPasteRef.current) {
+      handlePaste(e);
       return;
     }
+    plainTextPasteRef.current = false;
+    const plain = e.clipboardData?.getData('text/plain') ?? '';
+    if (!plain) return;
+    e.preventDefault();
+    const ta = textareaRef.current;
+    if (!ta || !activeDoc) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const value = ta.value;
+    const next = value.substring(0, start) + plain + value.substring(end);
+    ta.value = next;
+    ta.selectionStart = ta.selectionEnd = start + plain.length;
+    updateDocContent({ content: next });
+  };
+
+  /** 复制为 Markdown：把选区（无选区时为整行）的源码原样写入剪贴板 */
+  const handleCopy = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!copyAsMarkdownRef.current) return;
+    copyAsMarkdownRef.current = false;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const value = ta.value;
+    let text = value.substring(start, end);
+    if (start === end) {
+      const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+      const nextBreak = value.indexOf('\n', start);
+      text = value.substring(lineStart, nextBreak === -1 ? value.length : nextBreak);
+    }
+    if (!text) return;
+    e.preventDefault();
+    e.clipboardData.setData('text/plain', text);
   };
 
   // 设置光标位置（使用 requestAnimationFrame 确保在 React 重渲染后执行）
@@ -291,21 +466,23 @@ export const EditorContent: React.FC<EditorContentProps> = ({
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     const files = Array.from(e.dataTransfer.files);
-    const imageFiles = files.filter(file => file.type.startsWith('image/'));
-
-    // 仅在拖入图片时接管默认行为；拖拽选中文本（无文件）时保留 textarea 原生移动语义
-    if (imageFiles.length === 0 || !onInsertImage) return;
+    // 拖拽选中文本（无文件）时保留 textarea 原生移动语义
+    if (files.length === 0) return;
 
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
     dragCounterRef.current = 0;
 
-    // 插入所有图片
-    imageFiles.forEach(file => {
-      onInsertImage(file);
+    // 图片走图片流程，其余文件走附件流程
+    files.forEach(file => {
+      if (file.type.startsWith('image/')) {
+        onInsertImage?.(file);
+      } else {
+        onInsertFile?.(file);
+      }
     });
-  }, [onInsertImage]);
+  }, [onInsertImage, onInsertFile]);
 
   return (
     <div
@@ -330,9 +507,13 @@ export const EditorContent: React.FC<EditorContentProps> = ({
                 value={activeDoc?.content || ''}
                 onScroll={onScroll}
                 onChange={handleChange}
-                onPaste={handlePaste}
+                onKeyUp={handleCursorMove}
+                onClick={handleCursorMove}
+                onPaste={handlePasteLocal}
+                onCopy={handleCopy}
                 onKeyDown={handleKeyDown}
                 placeholder="开始编写你的文章..."
+                aria-label="文档内容编辑器"
                 spellCheck={false}
                 style={{ fontSize: fontSize }}
               />

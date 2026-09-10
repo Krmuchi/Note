@@ -135,3 +135,216 @@ export function setAlignment(ta: HTMLTextAreaElement, align: 'left' | 'center' |
   ta.focus();
   return ta.value;
 }
+
+/** 生成指定行列的 Markdown 表格（首行为表头） */
+export function buildTableMarkdown(rows: number, cols: number): string {
+  const safeRows = Math.max(1, Math.min(rows, 20));
+  const safeCols = Math.max(1, Math.min(cols, 12));
+  const header = `| ${Array.from({ length: safeCols }, (_, i) => `列${i + 1}`).join(' | ')} |`;
+  const divider = `| ${Array(safeCols).fill('---').join(' | ')} |`;
+  const body = Array.from(
+    { length: Math.max(0, safeRows - 1) },
+    () => `| ${Array(safeCols).fill('内容').join(' | ')} |`,
+  );
+  return [header, divider, ...body].join('\n');
+}
+
+/** 生成代码块围栏；language 为空时使用无语言围栏 */
+export function buildCodeFence(language?: string): string {
+  return '```' + (language || '');
+}
+
+/**
+ * Markdown 行内标记自动补全（无选区时生效）：
+ * - 输入 `` ` `` → 补全为 `` `` ``，光标居中；已存在闭合反引号时直接跳过
+ * - 输入第二个 `*` / `~` → 补全为 `**|**` / `~~|~~`
+ * - 光标紧邻已有闭合标记时，输入同字符直接跳过而不是重复插入
+ * 返回 true 表示已接管本次按键（调用方需 preventDefault）。
+ */
+export function autoPairMarker(ta: HTMLTextAreaElement, key: string): boolean {
+  // 有选区时保持默认替换行为，避免误吞选区
+  if (ta.selectionStart !== ta.selectionEnd) return false;
+
+  const pos = ta.selectionStart;
+  const value = ta.value;
+  const before = value.substring(0, pos);
+  const after = value.substring(pos);
+
+  const skip = (len: number) => {
+    ta.selectionStart = ta.selectionEnd = pos + len;
+    return true;
+  };
+
+  const insertPair = (text: string, cursorOffset: number) => {
+    const next = value.substring(0, pos) + text + after;
+    ta.value = next;
+    ta.selectionStart = ta.selectionEnd = pos + cursorOffset;
+    return true;
+  };
+
+  if (key === '`') {
+    // 光标正好夹在一对反引号之间：跳过已有闭合标记，完成配对
+    if (before.endsWith('`') && after.startsWith('`')) return skip(1);
+    // 连续反引号（代码围栏 ```）保持默认输入
+    if (before.endsWith('`')) return false;
+    return insertPair('``', 1);
+  }
+
+  if (key === '*') {
+    if (before.endsWith('*') && after.startsWith('*')) return skip(1);
+    // 输入第二个 * 时补全为 **|**
+    if (before.endsWith('*') && !before.endsWith('**')) return insertPair('***', 1);
+    return false;
+  }
+
+  if (key === '~') {
+    if (before.endsWith('~') && after.startsWith('~')) return skip(1);
+    if (before.endsWith('~') && !before.endsWith('~~')) return insertPair('~~~', 1);
+    return false;
+  }
+
+  return false;
+}
+
+/** 斜杠命令触发片段：`/` 位于行首或空白之后，且其后无空格 */
+export interface SlashToken {
+  /** `/` 字符的索引 */
+  start: number;
+  /** 光标位置（不含已选区） */
+  end: number;
+  /** `/` 之后的查询词 */
+  query: string;
+}
+
+/** 检测光标前的斜杠命令片段；未命中返回 null */
+export function detectSlashToken(ta: HTMLTextAreaElement): SlashToken | null {
+  const pos = ta.selectionStart;
+  if (pos !== ta.selectionEnd) return null;
+  const value = ta.value;
+  const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
+  const before = value.substring(lineStart, pos);
+  const matched = /(?:^|\s)\/([^\s/]*)$/.exec(before);
+  if (!matched) return null;
+  const query = matched[1];
+  return { start: pos - query.length - 1, end: pos, query };
+}
+
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+
+/**
+ * 计算指定字符索引处的像素坐标（用于斜杠菜单定位）。
+ * 采用「canvas 量文本 + 行号 × 行高」换算，不引入定位库；
+ * 结果已按视口尺寸收敛，避免浮层溢出屏幕。
+ */
+export function getCaretPixelPosition(ta: HTMLTextAreaElement, index: number): { top: number; left: number } {
+  const rect = ta.getBoundingClientRect();
+  const style = getComputedStyle(ta);
+  const fontSize = parseFloat(style.fontSize) || 14;
+  const lineHeight = parseFloat(style.lineHeight) || fontSize * 1.6;
+  const padLeft = parseFloat(style.paddingLeft) || 0;
+  const padTop = parseFloat(style.paddingTop) || 0;
+  const value = ta.value;
+  const lineStart = value.lastIndexOf('\n', index - 1) + 1;
+  const lineIndex = value.slice(0, index).split('\n').length - 1;
+  const colText = value.substring(lineStart, index);
+
+  if (measureCtx === undefined) {
+    measureCtx = document.createElement('canvas').getContext('2d');
+  }
+  let width = 0;
+  if (measureCtx) {
+    measureCtx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    width = measureCtx.measureText(colText).width;
+  }
+
+  const left = rect.left + padLeft + width - ta.scrollLeft;
+  const top = rect.top + padTop + (lineIndex + 1) * lineHeight - ta.scrollTop;
+  return {
+    top: Math.min(top, Math.max(8, window.innerHeight - 48)),
+    left: Math.min(left, Math.max(8, window.innerWidth - 300)),
+  };
+}
+
+/** 行首块标记：任务列表 / 无序列表 / 有序列表 / 引用 */
+const RE_TASK = /^(\s*)[-*+]\s+\[([ xX])\]\s+([\s\S]*)$/;
+const RE_ULIST = /^(\s*)([-*+])(\s+)([\s\S]*)$/;
+const RE_OLIST = /^(\s*)(\d+)([.)])(\s+)([\s\S]*)$/;
+const RE_QUOTE = /^(\s*)(>\s?)([\s\S]*)$/;
+
+/** 在光标/选区处插入纯文本（用于纯文本粘贴、HTML→Markdown 粘贴等） */
+export function insertTextAtCursor(ta: HTMLTextAreaElement, text: string): string | null {
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const value = ta.value;
+  const next = value.substring(0, start) + text + value.substring(end);
+  ta.value = next;
+  ta.selectionStart = ta.selectionEnd = start + text.length;
+  ta.focus();
+  return next;
+}
+
+/** 在光标/选区处插入标记文本，并把光标移到标记之后 */
+function insertAtCursor(ta: HTMLTextAreaElement, start: number, end: number, marker: string): string {
+  const value = ta.value.substring(0, start) + marker + ta.value.substring(end);
+  ta.value = value;
+  ta.selectionStart = ta.selectionEnd = start + marker.length;
+  ta.focus();
+  return value;
+}
+
+/** 清空整行（用于空列表项回车退出列表） */
+function clearLine(ta: HTMLTextAreaElement, lineStart: number, lineEnd: number): string {
+  const value = ta.value.substring(0, lineStart) + ta.value.substring(lineEnd);
+  ta.value = value;
+  ta.selectionStart = ta.selectionEnd = lineStart;
+  ta.focus();
+  return value;
+}
+
+/**
+ * 回车时续写当前块标记：
+ * - 任务列表 `- [x] ` 续写为 `- [ ] `（下一项默认未完成）
+ * - 有序列表序号自动 +1
+ * - 引用 `> `、无序列表 `- ` 原样续写
+ * - 空列表/引用项（标记后无内容且光标在行尾）回车则清除标记退出块
+ * 未被任何块标记匹配时返回 null，由调用方走原生回车行为。
+ * 全程只读取当前行，复杂度 O(当前行长度)。
+ */
+export function continueBlockOnEnter(ta: HTMLTextAreaElement): string | null {
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const text = ta.value;
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+  const nextBreak = text.indexOf('\n', start);
+  const lineEnd = nextBreak === -1 ? text.length : nextBreak;
+  const line = text.substring(lineStart, lineEnd);
+  // 仅光标位于行尾时才允许"退出块"，否则视为在行中间拆分
+  const atLineEnd = start === lineEnd && end === lineEnd;
+
+  const task = RE_TASK.exec(line);
+  if (task) {
+    if (task[3].trim() === '' && atLineEnd) return clearLine(ta, lineStart, lineEnd);
+    return insertAtCursor(ta, start, end, `\n${task[1]}- [ ] `);
+  }
+
+  const ul = RE_ULIST.exec(line);
+  if (ul) {
+    if (ul[4].trim() === '' && atLineEnd) return clearLine(ta, lineStart, lineEnd);
+    return insertAtCursor(ta, start, end, `\n${ul[1]}${ul[2]} `);
+  }
+
+  const ol = RE_OLIST.exec(line);
+  if (ol) {
+    if (ol[5].trim() === '' && atLineEnd) return clearLine(ta, lineStart, lineEnd);
+    const next = Number(ol[2]) + 1;
+    return insertAtCursor(ta, start, end, `\n${ol[1]}${next}${ol[3]} `);
+  }
+
+  const quote = RE_QUOTE.exec(line);
+  if (quote) {
+    if (quote[3].trim() === '' && atLineEnd) return clearLine(ta, lineStart, lineEnd);
+    return insertAtCursor(ta, start, end, `\n${quote[1]}> `);
+  }
+
+  return null;
+}

@@ -42,11 +42,19 @@
     border-bottom: 1px solid var(--border-color);
   }
 
+  /* 顶部条需高于遮罩，保证抽屉开关与关闭按钮始终可点 */
+  .main-sidebar.main-sidebar-mobile {
+    position: relative;
+    z-index: 902;
+    flex-shrink: 0;
+  }
+
   .sidebar-header {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     margin-bottom: 0;
+    width: 100%;
   }
 
   .sidebar-search-wrapper {
@@ -54,6 +62,11 @@
     flex: 1;
   }
 
+  .mobile-nav-toggle {
+    display: inline-flex;
+  }
+
+  /* 顶部条内隐藏桌面导航区块（抽屉面板内会重新显示，见下方更高优先级的覆盖） */
   .sidebar-nav {
     display: none;
   }
@@ -66,11 +79,69 @@
     display: none;
   }
 
+  /* ---- 抽屉面板内恢复被折叠的区块 ---- */
+  .mobile-nav-panel .sidebar-nav {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: 0;
+    padding: var(--space-3) var(--space-4) var(--space-2);
+  }
+
+  .mobile-nav-panel .nav-item {
+    flex: 1 1 calc(50% - var(--space-2));
+    min-width: 120px;
+  }
+
+  .mobile-nav-panel .sidebar-section {
+    display: flex;
+    flex: 0 1 auto;
+    max-height: 40vh;
+    border-top: 1px solid var(--border-secondary);
+    padding-top: var(--space-2);
+  }
+
+  .mobile-nav-panel .sidebar-footer {
+    display: flex;
+    border-top: 1px solid var(--border-secondary);
+    padding-bottom: var(--space-4);
+  }
+
+  /* 抽屉内"更多"菜单改为文档流内展开，避免 fixed 定位错位 */
+  .mobile-nav-panel .sidebar-footer .more-menu {
+    position: static;
+    width: 100%;
+    margin-top: var(--space-2);
+    box-shadow: none;
+    border: 1px solid var(--border-secondary);
+    background: var(--bg-secondary);
+  }
+
   .docs-sidebar {
     width: 100%;
     max-height: 200px;
     border-right: none;
     border-bottom: 1px solid var(--border-color);
+  }
+
+  /* ---- 移动端文档列表：默认只留标题栏，点开展开 ---- */
+  .docs-mobile-toggle {
+    display: inline-flex;
+  }
+
+  .docs-sidebar.docs-sidebar-mobile {
+    max-height: 45vh;
+  }
+
+  .docs-sidebar.docs-sidebar-mobile:not(.expanded) {
+    max-height: 48px;
+    overflow: hidden;
+  }
+
+  .docs-sidebar.docs-sidebar-mobile .docs-header {
+    height: 48px;
+    padding: var(--space-2) var(--space-3);
   }
 
   .search-panel {
@@ -119,6 +190,18 @@
 }
 
 @media (max-width: 576px) {
+  /* 窄屏 Toast 改为通栏，避免右侧溢出与遮挡操作 */
+  .toast-container {
+    top: var(--space-3);
+    left: var(--space-3);
+    right: var(--space-3);
+  }
+
+  .toast {
+    max-width: none;
+    width: 100%;
+  }
+
   .search-panel-overlay {
     padding-top: 20px;
   }

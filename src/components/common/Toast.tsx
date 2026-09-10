@@ -41,9 +41,9 @@ const ToastItemInner = ({ id, type, message, onClose, duration = 3000 }: ToastPr
 
   return (
     <div className={`toast toast-${type} ${isExiting ? "exit" : "enter"}`}>
-      <span className="toast-icon">{iconMap[type]}</span>
+      <span className="toast-icon" aria-hidden="true">{iconMap[type]}</span>
       <span className="toast-message">{message}</span>
-      <button className="toast-close" onClick={handleClose}>
+      <button className="toast-close" onClick={handleClose} aria-label="关闭提示">
         ×
       </button>
     </div>
@@ -59,7 +59,7 @@ export interface ToastContainerProps {
 
 export function ToastContainer({ toasts, onClose }: ToastContainerProps) {
   return (
-    <div className="toast-container">
+    <div className="toast-container" role="status" aria-live="polite">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} {...toast} onClose={onClose} />
       ))}

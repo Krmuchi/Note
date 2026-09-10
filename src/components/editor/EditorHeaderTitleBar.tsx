@@ -39,6 +39,8 @@ interface EditorHeaderTitleBarProps {
   onCopyLink: () => void;
   onExportHtml: () => void;
   onExportPdf: () => void;
+  onExportMarkdown?: () => void;
+  onExportNotebookZip?: () => void;
 
   moreMenuRef: React.RefObject<HTMLDivElement | null>;
   showMoreMenu: boolean;
@@ -77,6 +79,8 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
   onCopyLink,
   onExportHtml,
   onExportPdf,
+  onExportMarkdown,
+  onExportNotebookZip,
   moreMenuRef,
   showMoreMenu,
   setShowMoreMenu,
@@ -214,6 +218,16 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
                 <button className="eh-menu-item" onClick={() => { onExportPdf(); setShowMoreMenu(false); }}>
                   <span className="eh-menu-icon">📄</span>导出 PDF
                 </button>
+                {onExportMarkdown && (
+                  <button className="eh-menu-item" onClick={() => { onExportMarkdown(); setShowMoreMenu(false); }}>
+                    <span className="eh-menu-icon">📝</span>导出 Markdown
+                  </button>
+                )}
+                {onExportNotebookZip && (
+                  <button className="eh-menu-item" onClick={() => { onExportNotebookZip(); setShowMoreMenu(false); }}>
+                    <span className="eh-menu-icon">🗜️</span>导出知识库 ZIP
+                  </button>
+                )}
               </div>
               <div className="eh-menu-divider" />
               <div className="eh-menu-group">

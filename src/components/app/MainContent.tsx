@@ -163,6 +163,7 @@ export function MainContent({
       onDocsResizeStart={onDocsResizeStart}
       onDocsResizeReset={onDocsResizeReset}
       docsDragging={dragging === 'docs'}
+      isMobile={isMobile}
     />
   )
 }

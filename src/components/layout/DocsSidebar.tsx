@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useNotesStore } from '@/store';
 import { DocTree } from './DocTree';
@@ -8,6 +8,8 @@ interface DocsSidebarProps {
   onSearchChange: (value: string) => void;
   onViewDoc: (notebookId: string, docId: string) => void;
   width?: number;
+  /** 窄窗口/移动端：文档列表默认折叠为一条标题栏，点开后才占位 */
+  mobile?: boolean;
 }
 
 export const DocsSidebar: React.FC<DocsSidebarProps> = ({
@@ -15,6 +17,7 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
   onSearchChange,
   onViewDoc,
   width,
+  mobile = false,
 }) => {
   const { notebooks, activeNotebookId, createDoc, moveDocToNotebook } = useNotesStore(
     useShallow((s) => ({
@@ -28,6 +31,8 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [moveDocId, setMoveDocId] = useState<string | null>(null);
   const [isCompact, setIsCompact] = useState(false);
+  /** 移动端文档列表展开态（默认收起，避免挤压编辑器） */
+  const [mobileExpanded, setMobileExpanded] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -47,10 +52,21 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
     [notebooks, activeNotebookId]
   );
 
+  // 移动端打开文档后自动收起列表，把空间还给编辑器
+  const handleViewDoc = useCallback(
+    (notebookId: string, docId: string) => {
+      onViewDoc(notebookId, docId);
+      if (mobile) setMobileExpanded(false);
+    },
+    [onViewDoc, mobile],
+  );
+
+  const showBody = !mobile || mobileExpanded;
+
   return (
     <aside
       ref={sidebarRef}
-      className={`docs-sidebar ${isCompact ? 'docs-sidebar-compact' : ''}`}
+      className={`docs-sidebar ${isCompact ? 'docs-sidebar-compact' : ''} ${mobile ? 'docs-sidebar-mobile' : ''} ${mobile && mobileExpanded ? 'expanded' : ''}`}
       style={width !== undefined ? { width } : undefined}
     >
       {activeNotebook && (
@@ -65,11 +81,31 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
               <span className="docs-title">{activeNotebook.title}</span>
               <span className="docs-count">{activeNotebook.docs.length}</span>
             </div>
+            {mobile && (
+              <button
+                className="docs-mobile-toggle"
+                onClick={() => setMobileExpanded(open => !open)}
+                aria-label={mobileExpanded ? '收起文档列表' : '展开文档列表'}
+                aria-expanded={mobileExpanded}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ transform: mobileExpanded ? 'rotate(180deg)' : 'none' }}
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+            )}
             <button
               className="btn-add-doc"
               onClick={() => {
                 const docId = createDoc(activeNotebookId, null);
-                if (docId) onViewDoc(activeNotebookId, docId);
+                if (docId) handleViewDoc(activeNotebookId, docId);
               }}
               title="新建文档"
               aria-label="新建文档"
@@ -80,23 +116,27 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
               </svg>
             </button>
           </div>
-          <div className="docs-search">
-            <input
-              className="docs-search-input"
-              placeholder="搜索文档..."
-              value={searchText}
-              onChange={(e) => onSearchChange(e.target.value)}
-            />
-          </div>
-          <DocTree
-            activeNotebook={activeNotebook}
-            searchText={searchText}
-            onViewDoc={onViewDoc}
-            onMoveRequest={(docId) => {
-              setMoveDocId(docId);
-              setShowMoveDialog(true);
-            }}
-          />
+          {showBody && (
+            <>
+              <div className="docs-search">
+                <input
+                  className="docs-search-input"
+                  placeholder="搜索文档..."
+                  value={searchText}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                />
+              </div>
+              <DocTree
+                activeNotebook={activeNotebook}
+                searchText={searchText}
+                onViewDoc={handleViewDoc}
+                onMoveRequest={(docId) => {
+                  setMoveDocId(docId);
+                  setShowMoveDialog(true);
+                }}
+              />
+            </>
+          )}
         </>
       )}
 

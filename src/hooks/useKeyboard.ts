@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { useNotesStore } from '@/store'
+import { eventToKeys, matchesKeys } from '@/utils/shortcuts'
 
 export interface KeyboardHandlers {
   onSearch?: () => void
@@ -30,28 +31,6 @@ type ActionId =
   | 'redo'
   | 'bold'
   | 'italic'
-
-const normalize = (key: string): string => key.trim().toLowerCase()
-
-/** 将键盘事件转换为规范化的按键组合（如 ['ctrl', 'shift', 'n']） */
-function eventToKeys(e: KeyboardEvent): string[] {
-  const key = e.key.toLowerCase()
-  // 单独按下修饰键不触发任何快捷键
-  if (key === 'control' || key === 'shift' || key === 'alt' || key === 'meta') return []
-
-  const keys: string[] = []
-  if (e.ctrlKey || e.metaKey) keys.push('ctrl')
-  if (e.shiftKey) keys.push('shift')
-  if (e.altKey) keys.push('alt')
-  keys.push(normalize(key))
-  return keys
-}
-
-/** 判断事件按键组合是否与快捷键配置完全匹配 */
-function matchesKeys(eventKeys: string[], shortcutKeys: string[]): boolean {
-  if (!Array.isArray(shortcutKeys) || shortcutKeys.length === 0) return false
-  return [...eventKeys].sort().join('+') === [...shortcutKeys.map(normalize)].sort().join('+')
-}
 
 export const useKeyboard = (handlers: KeyboardHandlers): void => {
   // 持有最新 handlers 引用，使 handleKeyDown 稳定（空依赖），

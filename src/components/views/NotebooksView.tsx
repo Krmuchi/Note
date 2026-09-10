@@ -21,6 +21,7 @@ interface NotebooksViewProps {
   onDocsResizeStart?: (e: React.MouseEvent) => void
   onDocsResizeReset?: () => void
   docsDragging?: boolean
+  isMobile?: boolean
 }
 
 export default function NotebooksView({
@@ -42,6 +43,7 @@ export default function NotebooksView({
   onDocsResizeStart,
   onDocsResizeReset,
   docsDragging,
+  isMobile = false,
 }: NotebooksViewProps) {
   return (
     <>
@@ -50,8 +52,9 @@ export default function NotebooksView({
         onSearchChange={onSearchChange}
         onViewDoc={onViewDoc}
         width={docsSidebarWidth}
+        mobile={isMobile}
       />
-      {onDocsResizeStart && (
+      {!isMobile && onDocsResizeStart && (
         <ResizeHandle
           variant="docs"
           onResizeStart={onDocsResizeStart}

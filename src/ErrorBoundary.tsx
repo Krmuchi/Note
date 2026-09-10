@@ -62,21 +62,45 @@ class ErrorBoundary extends Component<Props, State> {
     this.setState({ hasError: false, error: null })
   }
 
+  private handleReload = () => {
+    window.location.reload()
+  }
+
+  private handleCopyError = async () => {
+    const { error } = this.state
+    if (!error) return
+    const text = `[${new Date().toISOString()}] ${error.message}\n\n${error.stack ?? ''}`
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch (err) {
+      console.error('复制错误信息失败:', err)
+    }
+  }
+
   public render() {
     if (this.state.hasError) {
       if (this.props.fallback) {
         return this.props.fallback
       }
-      
+
       return (
-        <div style={{ padding: 24 }}>
-          <h2>应用出错了</h2>
-          <p>{this.state.error?.message}</p>
-          <button onClick={this.handleReset} style={{ padding: '8px 16px', cursor: 'pointer' }}>重试</button>
-          <details style={{ marginTop: 16 }}>
-            <summary>错误详情</summary>
-            <pre style={{ whiteSpace: 'pre-wrap', color: '#b91c1c' }}>{this.state.error?.stack}</pre>
-          </details>
+        <div className="error-boundary" role="alert">
+          <div className="error-boundary-card">
+            <div className="error-boundary-icon" aria-hidden="true">⚠️</div>
+            <h2 className="error-boundary-title">应用出错了</h2>
+            <p className="error-boundary-message">
+              {this.state.error?.message || '发生了未知错误，可尝试重试或重新加载应用。'}
+            </p>
+            <div className="error-boundary-actions">
+              <button className="error-boundary-btn primary" onClick={this.handleReset}>重试</button>
+              <button className="error-boundary-btn" onClick={this.handleReload}>重新加载</button>
+              <button className="error-boundary-btn" onClick={this.handleCopyError}>复制错误信息</button>
+            </div>
+            <details className="error-boundary-details">
+              <summary>错误详情</summary>
+              <pre className="error-boundary-stack">{this.state.error?.stack}</pre>
+            </details>
+          </div>
         </div>
       )
     }

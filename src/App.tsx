@@ -255,6 +255,7 @@ function App() {
           width={isMobile ? undefined : sidebarWidth}
           collapsed={isMobile ? false : sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
+          mobile={isMobile}
         />
 
         {!isMobile && (

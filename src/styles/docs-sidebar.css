@@ -21,6 +21,32 @@
   gap: var(--space-2);
 }
 
+/* 移动端文档列表折叠开关：默认隐藏，窄窗口由 responsive.css 显示 */
+.docs-mobile-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.docs-mobile-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.docs-mobile-toggle svg {
+  width: 16px;
+  height: 16px;
+  transition: transform var(--transition-fast);
+}
+
 .docs-title-row {
   display: flex;
   align-items: center;

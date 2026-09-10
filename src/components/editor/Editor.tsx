@@ -4,7 +4,8 @@ import { useNotesStore } from '@/store';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useEditorFormatting } from '@/hooks/useEditorFormatting';
 import { EditorHeader } from './EditorHeader';
-import { EditorContent } from './EditorContent';
+import { EditorContent, type SlashTriggerState } from './EditorContent';
+import { SlashCommandMenu, type SlashCommandItem } from './SlashCommandMenu';
 import { MarkdownPreview } from './MarkdownPreview';
 import { EditorStatusBar } from './EditorStatusBar';
 import { PresentationMode } from '@/components/presentation/PresentationMode';
@@ -13,9 +14,32 @@ import { CommentsPanel } from '@/components/comments/CommentsPanel';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LinkDialog } from '@/components/dialogs/LinkDialog';
 import { copyToClipboard } from '@/utils/clipboard';
+import { findShortcutId } from '@/utils/shortcuts';
+import type { FormatType } from '@/hooks/useEditorFormatting';
 import type { NoteDoc } from '@/types';
 
 export type PreviewMode = 'edit' | 'preview' | 'split';
+
+/** 格式刷只复制行内格式：块级标记（标题/列表等）套用会破坏目标行结构 */
+const PAINTER_INLINE_FORMATS = new Set(['bold', 'italic', 'underline', 'strike', 'code']);
+
+/** 斜杠命令清单：id 与 FormatType 对齐，执行时先删除 `/query` 再复用 applyFormat */
+const SLASH_ITEMS: SlashCommandItem[] = [
+  { id: 'heading1', title: '标题 1', keywords: ['h1', 'heading', 'biaoti'], group: 'block', icon: 'H1', hint: 'Ctrl+1' },
+  { id: 'heading2', title: '标题 2', keywords: ['h2', 'heading', 'biaoti'], group: 'block', icon: 'H2', hint: 'Ctrl+2' },
+  { id: 'heading3', title: '标题 3', keywords: ['h3', 'heading', 'biaoti'], group: 'block', icon: 'H3', hint: 'Ctrl+3' },
+  { id: 'ulist', title: '无序列表', keywords: ['ul', 'list', 'liebiao'], group: 'block', icon: '•' },
+  { id: 'olist', title: '有序列表', keywords: ['ol', 'list', 'liebiao'], group: 'block', icon: '1.' },
+  { id: 'tasklist', title: '任务列表', keywords: ['task', 'todo', 'renwu'], group: 'block', icon: '☑' },
+  { id: 'quote', title: '引用块', keywords: ['quote', 'yinyong'], group: 'block', icon: '❝' },
+  { id: 'codeblock', title: '代码块', keywords: ['code', 'pre', 'daima'], group: 'block', icon: '</>' },
+  { id: 'table', title: '表格', keywords: ['table', 'biaoge'], group: 'block', icon: '⊞' },
+  { id: 'divider', title: '分割线', keywords: ['hr', 'divider', 'fengexian'], group: 'block', icon: '—' },
+  { id: 'image', title: '图片', keywords: ['image', 'img', 'tupian'], group: 'media', icon: '🖼' },
+  { id: 'link', title: '链接', keywords: ['link', 'url', 'lianjie'], group: 'media', icon: '🔗' },
+  { id: 'code', title: '行内代码', keywords: ['code', 'inline', 'daima'], group: 'advanced', icon: '`' },
+  { id: 'clearFormat', title: '清除格式', keywords: ['clear', 'qingchu'], group: 'advanced', icon: '🧹' },
+];
 
 interface EditorProps {
   activeDoc: NoteDoc | null;
@@ -70,6 +94,12 @@ export const Editor: React.FC<EditorProps> = ({
   const [previewMode, setPreviewMode] = useState<PreviewMode>('edit');
   /** 插入链接弹窗：打开时捕获的选区（start/end/text），确认时据此拼接 [text](url) */
   const [linkDialog, setLinkDialog] = useState<{ start: number; end: number; text: string } | null>(null);
+  /** 斜杠命令面板状态（提到 Editor 层，避免击键引发编辑区全量重渲染） */
+  const [slashState, setSlashState] = useState<SlashTriggerState | null>(null);
+  /** 当前 `/query` 片段范围，执行命令前需先删除 */
+  const slashRangeRef = useRef<{ start: number; end: number } | null>(null);
+  /** 格式刷：null 未激活；非 null 表示已复制的行内格式类型 */
+  const [painterFormats, setPainterFormats] = useState<string[] | null>(null);
 
   const toggleFullscreen = useCallback(() => {
     const el = editorPanelRef.current;
@@ -167,6 +197,7 @@ export const Editor: React.FC<EditorProps> = ({
     applyFormat,
     handlePaste,
     handleInsertImage,
+    handleInsertFile,
   } = useEditorFormatting({
     textareaRef,
     textareaNode,
@@ -174,6 +205,57 @@ export const Editor: React.FC<EditorProps> = ({
     updateDocContent,
     onLinkInsert: handleOpenLinkDialog,
   });
+
+  // 斜杠命令：仅输入可唤出面板；光标移动只用于同步关闭，避免光标落在已有 "/xxx" 上也弹面板
+  const handleSlashChange = useCallback((next: SlashTriggerState | null, source: 'input' | 'cursor') => {
+    slashRangeRef.current = next ? { start: next.start, end: next.end } : null;
+    setSlashState((prev) => {
+      if (!next) return null;
+      if (source === 'cursor' && !prev) return null;
+      return next;
+    });
+  }, []);
+
+  const closeSlashMenu = useCallback(() => {
+    slashRangeRef.current = null;
+    setSlashState(null);
+  }, []);
+
+  // 编辑器内快捷键解析：始终读取 store 最新键位（含用户自定义覆盖）
+  const resolveShortcut = useCallback(
+    (combo: string[]) => findShortcutId(useNotesStore.getState().shortcuts, combo),
+    [],
+  );
+
+  // 执行斜杠命令：先删除 "/query" 片段并把光标回退到 "/" 处，再复用 applyFormat
+  const handleSlashRun = useCallback((item: SlashCommandItem) => {
+    const range = slashRangeRef.current;
+    slashRangeRef.current = null;
+    setSlashState(null);
+    const ta = textareaRef.current;
+    if (!ta) return;
+    if (range && ta.value.substring(range.start, range.end).startsWith('/')) {
+      ta.value = ta.value.substring(0, range.start) + ta.value.substring(range.end);
+      ta.selectionStart = ta.selectionEnd = range.start;
+      ta.focus();
+    }
+    applyFormat(item.id as FormatType);
+  }, [applyFormat]);
+
+  /**
+   * 格式刷：未激活时复制当前光标/选区的行内格式；激活后再次点击应用到目标选区。
+   * 仅处理行内格式，避免把标题/列表等块级标记错误地叠加到目标行。
+   */
+  const handleFormatPainter = useCallback(() => {
+    if (painterFormats) {
+      const formats = painterFormats;
+      setPainterFormats(null);
+      formats.forEach((format) => applyFormat(format as FormatType));
+      return;
+    }
+    const captured = Array.from(activeFormats).filter((f) => PAINTER_INLINE_FORMATS.has(f));
+    setPainterFormats(captured);
+  }, [painterFormats, activeFormats, applyFormat]);
 
   // 字号选择：有选中文本时作用于选区（span style，与颜色/高亮一致），
   // 无选区时回退为调整整个编辑器的基础字号
@@ -251,6 +333,8 @@ export const Editor: React.FC<EditorProps> = ({
 
   // 编辑器滚动：计算百分比后直接调用预览侧注册的同步函数（ref 直通，零重渲染）
   const handleEditorScroll = useCallback(() => {
+    // 滚动后浮层坐标失效，关闭斜杠面板（已关闭时 setState(null) 不触发渲染）
+    setSlashState((prev) => (prev ? null : prev));
     if (!textareaRef.current || previewMode !== 'split') return;
     const ta = textareaRef.current;
     const maxScroll = ta.scrollHeight - ta.clientHeight;
@@ -289,10 +373,15 @@ export const Editor: React.FC<EditorProps> = ({
         e.preventDefault();
         toggleFocusMode();
       }
+      // Esc 优先取消待应用的格式刷
+      if (e.key === 'Escape' && painterFormats) {
+        e.preventDefault();
+        setPainterFormats(null);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePreviewMode, toggleFocusMode, isFocusMode]);
+  }, [togglePreviewMode, toggleFocusMode, isFocusMode, painterFormats]);
 
   // 大纲点击跳转：position 是字符偏移，scrollTop 是像素，必须按行号换算，
   // 否则长文档会跳到完全错误的位置
@@ -361,6 +450,8 @@ export const Editor: React.FC<EditorProps> = ({
           onStartPresentation={handleStartPresentation}
           onShowVersionHistory={onShowVersionHistory}
           applyFormat={applyFormat}
+          onFormatPainter={handleFormatPainter}
+          formatPainterActive={!!painterFormats}
           activeFormats={activeFormats}
           showOutlinePanel={showOutlinePanel}
           onToggleOutlinePanel={onToggleOutlinePanel}
@@ -382,10 +473,22 @@ export const Editor: React.FC<EditorProps> = ({
                 updateDocContent={updateDocContent}
                 handlePaste={handlePaste}
                 onFormatShortcut={(type) => applyFormat(type)}
+                resolveShortcut={resolveShortcut}
                 onTextareaMount={handleTextareaMount}
                 onScroll={handleEditorScroll}
                 onInsertImage={handleInsertImage}
+                onInsertFile={handleInsertFile}
+                onSlashChange={handleSlashChange}
               />
+              {slashState && (
+                <SlashCommandMenu
+                  query={slashState.query}
+                  items={SLASH_ITEMS}
+                  position={slashState.caret}
+                  onRun={handleSlashRun}
+                  onClose={closeSlashMenu}
+                />
+              )}
             </div>
           )}
           {showPreview && (

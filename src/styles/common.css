@@ -9,7 +9,9 @@
   pointer-events: none;
 }
 
-.toast-item {
+/* 注意：类名与 Toast.tsx 保持一致（.toast / .toast-message），
+   此前 CSS 写的是 .toast-item / .toast-content，导致提示卡片完全没有样式 */
+.toast {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -25,7 +27,11 @@
   overflow: hidden;
 }
 
-.toast-item::after {
+.toast.exit {
+  animation: slideOutRight var(--transition-base) forwards;
+}
+
+.toast::after {
   content: '';
   position: absolute;
   bottom: 0;
@@ -35,15 +41,15 @@
   animation: toastProgress 3s linear forwards;
 }
 
-.toast-item.error::after {
+.toast.error::after {
   background: var(--error-500);
 }
 
-.toast-item.success::after {
+.toast.success::after {
   background: var(--success-500);
 }
 
-.toast-item.warning::after {
+.toast.warning::after {
   background: var(--warning-500);
 }
 
@@ -52,15 +58,15 @@
   to { width: 0%; }
 }
 
-.toast-item.error {
+.toast.error {
   border-left: 3px solid var(--error-500);
 }
 
-.toast-item.success {
+.toast.success {
   border-left: 3px solid var(--success-500);
 }
 
-.toast-item.warning {
+.toast.warning {
   border-left: 3px solid var(--warning-500);
 }
 
@@ -69,11 +75,12 @@
   flex-shrink: 0;
 }
 
-.toast-content {
+.toast-message {
   flex: 1;
   font-size: var(--font-size-md);
   color: var(--text-primary);
   line-height: var(--line-height-base);
+  word-break: break-word;
 }
 
 .toast-close {
@@ -146,6 +153,210 @@
 .loading-text {
   font-size: var(--font-size-sm);
   color: var(--text-tertiary);
+}
+
+/* ===== Loading 组件容器与其余动画类型（此前选择器缺失，pulse/dots/wave/skeleton 无样式） ===== */
+.loading-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+.loading-spinner.loading-small { width: 16px; height: 16px; border-width: 2px; }
+.loading-spinner.loading-medium { width: 32px; height: 32px; }
+.loading-spinner.loading-large { width: 44px; height: 44px; border-width: 4px; }
+
+/* 外层已绘制旋转圆环，内层占位元素隐藏避免重影 */
+.loading-spinner .spinner-inner {
+  display: none;
+}
+
+.loading-pulse-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pulse-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.loading-pulse-container.loading-small .pulse-dot { width: 10px; height: 10px; }
+.loading-pulse-container.loading-large .pulse-dot { width: 24px; height: 24px; }
+
+.loading-wave-container {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 24px;
+}
+
+.loading-wave-container.loading-small { height: 16px; }
+.loading-wave-container.loading-large { height: 32px; }
+
+.wave-bar {
+  width: 4px;
+  height: 100%;
+  border-radius: 2px;
+  transform-origin: bottom;
+  animation: loading-wave 1s ease-in-out infinite;
+}
+
+@keyframes loading-wave {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+
+/* dots 类型渲染的是 .dot 子元素（旧样式只覆盖了 span） */
+.loading-dots .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: loading-dots 1.4s ease-in-out infinite;
+}
+
+.loading-skeleton,
+.skeleton-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 25%,
+    var(--bg-quaternary) 37%,
+    var(--bg-tertiary) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 100% 50%; }
+  to { background-position: 0 50%; }
+}
+
+/* 按钮内联加载态 */
+.button-loader {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ===== 错误边界兜底界面 ===== */
+.error-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-6);
+  background: var(--bg-secondary);
+}
+
+.error-boundary-card {
+  width: min(520px, 100%);
+  padding: var(--space-6);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.error-boundary-icon {
+  font-size: 32px;
+  line-height: 1;
+  margin-bottom: var(--space-3);
+}
+
+.error-boundary-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-2xl);
+  color: var(--text-primary);
+}
+
+.error-boundary-message {
+  margin: 0 0 var(--space-5);
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  line-height: var(--line-height-relaxed);
+  word-break: break-word;
+}
+
+.error-boundary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.error-boundary-btn {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+}
+
+.error-boundary-btn:hover {
+  border-color: var(--primary-400);
+  color: var(--text-link);
+}
+
+.error-boundary-btn.primary {
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: var(--text-inverse);
+}
+
+.error-boundary-btn.primary:hover {
+  opacity: 0.9;
+  color: var(--text-inverse);
+}
+
+.error-boundary-details {
+  margin-top: var(--space-5);
+  text-align: left;
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+}
+
+.error-boundary-details summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.error-boundary-stack {
+  max-height: 220px;
+  overflow: auto;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  color: var(--error-500);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .breadcrumb {

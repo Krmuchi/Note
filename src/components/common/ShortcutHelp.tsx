@@ -1,35 +1,68 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { useNotesStore } from '@/store';
 
 interface ShortcutHelpProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const shortcuts = [
-  { category: '通用', items: [
-    { keys: ['Ctrl', 'K'], description: '打开搜索' },
-    { keys: ['Ctrl', 'S'], description: '保存' },
-    { keys: ['Ctrl', 'N'], description: '新建文档' },
-    { keys: ['Ctrl', 'Shift', 'N'], description: '新建知识库' },
-    { keys: ['Ctrl', '\\'], description: '切换侧边栏' },
-    { keys: ['Ctrl', 'Shift', 'F'], description: '收藏/取消收藏' },
-    { keys: ['Esc'], description: '关闭弹窗' },
-  ]},
-  { category: '编辑', items: [
-    { keys: ['Ctrl', 'B'], description: '粗体' },
-    { keys: ['Ctrl', 'I'], description: '斜体' },
-    { keys: ['Ctrl', 'Z'], description: '撤销' },
-    { keys: ['Ctrl', 'Y'], description: '重做' },
-  ]},
+interface HelpItem {
+  keys: string[];
+  description: string;
+}
+
+interface HelpGroup {
+  category: string;
+  items: HelpItem[];
+}
+
+/** 键名展示映射：方向键等按键需要更友好的显示 */
+const KEY_LABELS: Record<string, string> = {
+  arrowup: '↑',
+  arrowdown: '↓',
+  arrowleft: '←',
+  arrowright: '→',
+  enter: 'Enter',
+  escape: 'Esc',
+  ' ': 'Space',
+};
+
+function formatKeyLabel(key: string): string {
+  const lower = key.toLowerCase();
+  if (KEY_LABELS[lower]) return KEY_LABELS[lower];
+  return key.length === 1 ? key.toUpperCase() : key;
+}
+
+/** 面板内的导航键位不涉及可配置快捷键，单独维护 */
+const PANEL_NAV_GROUPS: HelpGroup[] = [
   { category: '搜索面板', items: [
     { keys: ['↑', '↓'], description: '导航搜索结果' },
     { keys: ['Enter'], description: '确认选择' },
     { keys: ['Esc'], description: '关闭搜索' },
   ]},
+  { category: '其他', items: [
+    { keys: ['Esc'], description: '关闭弹窗' },
+    { keys: ['Ctrl', 'Shift', 'P'], description: '切换预览模式' },
+    { keys: ['Ctrl', 'Shift', 'E'], description: '专注模式' },
+    { keys: ['/'], description: '唤出斜杠命令' },
+    { keys: ['Tab'], description: '缩进（Shift+Tab 反缩进）' },
+  ]},
 ];
 
 export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  // 键位单一数据源：来自 keyboardSlice（含用户自定义覆盖），避免与编辑器实现漂移
+  const shortcuts = useNotesStore((s) => s.shortcuts);
+
+  const groups = useMemo<HelpGroup[]>(() => {
+    const map = new Map<string, HelpItem[]>();
+    shortcuts.forEach((s) => {
+      const list = map.get(s.category) ?? [];
+      list.push({ keys: s.keys, description: s.name });
+      map.set(s.category, list);
+    });
+    return [...map.entries()].map(([category, items]) => ({ category, items })).concat(PANEL_NAV_GROUPS);
+  }, [shortcuts]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -50,7 +83,7 @@ export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps) {
           <button className="shortcut-help-close" onClick={onClose}>×</button>
         </div>
         <div className="shortcut-help-body">
-          {shortcuts.map(group => (
+          {groups.map(group => (
             <div key={group.category} className="shortcut-group">
               <h3 className="shortcut-group-title">{group.category}</h3>
               <div className="shortcut-list">
@@ -60,7 +93,7 @@ export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps) {
                     <span className="shortcut-keys">
                       {item.keys.map((key, i) => (
                         <span key={i}>
-                          <kbd>{key}</kbd>
+                          <kbd>{formatKeyLabel(key)}</kbd>
                           {i < item.keys.length - 1 && <span className="shortcut-plus">+</span>}
                         </span>
                       ))}

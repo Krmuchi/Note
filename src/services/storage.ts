@@ -133,6 +133,15 @@ export async function saveImage(payload: { name: string; data: string }): Promis
   return payload.data
 }
 
+/**
+ * 通用附件落盘（非图片文件）。
+ * 主进程 notes:save-image 处理器本身不校验 MIME，可复用于任意文件；
+ * Web 模式回落为 data URL（体积较大，仅用于内联引用）。
+ */
+export async function saveFile(payload: { name: string; data: string }): Promise<string> {
+  return saveImage(payload)
+}
+
 /* ---------------- 导出/导入（Web 模式走浏览器下载与文件选择） ---------------- */
 
 function escapeHtml(str: string): string {

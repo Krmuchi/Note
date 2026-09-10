@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { compressImage } from '@/shared/utils';
-import { saveImage } from '@/services/storage';
+import { saveImage, saveFile } from '@/services/storage';
 import { toast } from '@/components/common/Toast';
 import {
   wrapSelection,
@@ -9,13 +9,17 @@ import {
   changeIndent,
   clearFormatting,
   setAlignment,
+  insertTextAtCursor,
+  buildTableMarkdown,
+  buildCodeFence,
 } from '@/utils/editorTextOps';
+import { htmlToMarkdown, HTML_TO_MD_MAX_LENGTH } from '@/utils/htmlToMarkdown';
 import type { NoteDoc } from '@/types';
 
 export type FormatType =
   | 'bold' | 'italic' | 'strike' | 'underline' | 'code'
   | 'link' | 'image'
-  | 'heading1' | 'heading2' | 'heading3'
+  | 'heading1' | 'heading2' | 'heading3' | 'heading4' | 'heading5' | 'heading6'
   | 'ulist' | 'olist' | 'tasklist'
   | 'quote' | 'codeblock'
   | 'alignLeft' | 'alignCenter' | 'alignRight'
@@ -42,6 +46,45 @@ export function useEditorFormatting({
   onLinkInsert,
 }: UseEditorFormattingOptions) {
   const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
+
+  /**
+   * 粘贴 HTML 中的外链图片转存本地：最多处理 5 张、单张不超过 8MB，
+   * 失败（CORS/404/网络）时保留原始外链，不影响已插入的内容。
+   */
+  const localizeRemoteImages = useCallback(async (markdown: string): Promise<{ from: string; to: string }[]> => {
+    const MAX_REMOTE_IMAGES = 5;
+    const MAX_REMOTE_IMAGE_BYTES = 8 * 1024 * 1024;
+    const urls = Array.from(
+      new Set(Array.from(markdown.matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g), (m) => m[1])),
+    ).slice(0, MAX_REMOTE_IMAGES);
+    if (urls.length === 0) return [];
+
+    const replacements: { from: string; to: string }[] = [];
+    for (const url of urls) {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) continue;
+        const blob = await resp.blob();
+        if (!blob.type.startsWith('image/') || blob.size > MAX_REMOTE_IMAGE_BYTES) continue;
+
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve((reader.result as string) || '');
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(blob);
+        });
+        if (!data) continue;
+
+        const ext = (blob.type.split('/')[1] || 'png').split('+')[0];
+        const saved = await saveImage({ name: `remote-${Date.now()}.${ext}`, data });
+        // Web 模式 saveImage 原样返回 data URL，此时无需替换（避免内联体积翻倍）
+        if (saved && saved !== data) replacements.push({ from: url, to: saved });
+      } catch (err) {
+        console.error('localize remote image failed:', err);
+      }
+    }
+    return replacements;
+  }, []);
 
   /** 检测当前光标位置的格式 */
   const detectFormats = useCallback(() => {
@@ -173,11 +216,43 @@ export function useEditorFormatting({
     }
   }, [activeDoc, readAndInsertImage]);
 
-  /** 处理粘贴事件（检测图片） */
-  const handlePaste = useCallback((ev: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = ev.clipboardData && ev.clipboardData.items;
-    if (!items) return;
+  /** 通用附件（非图片）落盘并插入链接语法 */
+  const handleInsertFile = useCallback((file: File) => {
+    if (!file || !activeDoc) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const data = (reader.result as string) || '';
+      let src = data;
+      try {
+        const saved = await saveFile({ name: file.name, data });
+        if (!saved) {
+          toast.warning('附件保存到磁盘失败，已内联插入（会显著增大文档体积）');
+        } else {
+          src = saved;
+        }
+      } catch (err) {
+        console.error('saveFile failed:', err);
+        toast.warning('附件保存到磁盘失败，已内联插入（会显著增大文档体积）');
+      }
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const next = insertTextAtCursor(ta, `[${file.name}](${src})`);
+      if (next !== null) updateDocContent({ content: next });
+    };
+    reader.readAsDataURL(file);
+  }, [activeDoc, textareaRef, updateDocContent]);
 
+  /**
+   * 处理粘贴事件，按优先级分支：
+   * 1) 剪贴板图片 → 压缩落盘后插入
+   * 2) text/html → 转为 Markdown 插入（超大片段降级为纯文本，避免阻塞输入）
+   * 3) 其余情况保留 textarea 原生纯文本粘贴
+   */
+  const handlePaste = useCallback((ev: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboard = ev.clipboardData;
+    if (!clipboard) return;
+
+    const items = clipboard.items;
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (item.type && item.type.indexOf('image') === 0) {
@@ -189,11 +264,57 @@ export function useEditorFormatting({
         }
       }
     }
-  }, [handleInsertImage]);
+
+    const ta = textareaRef.current;
+    const html = clipboard.getData('text/html');
+    if (!html || !ta || !activeDoc) return;
+
+    // 超长片段：转换代价过高，降级为纯文本并提示
+    if (html.length > HTML_TO_MD_MAX_LENGTH) {
+      const plain = clipboard.getData('text/plain');
+      if (plain) {
+        ev.preventDefault();
+        const next = insertTextAtCursor(ta, plain);
+        if (next !== null) updateDocContent({ content: next });
+        toast.warning('内容过大，已按纯文本粘贴');
+      }
+      return;
+    }
+
+    const markdown = htmlToMarkdown(html);
+    if (!markdown) return;
+    ev.preventDefault();
+    const next = insertTextAtCursor(ta, markdown);
+    if (next !== null) updateDocContent({ content: next });
+
+    // 先插入保证粘贴不卡顿，再异步把外链图片转存本地并原位替换
+    void localizeRemoteImages(markdown).then((replacements) => {
+      if (replacements.length === 0) return;
+      const taNow = textareaRef.current;
+      if (!taNow) return;
+      let value = taNow.value;
+      replacements.forEach(({ from, to }) => {
+        value = value.split(from).join(to);
+      });
+      if (value !== taNow.value) {
+        taNow.value = value;
+        updateDocContent({ content: value });
+      }
+    });
+  }, [handleInsertImage, localizeRemoteImages, activeDoc, updateDocContent, textareaRef]);
+
+  /** 处理粘贴/拖入的任意文件：图片走图片流程，其余走附件流程 */
+  const handleInsertAnyFile = useCallback((file: File) => {
+    if (file.type.startsWith('image/')) {
+      handleInsertImage(file);
+      return;
+    }
+    handleInsertFile(file);
+  }, [handleInsertImage, handleInsertFile]);
 
   /** 对 textarea 选中文本应用格式化 */
   const applyFormat = useCallback(
-    (type: FormatType, options?: { color?: string; size?: string }) => {
+    (type: FormatType, options?: { color?: string; size?: string; rows?: number; cols?: number; language?: string }) => {
       const ta = textareaRef.current;
       if (!ta || !activeDoc) return;
 
@@ -240,6 +361,15 @@ export function useEditorFormatting({
         case 'heading3':
           newContent = insertBlockMark(ta, '### ');
           break;
+        case 'heading4':
+          newContent = insertBlockMark(ta, '#### ');
+          break;
+        case 'heading5':
+          newContent = insertBlockMark(ta, '##### ');
+          break;
+        case 'heading6':
+          newContent = insertBlockMark(ta, '###### ');
+          break;
         case 'ulist':
           newContent = insertBlockMark(ta, '- ');
           break;
@@ -271,7 +401,7 @@ export function useEditorFormatting({
           newContent = insertAtLine(ta, '---');
           break;
         case 'table':
-          newContent = insertAtLine(ta, '| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |');
+          newContent = insertAtLine(ta, buildTableMarkdown(options?.rows ?? 3, options?.cols ?? 3));
           break;
         case 'clearFormat':
           newContent = clearFormatting(ta);
@@ -281,9 +411,11 @@ export function useEditorFormatting({
             const start = ta.selectionStart;
             const end = ta.selectionEnd;
             const selected = ta.value.substring(start, end);
-            ta.value = ta.value.substring(0, start) + '```\n' + selected + '\n```' + ta.value.substring(end);
-            ta.selectionStart = start + 4;
-            ta.selectionEnd = start + 4 + selected.length;
+            const fence = buildCodeFence(options?.language);
+            const content = selected ? `\n${selected}\n` : '\n\n';
+            ta.value = ta.value.substring(0, start) + fence + content + '```' + ta.value.substring(end);
+            // 光标落在围栏内首行，语言为空时正好是空行
+            ta.selectionStart = ta.selectionEnd = start + fence.length + 1;
             ta.focus();
             newContent = ta.value;
           }
@@ -314,6 +446,8 @@ export function useEditorFormatting({
     applyFormat,
     handlePaste,
     handleInsertImage,
+    handleInsertFile,
+    handleInsertAnyFile,
   };
 }
 
