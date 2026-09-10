@@ -3,8 +3,14 @@ import type { Comment } from '@/types'
 import type { NotesStore } from '@/store/types'
 import { newId } from '@/store/storeUtils'
 
+export interface CommentAnchor {
+  quote?: string
+  anchorStart?: number
+  anchorEnd?: number
+}
+
 export interface CommentSlice {
-  addComment: (notebookId: string, docId: string, content: string) => void
+  addComment: (notebookId: string, docId: string, content: string, anchor?: CommentAnchor) => void
   deleteComment: (notebookId: string, docId: string, commentId: string) => void
   addReply: (notebookId: string, docId: string, commentId: string, content: string) => void
 }
@@ -17,7 +23,11 @@ type CommentSliceCreator = StateCreator<
 >
 
 export const createCommentSlice: CommentSliceCreator = (set, _get) => ({
-  addComment: (notebookId, docId, content) => {
+  addComment: (notebookId, docId, content, anchor) => {
+    // 仅当引用文本存在时携带锚定字段，旧数据不受影响
+    const anchorFields = anchor?.quote
+      ? { quote: anchor.quote, anchorStart: anchor.anchorStart, anchorEnd: anchor.anchorEnd }
+      : {}
     const newComment: Comment = {
       id: newId(),
       docId,
@@ -25,6 +35,7 @@ export const createCommentSlice: CommentSliceCreator = (set, _get) => ({
       content,
       createdAt: new Date().toISOString(),
       replies: [],
+      ...anchorFields,
     }
 
     set((state) => {

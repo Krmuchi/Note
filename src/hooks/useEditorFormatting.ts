@@ -12,6 +12,7 @@ import {
   insertTextAtCursor,
   buildTableMarkdown,
   buildCodeFence,
+  insertFormula,
 } from '@/utils/editorTextOps';
 import { htmlToMarkdown, HTML_TO_MD_MAX_LENGTH } from '@/utils/htmlToMarkdown';
 import type { NoteDoc } from '@/types';
@@ -26,7 +27,8 @@ export type FormatType =
   | 'indent' | 'outdent'
   | 'textColor' | 'highlight'
   | 'fontSize'
-  | 'table' | 'divider' | 'clearFormat';
+  | 'table' | 'divider' | 'clearFormat'
+  | 'formula';
 
 interface UseEditorFormattingOptions {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -400,6 +402,9 @@ export function useEditorFormatting({
           break;
         case 'divider':
           newContent = insertAtLine(ta, '---');
+          break;
+        case 'formula':
+          newContent = insertFormula(ta);
           break;
         case 'table':
           newContent = insertAtLine(ta, buildTableMarkdown(options?.rows ?? 3, options?.cols ?? 3));

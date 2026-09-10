@@ -6,6 +6,7 @@ import {
   continueBlockOnEnter,
   detectSlashToken,
   insertTextAtCursor,
+  insertFormula,
   changeIndent,
 } from '@/utils/editorTextOps'
 
@@ -194,6 +195,32 @@ describe('buildTableMarkdown / buildCodeFence', () => {
   it('代码围栏可带语言', () => {
     expect(buildCodeFence('python')).toBe('```python')
     expect(buildCodeFence()).toBe('```')
+  })
+})
+
+describe('insertFormula - 公式插入', () => {
+  it('无选区时插入独立公式块模板，光标停在中间空行', () => {
+    const ta = makeTa('前文', 2)
+    const next = insertFormula(ta)
+    expect(next).toBe('前文$$\n\n$$\n')
+    // `$$\n` 之后的位置
+    expect(ta.selectionStart).toBe(2 + 3)
+  })
+
+  it('有选区时包裹为行内公式，光标位于公式内', () => {
+    const ta = makeTa('x = 1', 2, 5)
+    const next = insertFormula(ta)
+    expect(next).toBe('x $$= 1$$')
+    expect(ta.selectionStart).toBe(4)
+    expect(ta.selectionEnd).toBe(7)
+  })
+
+  it('已包裹的公式再次插入则解除包裹', () => {
+    const ta = makeTa('$$x^2$$', 0, 7)
+    const next = insertFormula(ta)
+    expect(next).toBe('x^2')
+    expect(ta.selectionStart).toBe(0)
+    expect(ta.selectionEnd).toBe(3)
   })
 })
 

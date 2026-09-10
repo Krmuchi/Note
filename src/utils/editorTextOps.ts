@@ -155,6 +155,40 @@ export function buildCodeFence(language?: string): string {
 }
 
 /**
+ * 在光标/选区处插入公式：
+ * - 有选区 → 包裹为行内公式 `$$…$$`（已包裹则解除）
+ * - 无选区 → 插入独立公式块模板 `$$\n\n$$\n`，光标落在中间空行
+ */
+export function insertFormula(ta: HTMLTextAreaElement): string | null {
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const selected = ta.value.substring(start, end);
+
+  if (selected) {
+    if (selected.startsWith('$$') && selected.endsWith('$$') && selected.length > 4) {
+      const inner = selected.substring(2, selected.length - 2);
+      ta.value = ta.value.substring(0, start) + inner + ta.value.substring(end);
+      ta.selectionStart = start;
+      ta.selectionEnd = start + inner.length;
+      ta.focus();
+      return ta.value;
+    }
+    ta.value = ta.value.substring(0, start) + '$$' + selected + '$$' + ta.value.substring(end);
+    ta.selectionStart = start + 2;
+    ta.selectionEnd = start + 2 + selected.length;
+    ta.focus();
+    return ta.value;
+  }
+
+  // 块级模板：`$$\n\n$$\n`，光标放在中间空行（索引 3）
+  const template = '$$\n\n$$\n';
+  ta.value = ta.value.substring(0, start) + template + ta.value.substring(end);
+  ta.selectionStart = ta.selectionEnd = start + 3;
+  ta.focus();
+  return ta.value;
+}
+
+/**
  * Markdown 行内标记自动补全（无选区时生效）：
  * - 输入 `` ` `` → 补全为 `` `` ``，光标居中；已存在闭合反引号时直接跳过
  * - 输入第二个 `*` / `~` → 补全为 `**|**` / `~~|~~`

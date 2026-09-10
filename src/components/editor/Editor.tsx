@@ -13,8 +13,10 @@ import { DocumentOutline } from '@/components/outline/DocumentOutline';
 import { CommentsPanel } from '@/components/comments/CommentsPanel';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LinkDialog } from '@/components/dialogs/LinkDialog';
+import { toast } from '@/components/common/Toast';
 import { copyToClipboard } from '@/utils/clipboard';
 import { findShortcutId } from '@/utils/shortcuts';
+import { getCaretPixelPosition } from '@/utils/editorTextOps';
 import type { FormatType } from '@/hooks/useEditorFormatting';
 import type { NoteDoc } from '@/types';
 
@@ -33,6 +35,7 @@ const SLASH_ITEMS: SlashCommandItem[] = [
   { id: 'tasklist', title: '任务列表', keywords: ['task', 'todo', 'renwu'], group: 'block', icon: '☑' },
   { id: 'quote', title: '引用块', keywords: ['quote', 'yinyong'], group: 'block', icon: '❝' },
   { id: 'codeblock', title: '代码块', keywords: ['code', 'pre', 'daima'], group: 'block', icon: '</>' },
+  { id: 'formula', title: '公式', keywords: ['formula', 'math', 'katex', 'gongshi'], group: 'block', icon: '∑' },
   { id: 'table', title: '表格', keywords: ['table', 'biaoge'], group: 'block', icon: '⊞' },
   { id: 'divider', title: '分割线', keywords: ['hr', 'divider', 'fengexian'], group: 'block', icon: '—' },
   { id: 'image', title: '图片', keywords: ['image', 'img', 'tupian'], group: 'media', icon: '🖼' },
@@ -68,13 +71,14 @@ export const Editor: React.FC<EditorProps> = ({
   showCommentsPanel,
   onToggleCommentsPanel,
 }) => {
-  const { updateDoc, toggleFavorite, saveStatus, addComment, deleteComment, addReply } = useNotesStore(useShallow((s) => ({
+  const { updateDoc, toggleFavorite, saveStatus, addComment, deleteComment, addReply, saveManualVersion } = useNotesStore(useShallow((s) => ({
     updateDoc: s.updateDoc,
     toggleFavorite: s.toggleFavorite,
     saveStatus: s.saveStatus,
     addComment: s.addComment,
     deleteComment: s.deleteComment,
     addReply: s.addReply,
+    saveManualVersion: s.saveManualVersion,
   })));
   const { undo, redo, canUndo, canRedo, recordSnapshot, clearHistory } = useUndoRedo();
 
@@ -100,6 +104,11 @@ export const Editor: React.FC<EditorProps> = ({
   const slashRangeRef = useRef<{ start: number; end: number } | null>(null);
   /** 格式刷：null 未激活；非 null 表示已复制的行内格式类型 */
   const [painterFormats, setPainterFormats] = useState<string[] | null>(null);
+  /** 划词评论：编辑器当前选区（文本 + 偏移），用于浮动按钮定位与锚定 */
+  const [textSelection, setTextSelection] = useState<{ text: string; start: number; end: number } | null>(null);
+  /** 待写入评论的锚定信息：浮动按钮点击后固化，评论发出/面板关闭时清除。
+   *  携带 docId：文档切换后旧锚定自然失效（提交时校验），无需 effect 清理 */
+  const [pendingCommentAnchor, setPendingCommentAnchor] = useState<{ docId: string; quote: string; anchorStart: number; anchorEnd: number } | null>(null);
 
   const toggleFullscreen = useCallback(() => {
     const el = editorPanelRef.current;
@@ -205,6 +214,41 @@ export const Editor: React.FC<EditorProps> = ({
     updateDocContent,
     onLinkInsert: handleOpenLinkDialog,
   });
+
+  // 划词追踪：texture 上 mouseup/keyup 后收集选区，供浮动"评论"按钮定位。
+  // 依赖 textareaNode（textarea 是挂载即销毁节点），blur 时立即隐藏按钮；
+  // 浮动按钮自身 onMouseDown preventDefault，避免点击时触发 blur 导致按钮先消失
+  useEffect(() => {
+    const ta = textareaNode;
+    if (!ta) return;
+
+    const updateSelection = (): void => {
+      setTimeout(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        const start = el.selectionStart;
+        const end = el.selectionEnd;
+        if (start !== end) {
+          const text = el.value.substring(start, end).trim().slice(0, 80);
+          if (text) {
+            setTextSelection({ text, start, end });
+            return;
+          }
+        }
+        setTextSelection(null);
+      }, 0);
+    };
+    const clearSelection = (): void => setTextSelection(null);
+
+    ta.addEventListener('mouseup', updateSelection);
+    ta.addEventListener('keyup', updateSelection);
+    ta.addEventListener('blur', clearSelection);
+    return () => {
+      ta.removeEventListener('mouseup', updateSelection);
+      ta.removeEventListener('keyup', updateSelection);
+      ta.removeEventListener('blur', clearSelection);
+    };
+  }, [textareaNode, textareaRef]);
 
   // 斜杠命令：仅输入可唤出面板；光标移动只用于同步关闭，避免光标落在已有 "/xxx" 上也弹面板
   const handleSlashChange = useCallback((next: SlashTriggerState | null, source: 'input' | 'cursor') => {
@@ -321,6 +365,48 @@ export const Editor: React.FC<EditorProps> = ({
     onShowSharePanel?.();
   }, [onShowSharePanel]);
 
+  // 手动保存当前版本：把当前内容按 type:'manual' 存为版本快照
+  const handleSaveVersion = useCallback(() => {
+    if (!activeDoc) return;
+    saveManualVersion(activeNotebookId, activeDocId);
+    toast.success('已保存当前版本');
+  }, [activeDoc, activeNotebookId, activeDocId, saveManualVersion]);
+
+  // 浮动"评论"按钮：固化选区为锚定信息并打开评论区。
+  // 校验偏移仍匹配当前文档内容（文档切换/内容漂移导致选区残留时直接放弃）
+  const handleFloatComment = useCallback(() => {
+    const sel = textSelection;
+    if (!sel) return;
+    const ta = textareaNode;
+    if (!ta || ta.value.substring(sel.start, sel.end) !== sel.text) {
+      setTextSelection(null);
+      return;
+    }
+    setPendingCommentAnchor({ docId: activeDocId, quote: sel.text, anchorStart: sel.start, anchorEnd: sel.end });
+    setTextSelection(null);
+    if (!showCommentsPanel) onToggleCommentsPanel?.();
+  }, [textSelection, textareaNode, activeDocId, showCommentsPanel, onToggleCommentsPanel]);
+
+  // 提交评论时携带锚定信息（若有），发出后清除，避免下一条评论误带引用；
+  // 锚定归属的 docId 必须与提交目标一致（防文档切换后残留）
+  const handleAddComment = useCallback((docId: string, content: string) => {
+    const anchor = pendingCommentAnchor;
+    if (anchor && anchor.docId !== docId) {
+      setPendingCommentAnchor(null);
+    }
+    addComment(activeNotebookId, docId, content, anchor && anchor.docId === docId ? anchor : undefined);
+    setPendingCommentAnchor(null);
+  }, [pendingCommentAnchor, activeNotebookId, addComment]);
+
+  // 关闭评论面板时同时清理待锚定引用与选区
+  const handleToggleCommentsPanel = useCallback(() => {
+    if (showCommentsPanel) {
+      setPendingCommentAnchor(null);
+      setTextSelection(null);
+    }
+    onToggleCommentsPanel?.();
+  }, [showCommentsPanel, onToggleCommentsPanel]);
+
   const handleStartPresentation = useCallback(() => {
     setShowPresentationMenu(false);
     setShowPresentation(true);
@@ -424,6 +510,12 @@ export const Editor: React.FC<EditorProps> = ({
 
   const showEditor = previewMode === 'edit' || previewMode === 'split';
   const showPreview = previewMode === 'preview' || previewMode === 'split';
+  // 浮动评论按钮定位：仅编辑态 + 有选区 + 评论区未打开时计算。
+  // 读取 textareaNode（state）而非 ref，避免渲染期访问 ref 触发 react-hooks/refs
+  const commentFloatPos =
+    showEditor && textSelection && !showCommentsPanel && textareaNode
+      ? getCaretPixelPosition(textareaNode, textSelection.start)
+      : null;
 
   return (
     <>
@@ -449,6 +541,7 @@ export const Editor: React.FC<EditorProps> = ({
           canRedo={canRedo}
           onStartPresentation={handleStartPresentation}
           onShowVersionHistory={onShowVersionHistory}
+          onSaveVersion={handleSaveVersion}
           applyFormat={applyFormat}
           onFormatPainter={handleFormatPainter}
           formatPainterActive={!!painterFormats}
@@ -456,7 +549,7 @@ export const Editor: React.FC<EditorProps> = ({
           showOutlinePanel={showOutlinePanel}
           onToggleOutlinePanel={onToggleOutlinePanel}
           showCommentsPanel={showCommentsPanel}
-          onToggleCommentsPanel={onToggleCommentsPanel}
+          onToggleCommentsPanel={handleToggleCommentsPanel}
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}
           isFocusMode={isFocusMode}
@@ -465,6 +558,17 @@ export const Editor: React.FC<EditorProps> = ({
           onTogglePreviewMode={togglePreviewMode}
         />
         <div className={`editor-body-wrapper ${previewMode === 'split' ? 'editor-body-wrapper-split' : ''}`}>
+          {commentFloatPos && (
+            <button
+              className="editor-comment-float"
+              style={{ top: Math.max(8, commentFloatPos.top - 42), left: commentFloatPos.left }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleFloatComment}
+              title="评论选中文本"
+            >
+              💬 评论
+            </button>
+          )}
           {showEditor && (
             <div className={`editor-content-wrapper ${previewMode === 'split' ? 'editor-content-split' : ''}`}>
               <EditorContent
@@ -515,11 +619,12 @@ export const Editor: React.FC<EditorProps> = ({
           <CommentsPanel
             comments={activeDoc.comments || []}
             docId={activeDocId}
-            onAddComment={(docId, content) => addComment(activeNotebookId, docId, content)}
+            onAddComment={handleAddComment}
             onDeleteComment={(docId, commentId) => deleteComment(activeNotebookId, docId, commentId)}
             onAddReply={(docId, commentId, content) => addReply(activeNotebookId, docId, commentId, content)}
             isOpen={!!showCommentsPanel}
-            onClose={() => onToggleCommentsPanel?.()}
+            onClose={handleToggleCommentsPanel}
+            pendingQuote={pendingCommentAnchor?.quote ?? null}
           />
         </div>
         <EditorStatusBar content={activeDoc.content || ''} textareaRef={textareaRef} textareaNode={textareaNode} />

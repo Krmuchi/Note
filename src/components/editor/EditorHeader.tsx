@@ -33,6 +33,8 @@ interface EditorHeaderProps {
   canRedo: boolean;
   onStartPresentation?: () => void;
   onShowVersionHistory?: () => void;
+  /** 手动保存当前版本为快照 */
+  onSaveVersion?: () => void;
   applyFormat: (
     type: FormatType,
     options?: { color?: string; size?: string; rows?: number; cols?: number; language?: string },
@@ -110,6 +112,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   canRedo,
   onStartPresentation,
   onShowVersionHistory,
+  onSaveVersion,
   applyFormat,
   onFormatPainter,
   formatPainterActive = false,
@@ -266,6 +269,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
         activeNotebookId={activeNotebookId}
         activeDocId={activeDocId}
         onShowVersionHistory={onShowVersionHistory}
+        onSaveVersion={onSaveVersion}
         setShowSharePanel={setShowSharePanel}
         isFullscreen={isFullscreen}
         onToggleFullscreen={onToggleFullscreen}
@@ -711,6 +715,13 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
                 </div>
               )}
             </div>
+            <IconBtn title="插入公式" onClick={() => applyFormat('formula')} active={activeFormats.has('formula')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 4h4l5 16h5" />
+                <path d="M4 13h5" />
+                <path d="M14 10h4" />
+              </svg>
+            </IconBtn>
             <IconBtn title="插入图片" onClick={() => applyFormat('image')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />

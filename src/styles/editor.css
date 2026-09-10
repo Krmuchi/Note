@@ -1057,6 +1057,61 @@
   margin-bottom: var(--space-2);
 }
 
+/* 划词评论：关联引用文本气泡 */
+.comment-quote {
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-relaxed);
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border-left: 3px solid var(--primary-400, #69b1ff);
+  border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-all;
+}
+
+/* 评论表单：待锚定引用提示 */
+.comment-anchor-hint {
+  margin-bottom: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.comment-anchor-quote {
+  color: var(--primary-600, #0958d9);
+  word-break: break-all;
+}
+
+/* 编辑器内划词评论浮动按钮 */
+.editor-comment-float {
+  position: fixed;
+  z-index: var(--z-inline, 20);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: var(--font-size-xs, 12px);
+  color: #fff;
+  background: var(--primary-500, #1677ff);
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+}
+
+.editor-comment-float:hover {
+  background: var(--primary-600, #0958d9);
+}
+
 .comment-actions {
   display: flex;
   gap: var(--space-2);

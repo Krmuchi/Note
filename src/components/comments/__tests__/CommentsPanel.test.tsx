@@ -214,4 +214,49 @@ describe('CommentsPanel', () => {
 
     expect(screen.getByText('昨天')).not.toBeNull()
   })
+
+  it('should render anchored quote when comment has quote field', () => {
+    const comments: Comment[] = [
+      {
+        id: 'c1',
+        docId: 'doc1',
+        author: 'Alice',
+        content: 'Anchored comment',
+        createdAt: new Date().toISOString(),
+        quote: '被选中的文本',
+        anchorStart: 10,
+        anchorEnd: 16,
+      },
+    ]
+
+    render(
+      <CommentsPanel
+        comments={comments}
+        docId="doc1"
+        onAddComment={() => {}}
+        onDeleteComment={() => {}}
+        isOpen={true}
+        onClose={() => {}}
+      />
+    )
+
+    expect(screen.getByText('“被选中的文本”')).not.toBeNull()
+  })
+
+  it('should show pending quote hint when pendingQuote is provided', () => {
+    render(
+      <CommentsPanel
+        comments={[]}
+        docId="doc1"
+        onAddComment={() => {}}
+        onDeleteComment={() => {}}
+        isOpen={true}
+        onClose={() => {}}
+        pendingQuote="将评论的选中文本"
+      />
+    )
+
+    expect(screen.getByText(/将关联选中文本/)).not.toBeNull()
+    expect(screen.getByText('“将评论的选中文本”')).not.toBeNull()
+  })
 })

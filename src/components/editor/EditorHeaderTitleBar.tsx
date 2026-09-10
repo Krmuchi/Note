@@ -20,6 +20,8 @@ interface EditorHeaderTitleBarProps {
   activeDocId: string;
 
   onShowVersionHistory?: () => void;
+  /** 手动保存当前版本为快照 */
+  onSaveVersion?: () => void;
   setShowSharePanel: (show: boolean) => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
@@ -64,6 +66,7 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
   activeNotebookId,
   activeDocId,
   onShowVersionHistory,
+  onSaveVersion,
   setShowSharePanel,
   isFullscreen,
   onToggleFullscreen,
@@ -149,6 +152,15 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
             <polyline points="12 6 12 12 16 14" />
           </svg>
         </IconBtn>
+
+        {onSaveVersion && (
+          <IconBtn title="保存当前版本" onClick={() => onSaveVersion()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14" />
+              <polyline points="19 12 12 19 5 12" />
+            </svg>
+          </IconBtn>
+        )}
 
         <IconBtn title="分享" onClick={() => setShowSharePanel(true)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
