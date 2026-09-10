@@ -22,7 +22,7 @@ describe('coreSlice - auto version snapshot (updateDoc)', () => {
     vi.useRealTimers()
   })
 
-  const setupDoc = () => {
+  const setupDoc = (): { notebookId: string; docId: string } => {
     const { createNotebook, createDoc } = useNotesStore.getState()
     createNotebook('Test Notebook')
     const notebookId = useNotesStore.getState().notebooks[0].id

@@ -28,12 +28,12 @@ class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error }
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     this.reportError(error, errorInfo)
     this.logError(error, errorInfo)
   }
 
-  private reportError(error: Error, errorInfo: ErrorInfo) {
+  private reportError(error: Error, errorInfo: ErrorInfo): void {
     if (window.Sentry) {
       window.Sentry.captureException(error, { 
         extra: { componentStack: errorInfo.componentStack } 
@@ -41,7 +41,7 @@ class ErrorBoundary extends Component<Props, State> {
     }
   }
 
-  private logError(error: Error, errorInfo: ErrorInfo) {
+  private logError(error: Error, errorInfo: ErrorInfo): void {
     console.error('ErrorBoundary caught:', error)
     console.error('Component stack:', errorInfo.componentStack)
     
@@ -58,15 +58,15 @@ class ErrorBoundary extends Component<Props, State> {
     }
   }
 
-  private handleReset = () => {
+  private handleReset = (): void => {
     this.setState({ hasError: false, error: null })
   }
 
-  private handleReload = () => {
+  private handleReload = (): void => {
     window.location.reload()
   }
 
-  private handleCopyError = async () => {
+  private handleCopyError = async (): Promise<void> => {
     const { error } = this.state
     if (!error) return
     const text = `[${new Date().toISOString()}] ${error.message}\n\n${error.stack ?? ''}`
@@ -77,7 +77,7 @@ class ErrorBoundary extends Component<Props, State> {
     }
   }
 
-  public render() {
+  public render(): ReactNode {
     if (this.state.hasError) {
       if (this.props.fallback) {
         return this.props.fallback

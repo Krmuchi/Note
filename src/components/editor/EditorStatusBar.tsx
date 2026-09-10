@@ -9,7 +9,14 @@ interface EditorStatusBarProps {
 }
 
 /** 统计文本信息 */
-function countTextStats(text: string) {
+function countTextStats(text: string): {
+  characters: number;
+  charactersNoSpaces: number;
+  words: number;
+  lines: number;
+  paragraphs: number;
+  readingTime: number;
+} {
   if (!text) {
     return {
       characters: 0,
@@ -69,7 +76,7 @@ function formatNumber(num: number): string {
 }
 
 /** 获取光标位置信息 */
-function getCursorPosition(text: string, selectionStart: number) {
+function getCursorPosition(text: string, selectionStart: number): { line: number; column: number } {
   if (!text) return { line: 1, column: 1 };
   
   const beforeCursor = text.substring(0, selectionStart);
@@ -81,7 +88,7 @@ function getCursorPosition(text: string, selectionStart: number) {
 }
 
 /** 获取选中文本信息 */
-function getSelectionInfo(text: string, selectionStart: number, selectionEnd: number) {
+function getSelectionInfo(text: string, selectionStart: number, selectionEnd: number): { selectedChars: number; selectedWords: number } {
   if (!text || selectionStart === selectionEnd) {
     return { selectedChars: 0, selectedWords: 0 };
   }
@@ -138,7 +145,7 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
     const ta = textareaNode;
     if (!ta) return;
 
-    const handleSelectionChange = () => {
+    const handleSelectionChange = (): void => {
       updateCursorPosition();
     };
 

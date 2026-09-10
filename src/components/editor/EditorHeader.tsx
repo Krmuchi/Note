@@ -170,7 +170,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   useEffect(() => {
     // rAF 节流：resize 高频触发时避免每帧多次 setState
     let rafId: number | null = null;
-    const onResize = () => {
+    const onResize = (): void => {
       if (rafId !== null) return;
       rafId = window.requestAnimationFrame(() => {
         rafId = null;
@@ -189,7 +189,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   const effectiveExpanded = !isMobile && toolbarExpanded;
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent): void => {
       const target = e.target as Node;
       const insideColorTrigger = colorTriggerRefs.current.some(el => el && el.contains(target));
       if (headingMenuRef.current && !headingMenuRef.current.contains(target)) setShowHeadingMenu(false);
@@ -213,7 +213,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
     return 'paragraph';
   };
 
-  const handleHeadingSelect = (level: HeadingLevel) => {
+  const handleHeadingSelect = (level: HeadingLevel): void => {
     // 先清除现有标题标记（applyFormat 对标题是切换语义），paragraph 则仅清除
     HEADING_LEVELS.forEach(({ format }) => {
       if (activeFormats.has(format)) applyFormat(format);
@@ -244,7 +244,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   const hideRedo = winWidth < 1000;
   const hideTableAndDivider = winWidth < 800;
 
-  const renderColorPicker = () => (
+  const renderColorPicker = (): import('react').ReactElement => (
     <EditorHeaderColorPicker
       tab={showColorPicker}
       onTabChange={setShowColorPicker}

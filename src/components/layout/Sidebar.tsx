@@ -83,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Esc 关闭移动端抽屉（与全局 Escape 处理互补：抽屉打开时优先关闭抽屉）
   useEffect(() => {
     if (!mobile || !mobileNavOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.stopPropagation();
         closeMobileNav();

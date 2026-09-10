@@ -125,7 +125,7 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
 
   useEffect(() => {
     if (!showMoreMenu) return;
-    const handleClick = (e: MouseEvent) => {
+    const handleClick = (e: MouseEvent): void => {
       if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
         setShowMoreMenu(false);
       }

@@ -45,7 +45,7 @@
   /* 顶部条需高于遮罩，保证抽屉开关与关闭按钮始终可点 */
   .main-sidebar.main-sidebar-mobile {
     position: relative;
-    z-index: 902;
+    z-index: var(--z-drawer);
     flex-shrink: 0;
   }
 

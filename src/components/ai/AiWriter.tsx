@@ -338,7 +338,7 @@ function generateAcademicContent(topic: string, length: WritingLength, includeOu
 /**
  * AI 写作助手组件
  */
-export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps) {
+export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps): import('react').ReactElement | null {
   const [config, setConfig] = useState<WritingConfig>({
     topic: '',
     style: 'formal',

@@ -193,7 +193,7 @@
   box-shadow: var(--shadow-lg);
   padding: var(--space-1) 0;
   margin-top: var(--space-2);
-  z-index: 100;
+  z-index: var(--z-dropdown);
   border: 1px solid var(--border-color);
   animation: fadeInDown var(--transition-fast);
 }
@@ -239,7 +239,7 @@
   min-height: 40px;
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: var(--z-sticky);
   gap: var(--space-2);
 }
 
@@ -296,7 +296,7 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   padding: var(--space-1) 0;
-  z-index: 100;
+  z-index: var(--z-dropdown);
   border: 1px solid var(--border-color);
   animation: fadeInDown var(--transition-fast);
   max-height: 400px;
@@ -408,7 +408,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 11;
+  z-index: var(--z-sticky-raise);
   transition: all var(--transition-fast);
 }
 
@@ -723,11 +723,6 @@
   transform: scale(0.97);
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
-}
-
 .outline-panel {
   width: 260px;
   border-left: 1px solid var(--border-secondary);
@@ -736,11 +731,6 @@
   flex-direction: column;
   flex-shrink: 0;
   animation: slideInRight 0.2s ease;
-}
-
-@keyframes slideInRight {
-  from { transform: translateX(20px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
 }
 
 .outline-header {
@@ -1297,7 +1287,7 @@
 .eh-header {
   flex-shrink: 0;
   position: relative;
-  z-index: 20;
+  z-index: var(--z-inline);
   background: var(--bg-primary);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
@@ -1582,7 +1572,7 @@
   border-radius: var(--radius-lg);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
   padding: var(--space-1) 0;
-  z-index: 100;
+  z-index: var(--z-dropdown);
   border: 1px solid var(--border-color);
   animation: ehFadeInDown 150ms ease;
   max-height: 400px;
@@ -1673,7 +1663,7 @@
   border-radius: var(--radius-lg);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
   padding: var(--space-2);
-  z-index: 100;
+  z-index: var(--z-dropdown);
   border: 1px solid var(--border-color);
   animation: ehFadeInDown 150ms ease;
 }
@@ -1762,7 +1752,7 @@
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
   padding: var(--space-1) 0;
   margin-top: var(--space-1);
-  z-index: 100;
+  z-index: var(--z-dropdown);
   border: 1px solid var(--border-color);
   animation: ehFadeInDown 150ms ease;
 }
@@ -1806,7 +1796,7 @@
 .editor-fullscreen-fallback {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: var(--z-fullscreen-overlay);
   background: var(--bg-primary);
 }
 
@@ -1893,7 +1883,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 1000;
+  z-index: var(--z-overlay);
   background: var(--bg-primary);
 }
 
@@ -2100,7 +2090,7 @@
   justify-content: center;
   background: rgba(22, 119, 255, 0.1);
   backdrop-filter: blur(2px);
-  z-index: 10;
+  z-index: var(--z-sticky);
   pointer-events: none;
 }
 
@@ -2170,7 +2160,7 @@
 /* ===== 斜杠命令浮层 ===== */
 .slash-menu {
   position: fixed;
-  z-index: 1200;
+  z-index: var(--z-slash-menu);
   width: 280px;
   max-height: 320px;
   overflow: hidden;

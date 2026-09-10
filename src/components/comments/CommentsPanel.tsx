@@ -41,7 +41,7 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
     }
   }, [replyContent, docId, onAddReply]);
 
-  const formatDate = (dateString: string) => formatDateTime(dateString);
+  const formatDate = (dateString: string): string => formatDateTime(dateString);
 
   if (!isOpen) return null;
 

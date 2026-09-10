@@ -60,7 +60,7 @@ const LANG_MAP: Record<string, string> = {
 /** 用 # 作为行注释的语言 */
 const HASH_COMMENT_LANGS = new Set(['python', 'bash', 'yaml', 'ruby', 'r', 'perl', 'toml']);
 
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const NUM_RE = /\b(\d+(?:\.\d+)?)\b/g;
 
 /** 对纯文本段做关键词 + 数字高亮（此时文本不含任何 HTML，二次替换安全） */
@@ -182,7 +182,7 @@ function withParsedStyle(props: { style?: unknown; node?: unknown }): React.CSSP
 }
 
 /** react-markdown 会传入 hast node，不能透传到 DOM */
-function stripNode({ node: _node, ...rest }: Record<string, unknown>) {
+function stripNode({ node: _node, ...rest }: Record<string, unknown>): Record<string, unknown> {
   return rest;
 }
 
@@ -229,7 +229,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       if (line !== undefined) box.setAttribute('data-task-line', String(line));
     });
     if (!onToggleTask) return;
-    const handler = (e: Event) => {
+    const handler = (e: Event): void => {
       const target = e.target as HTMLInputElement;
       if (target.type !== 'checkbox') return;
       const line = target.getAttribute('data-task-line');

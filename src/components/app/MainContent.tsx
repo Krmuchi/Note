@@ -74,7 +74,7 @@ export function MainContent({
   onToggleCommentsPanel,
   onDocsResizeStart,
   onDocsResizeReset,
-}: MainContentProps) {
+}: MainContentProps): import('react').ReactElement {
   if (activeLeftMenu === 'start') {
     return (
       <main className="start-panel">

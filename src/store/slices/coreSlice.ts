@@ -529,6 +529,7 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
       state.trash = state.trash.filter(item => item.deletedAt > cutoffStr)
       const removed = before - state.trash.length
       if (removed > 0 && import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
         console.log(`[回收站] 自动清理了 ${removed} 个超过 ${TRASH_RETENTION_DAYS} 天的文档`)
       }
     })

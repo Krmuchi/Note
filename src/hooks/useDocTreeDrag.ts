@@ -30,7 +30,15 @@ export function useDocTreeDrag({
   updateDoc,
   reorderDocs,
   onExpandDoc,
-}: UseDocTreeDragOptions) {
+}: UseDocTreeDragOptions): {
+  dragOverDocId: string | null
+  dragOverPosition: DragPosition | null
+  handleDragStart: (e: React.DragEvent, docId: string) => void
+  handleDragEnd: (e: React.DragEvent) => void
+  handleDragOver: (e: React.DragEvent, docId: string) => void
+  handleDragLeave: () => void
+  handleDrop: (e: React.DragEvent, targetDocId: string) => void
+} {
   const [dragOverDocId, setDragOverDocId] = useState<string | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<DragPosition | null>(null);
   const draggedDocIdRef = useRef<string | null>(null);

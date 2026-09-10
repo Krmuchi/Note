@@ -110,7 +110,7 @@
 .mobile-nav-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 900;
+  z-index: var(--z-drawer-backdrop);
   background: var(--bg-overlay);
   animation: fadeIn var(--transition-fast);
 }
@@ -121,7 +121,7 @@
   top: 100%;
   left: 0;
   right: 0;
-  z-index: 1;
+  z-index: var(--z-base);
   display: flex;
   flex-direction: column;
   max-height: 70vh;
@@ -144,7 +144,7 @@
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
   white-space: nowrap;
-  z-index: 1000;
+  z-index: var(--z-overlay);
   pointer-events: none;
   animation: fadeIn 0.15s ease;
   box-shadow: var(--shadow-md);
@@ -638,7 +638,7 @@
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   padding: var(--space-2) 0;
-  z-index: 1000;
+  z-index: var(--z-overlay);
   border: 1px solid var(--border-color);
   animation: fadeInUp var(--transition-base);
 }
@@ -710,7 +710,7 @@
   box-shadow: var(--shadow-lg);
   padding: var(--space-1) 0;
   min-width: 190px;
-  z-index: 1000;
+  z-index: var(--z-overlay);
   border: 1px solid var(--border-color);
   animation: scaleIn var(--transition-fast);
   overflow: hidden;

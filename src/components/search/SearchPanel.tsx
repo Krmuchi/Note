@@ -52,7 +52,7 @@ const HighlightMatch = memo(function HighlightMatch({ text, query }: { text: str
 /**
  * 搜索面板组件
  */
-export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
+export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): import('react').ReactElement | null {
   const {
     search,
     getSearchSuggestions,
@@ -173,7 +173,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
    * 搜索计算延后一帧执行：大库遍历为同步主线程操作，延帧可让 spinner
    * 先渲染、输入不卡顿，计算结果再一次性提交
    */
-  const handleSearch = (explicitQuery?: string) => {
+  const handleSearch = (explicitQuery?: string): void => {
     const q = (explicitQuery ?? query).trim();
     if (!q) return;
 
@@ -202,7 +202,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     }
   }, []);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       const next = activeIndex < totalItems - 1 ? activeIndex + 1 : 0;
@@ -237,7 +237,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
    * 点击搜索建议：只更新输入框并立即执行一次搜索。
    * handleQueryChange 内部有防抖搜索 effect，此处再手动调 handleSearch 是同一关键词搜两遍，结果会闪烁
    */
-  const handleSuggestionClick = (suggestion: SearchSuggestion) => {
+  const handleSuggestionClick = (suggestion: SearchSuggestion): void => {
     handleQueryChange(suggestion.text, { skipSearch: true });
     handleSearch(suggestion.text);
   };
@@ -245,7 +245,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
   /**
    * 点击搜索结果
    */
-  const handleResultClick = (result: SearchResult) => {
+  const handleResultClick = (result: SearchResult): void => {
     if (result.type === 'notebook') {
       setActiveNotebookId(result.id);
       const notebook = notebooks.find(nb => nb.id === result.id);
@@ -264,14 +264,14 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
   /**
    * 更新筛选条件
    */
-  const handleFilterChange = (key: keyof SearchFilter, value: string | string[] | { start?: string; end?: string } | undefined) => {
+  const handleFilterChange = (key: keyof SearchFilter, value: string | string[] | { start?: string; end?: string } | undefined): void => {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
 
   /**
    * 格式化日期显示（统一使用 utils/formatters）
    */
-  const formatDate = (dateStr: string) =>
+  const formatDate = (dateStr: string): string =>
     formatDateTime(dateStr, { prefixToday: true, prefixYesterday: true });
 
   // 如果面板未打开，返回 null

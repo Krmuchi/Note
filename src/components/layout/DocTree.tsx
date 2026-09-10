@@ -100,7 +100,7 @@ export const DocTree: React.FC<DocTreeProps> = ({
   useEffect(() => {
     const el = docsListRef.current;
     if (!el) return;
-    const update = () => setListHeight(el.clientHeight || 480);
+    const update = (): void => setListHeight(el.clientHeight || 480);
     update();
     if (typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(update);
@@ -210,7 +210,7 @@ export const DocTree: React.FC<DocTreeProps> = ({
 
   const flatDocList = useMemo(() => {
     const result: { doc: NoteDoc; depth: number }[] = [];
-    const walk = (docs: NoteDoc[], depth: number) => {
+    const walk = (docs: NoteDoc[], depth: number): void => {
       const sorted = sortAndFilter(docs, searchText);
       for (const doc of sorted) {
         result.push({ doc, depth });
@@ -236,14 +236,14 @@ export const DocTree: React.FC<DocTreeProps> = ({
 
   useEffect(() => {
     if (!contextMenu) return;
-    const handleClick = () => setContextMenu(null);
+    const handleClick = (): void => setContextMenu(null);
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
   }, [contextMenu]);
 
   if (!activeNotebook) return null;
 
-  const renderDocItem = (doc: NoteDoc, depth: number) => {
+  const renderDocItem = (doc: NoteDoc, depth: number): import('react').ReactElement => {
     // 箭头可见性只取决于"是否有子文档"，展开与否由 isExpanded 控制
     const hasChildren = (childrenMap.get(doc.id) ?? []).length > 0;
 
@@ -280,7 +280,7 @@ export const DocTree: React.FC<DocTreeProps> = ({
     );
   };
 
-  const renderDocTree = (docs: NoteDoc[], depth: number = 0) => {
+  const renderDocTree = (docs: NoteDoc[], depth: number = 0): import('react').ReactElement[] => {
     return sortAndFilter(docs, searchText).map((doc) => {
       const children = childrenMap.get(doc.id) ?? [];
       const expanded = expandedDocs.has(doc.id);

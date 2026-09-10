@@ -6,7 +6,7 @@ interface LazyLoaderProps {
   fallback?: React.ReactNode;
 }
 
-export function LazyLoader({ children, fallback }: LazyLoaderProps) {
+export function LazyLoader({ children, fallback }: LazyLoaderProps): import('react').ReactElement {
   return (
     <Suspense
       fallback={

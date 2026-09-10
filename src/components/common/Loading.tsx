@@ -14,7 +14,7 @@ export interface LoadingProps {
  * 加载动画组件
  * 支持多种动画类型：spinner(旋转器)、pulse(脉冲)、dots(点跳动)、wave(波浪)、skeleton(骨架屏)
  */
-export function Loading({ type = "spinner", size = "medium", text, color = "#2385bb" }: LoadingProps) {
+export function Loading({ type = "spinner", size = "medium", text, color = "#2385bb" }: LoadingProps): import('react').ReactElement {
   const sizeClasses = {
     small: "loading-small",
     medium: "loading-medium",
@@ -22,21 +22,21 @@ export function Loading({ type = "spinner", size = "medium", text, color = "#238
   };
 
   // 渲染旋转器动画
-  const renderSpinner = () => (
+  const renderSpinner = (): import('react').ReactElement => (
     <div className={`loading-spinner ${sizeClasses[size]}`} style={{ borderColor: color }}>
       <div className="spinner-inner" style={{ borderTopColor: color }} />
     </div>
   );
 
   // 渲染脉冲动画
-  const renderPulse = () => (
+  const renderPulse = (): import('react').ReactElement => (
     <div className={`loading-pulse-container ${sizeClasses[size]}`}>
       <div className="pulse-dot" style={{ background: color }} />
     </div>
   );
 
   // 渲染点跳动动画
-  const renderDots = () => (
+  const renderDots = (): import('react').ReactElement => (
     <div className={`loading-dots ${sizeClasses[size]}`}>
       {[0, 1, 2].map((i) => (
         <div
@@ -52,7 +52,7 @@ export function Loading({ type = "spinner", size = "medium", text, color = "#238
   );
 
   // 渲染波浪动画
-  const renderWave = () => (
+  const renderWave = (): import('react').ReactElement => (
     <div className={`loading-wave-container ${sizeClasses[size]}`}>
       {[0, 1, 2, 3, 4].map((i) => (
         <div
@@ -68,7 +68,7 @@ export function Loading({ type = "spinner", size = "medium", text, color = "#238
   );
 
   // 渲染骨架屏
-  const renderSkeleton = () => (
+  const renderSkeleton = (): import('react').ReactElement => (
     <div className="loading-skeleton">
       <div className="skeleton-line" />
       <div className="skeleton-line" />
@@ -77,7 +77,7 @@ export function Loading({ type = "spinner", size = "medium", text, color = "#238
   );
 
   // 根据类型渲染对应动画
-  const renderLoading = () => {
+  const renderLoading = (): import('react').ReactElement => {
     switch (type) {
       case "spinner":
         return renderSpinner();
@@ -112,7 +112,7 @@ export interface SkeletonProps {
 /**
  * 骨架屏组件
  */
-export function Skeleton({ lines = 3 }: SkeletonProps) {
+export function Skeleton({ lines = 3 }: SkeletonProps): import('react').ReactElement {
   return (
     <div className="skeleton-wrapper">
       {Array.from({ length: lines }).map((_, i) => (
@@ -134,7 +134,7 @@ export interface ButtonLoaderProps {
  * 按钮加载状态组件
  * 加载时显示加载动画，否则显示原内容
  */
-export function ButtonLoader({ loading, children }: ButtonLoaderProps) {
+export function ButtonLoader({ loading, children }: ButtonLoaderProps): import('react').ReactElement {
   if (!loading) {
     return <>{children}</>;
   }

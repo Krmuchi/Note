@@ -4,7 +4,7 @@ import { modKey } from '@/utils/platform';
 import { formatDateTime } from '@/utils/formatters';
 import { EmptyState } from '@/components/common/EmptyState';
 
-export default function QuickNotePanel() {
+export default function QuickNotePanel(): import('react').ReactElement {
   const tags = useNotesStore(s => s.tags);
   const quickNotes = useNotesStore(s => s.quickNotes);
   const addQuickNote = useNotesStore(s => s.addQuickNote);
@@ -51,7 +51,7 @@ export default function QuickNotePanel() {
     );
   }, []);
 
-  const formatTime = (dateStr: string) =>
+  const formatTime = (dateStr: string): string =>
     formatDateTime(dateStr, { prefixToday: true });
 
   return (

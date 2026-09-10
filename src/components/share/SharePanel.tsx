@@ -48,7 +48,7 @@ export default function SharePanel({
   onGenerateLink,
   onDeleteLink,
   onCopyLink,
-}: SharePanelProps) {
+}: SharePanelProps): import('react').ReactElement | null {
   const [selectedPermission, setSelectedPermission] = useState('view');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -66,7 +66,7 @@ export default function SharePanel({
   /**
    * 处理生成分享链接
    */
-  const handleGenerate = () => {
+  const handleGenerate = (): void => {
     let expiresAt: string | null = null;
     if (expireOption) {
       const days = parseInt(expireOption.replace('d', ''));
@@ -82,7 +82,7 @@ export default function SharePanel({
   /**
    * 处理复制链接（记录定时器 id，避免面板关闭后 setState）
    */
-  const handleCopy = (url: string) => {
+  const handleCopy = (url: string): void => {
     onCopyLink(url);
     setCopiedUrl(url);
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -92,7 +92,7 @@ export default function SharePanel({
   /**
    * 格式化日期显示
    */
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
     return date.toLocaleString('zh-CN', {
       year: 'numeric',
@@ -106,7 +106,7 @@ export default function SharePanel({
   /**
    * 获取有效期显示文本
    */
-  const getExpireDisplay = (expiresAt: string | null) => {
+  const getExpireDisplay = (expiresAt: string | null): string => {
     if (!expiresAt) return '永不过期';
     return `有效期至 ${formatDate(expiresAt)}`;
   };
@@ -114,17 +114,17 @@ export default function SharePanel({
   /**
    * 获取权限标签显示
    */
-  const getPermissionLabel = (permission: string) => {
+  const getPermissionLabel = (permission: string): string => {
     const option = permissionOptions.find(p => p.value === permission);
     return option?.label || permission;
   };
 
-  const isLinkExpired = (expiresAt: string | null) => {
+  const isLinkExpired = (expiresAt: string | null): boolean => {
     if (!expiresAt) return false;
     return new Date(expiresAt).getTime() < now;
   };
 
-  const getExpireStatusClass = (expiresAt: string | null) => {
+  const getExpireStatusClass = (expiresAt: string | null): string => {
     if (!expiresAt) return '';
     const remaining = new Date(expiresAt).getTime() - now;
     if (remaining <= 0) return 'expired';

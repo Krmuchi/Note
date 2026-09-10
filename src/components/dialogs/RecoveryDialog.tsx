@@ -28,7 +28,7 @@ export const RecoveryDialog: React.FC<RecoveryDialogProps> = ({
     recoverBtnRef.current?.focus();
 
     if (!onClose) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
       // capture 阶段拦截，阻断全局 useKeyboard 的 Escape（避免连带关闭背后的面板）
       e.stopImmediatePropagation();

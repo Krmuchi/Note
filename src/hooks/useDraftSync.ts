@@ -5,7 +5,7 @@ import { debounce } from '@/utils/debounce'
 
 const DRAFT_SAVE_DELAY = 800
 
-export function useDraftSync() {
+export function useDraftSync(): void {
   // 只订阅当前活动文档的 updatedAt 字符串，而非整个 notebooks/trash/tags，
   // 避免任何库数据变化都触发草稿全量写入，降低联动重渲染与触发频率
   const activeDocUpdatedAt = useNotesStore((s) => {
@@ -42,7 +42,7 @@ export function useDraftSync() {
   // 应用关闭/刷新或组件卸载时，将挂起的草稿立即落盘，避免丢失最近编辑
   useEffect(() => {
     const debouncedSave = debouncedSaveRef.current
-    const flushDraft = () => debouncedSave.flush()
+    const flushDraft = (): void => debouncedSave.flush()
     window.addEventListener('beforeunload', flushDraft)
     return () => {
       window.removeEventListener('beforeunload', flushDraft)

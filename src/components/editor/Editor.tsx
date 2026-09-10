@@ -122,7 +122,7 @@ export const Editor: React.FC<EditorProps> = ({
   }, []);
 
   useEffect(() => {
-    const onFsChange = () => {
+    const onFsChange = (): void => {
       if (!document.fullscreenElement) {
         setIsFullscreen(false);
         editorPanelRef.current?.classList.remove('editor-fullscreen-fallback');
@@ -359,7 +359,7 @@ export const Editor: React.FC<EditorProps> = ({
   // 注意 e.key 在 Shift 按下时为大写（如 'P'），必须 toLowerCase 比较；
   // 专注模式改绑 Ctrl+Shift+E：Ctrl+Shift+F 已被全局"收藏/取消收藏"占用，双绑定会互相误触
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
       const key = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && key === 'p') {
         e.preventDefault();

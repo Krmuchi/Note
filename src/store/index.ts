@@ -28,8 +28,8 @@ export const useNotesStore = create<NotesStore>()(
   }))
 )
 
-export const selectActiveNotebook = (state: NotesStore) =>
+export const selectActiveNotebook = (state: NotesStore): import('@/types').Notebook | null =>
   state.notebooks.find(nb => nb.id === state.activeNotebookId) ?? null
 
 /** 使用 coreSlice 中缓存的 activeDoc，避免每次渲染都执行两次 find */
-export const selectActiveDoc = (state: NotesStore) => state.activeDoc
+export const selectActiveDoc = (state: NotesStore): import('@/types').NoteDoc | null => state.activeDoc

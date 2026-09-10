@@ -25,7 +25,7 @@ import "@/App.css"
 
 const MAX_RECENT_VIEWS = 50
 
-function App() {
+function App(): import('react').ReactElement {
   const {
     activeNotebookId,
     activeDocId,

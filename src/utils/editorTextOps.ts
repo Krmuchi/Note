@@ -170,12 +170,12 @@ export function autoPairMarker(ta: HTMLTextAreaElement, key: string): boolean {
   const before = value.substring(0, pos);
   const after = value.substring(pos);
 
-  const skip = (len: number) => {
+  const skip = (len: number): boolean => {
     ta.selectionStart = ta.selectionEnd = pos + len;
     return true;
   };
 
-  const insertPair = (text: string, cursorOffset: number) => {
+  const insertPair = (text: string, cursorOffset: number): boolean => {
     const next = value.substring(0, pos) + text + after;
     ta.value = next;
     ta.selectionStart = ta.selectionEnd = pos + cursorOffset;

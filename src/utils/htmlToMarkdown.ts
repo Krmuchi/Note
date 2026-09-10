@@ -109,10 +109,10 @@ function convertTable(table: Element): string {
   const rows = Array.from(table.querySelectorAll('tr'));
   if (rows.length === 0) return '';
 
-  const cellText = (cell: Element) => inlineToMd(cell).trim().replace(/\|/g, '\\|');
+  const cellText = (cell: Element): string => inlineToMd(cell).trim().replace(/\|/g, '\\|');
   const matrix = rows.map((r) => Array.from(r.querySelectorAll('th, td')).map(cellText));
   const colCount = matrix.reduce((max, r) => Math.max(max, r.length), 0);
-  const padRow = (row: string[]) => [...row, ...Array(Math.max(0, colCount - row.length)).fill('')];
+  const padRow = (row: string[]): string[] => [...row, ...Array(Math.max(0, colCount - row.length)).fill('')];
 
   const header = padRow(matrix[0]);
   const body = matrix.slice(1).map(padRow);

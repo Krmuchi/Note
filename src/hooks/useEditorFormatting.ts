@@ -38,6 +38,7 @@ interface UseEditorFormattingOptions {
   onLinkInsert?: () => void;
 }
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function useEditorFormatting({
   textareaRef,
   textareaNode,
@@ -157,7 +158,7 @@ export function useEditorFormatting({
     const ta = textareaNode;
     if (!ta) return;
 
-    const handlers = () => { setTimeout(detectFormats, 0); };
+    const handlers = (): void => { setTimeout(detectFormats, 0); };
     ta.addEventListener('keyup', handlers);
     ta.addEventListener('mouseup', handlers);
     ta.addEventListener('click', handlers);

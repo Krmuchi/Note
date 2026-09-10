@@ -30,7 +30,7 @@ export function VirtualScroll<T>({
   onScrollToBottom,
   className,
   getKey,
-}: VirtualScrollProps<T>) {
+}: VirtualScrollProps<T>): import('react').ReactElement {
   const [scrollTop, setScrollTop] = useState(0)
 
   const totalHeight = items.length * itemHeight

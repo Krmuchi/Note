@@ -2,7 +2,7 @@ export const compressImage = async (file: File, maxWidth: number = 1200): Promis
   return new Promise((resolve, reject) => {
     const img = new Image()
     const objectUrl = URL.createObjectURL(file)
-    const release = () => URL.revokeObjectURL(objectUrl)
+    const release = (): void => URL.revokeObjectURL(objectUrl)
     img.onload = () => {
       // 及时释放 ObjectURL，避免大图反复粘贴时内存缓慢增长
       release()

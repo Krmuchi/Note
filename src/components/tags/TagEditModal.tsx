@@ -20,7 +20,7 @@ export default function TagEditModal({
   onCreate, 
   onUpdate,
   availableTags 
-}: TagEditModalProps) {
+}: TagEditModalProps): import('react').ReactElement {
   // 使用 tag prop 作为初始状态（配合 key 属性确保重新挂载时正确初始化）
   const [name, setName] = useState(tag?.name ?? '');              // 标签名称
   const [color, setColor] = useState(tag?.color ?? TAG_DEFAULT_COLORS[0]); // 标签颜色
@@ -31,7 +31,7 @@ export default function TagEditModal({
   /**
    * 处理表单提交
    */
-  const handleSubmit = () => {
+  const handleSubmit = (): void => {
     if (!name.trim()) {
       alert('请输入标签名称');
       return;
@@ -49,7 +49,7 @@ export default function TagEditModal({
   // 过滤掉当前编辑的标签及其所有后代（选中后代作为父标签会形成环，导致层级渲染递归溢出）
   const forbiddenIds = new Set<string>();
   if (tag) {
-    const collectDescendants = (id: string) => {
+    const collectDescendants = (id: string): void => {
       forbiddenIds.add(id);
       availableTags.filter(t => t.parentId === id).forEach(t => collectDescendants(t.id));
     };

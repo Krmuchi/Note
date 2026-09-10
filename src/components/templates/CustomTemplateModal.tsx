@@ -36,7 +36,7 @@ export function deleteCustomTemplate(id: string): void {
   saveCustomTemplates(filtered);
 }
 
-export default function CustomTemplateModal({ isOpen, onClose, onSave, editTemplate }: CustomTemplateModalProps) {
+export default function CustomTemplateModal({ isOpen, onClose, onSave, editTemplate }: CustomTemplateModalProps): import('react').ReactElement | null {
   const [name, setName] = useState(editTemplate?.name || '');
   const [description, setDescription] = useState(editTemplate?.description || '');
   const [content, setContent] = useState(editTemplate?.content || '');

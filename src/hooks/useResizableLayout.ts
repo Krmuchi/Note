@@ -44,7 +44,7 @@ function loadState(): LayoutState {
   return DEFAULT_STATE;
 }
 
-function saveState(state: LayoutState) {
+function saveState(state: LayoutState): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
@@ -52,11 +52,23 @@ function saveState(state: LayoutState) {
   }
 }
 
-const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
+const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(value, max));
 
 export type DragTarget = 'sidebar' | 'docs' | null;
 
-export function useResizableLayout() {
+export function useResizableLayout(): {
+  sidebarWidth: number;
+  docsSidebarWidth: number;
+  sidebarCollapsed: boolean;
+  dragging: DragTarget;
+  isMobile: boolean;
+  startSidebarResize: (e: React.MouseEvent) => void;
+  startDocsResize: (e: React.MouseEvent) => void;
+  resetSidebar: () => void;
+  resetDocs: () => void;
+  toggleSidebarCollapse: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+} {
   const [state, setState] = useState<LayoutState>(loadState);
   const [dragging, setDragging] = useState<DragTarget>(null);
   const [isMobile, setIsMobile] = useState(
@@ -74,7 +86,7 @@ export function useResizableLayout() {
   }, [state]);
 
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    const onResize = (): void => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -82,8 +94,8 @@ export function useResizableLayout() {
   const attachDrag = useCallback(
     (onMove: (ev: MouseEvent) => void) => {
       document.body.classList.add('panel-resizing');
-      const move = (ev: MouseEvent) => onMove(ev);
-      const up = () => {
+      const move = (ev: MouseEvent): void => onMove(ev);
+      const up = (): void => {
         setDragging(null);
         document.body.classList.remove('panel-resizing');
         document.removeEventListener('mousemove', move);
