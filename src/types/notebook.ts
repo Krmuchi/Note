@@ -30,11 +30,6 @@ export interface Comment {
   createdAt: string
   updatedAt?: string
   replies?: Comment[]
-  /** 划词评论：关联的引用文本 */
-  quote?: string
-  /** 引用文本在文档全文中的起止偏移（可选，用于后续跳转定位） */
-  anchorStart?: number
-  anchorEnd?: number
 }
 
 export interface DocVersion {

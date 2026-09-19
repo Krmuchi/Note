@@ -88,7 +88,7 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
     }
   }, [editing]);
 
-  const handleSaveTitle = (): void => {
+  const handleSaveTitle = () => {
     if (editingTitle.trim()) {
       onSaveTitle({ ...doc, title: editingTitle.trim() });
     }
@@ -96,7 +96,7 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
     onTitleEditEnd?.();
   };
 
-  const handleCancelTitle = (): void => {
+  const handleCancelTitle = () => {
     setIsEditing(false);
     onTitleEditEnd?.();
   };

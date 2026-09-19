@@ -18,7 +18,7 @@ const getRemainingDays = (deletedAt: string): number => {
   return Math.max(0, TRASH_RETENTION_DAYS - diffDays)
 }
 
-export default function TrashView({ trash, onRestore, onDelete, onClearTrash }: TrashViewProps): import('react').ReactElement {
+export default function TrashView({ trash, onRestore, onDelete, onClearTrash }: TrashViewProps) {
   const [searchQuery, setSearchQuery] = useState('')
 
   const filteredTrash = useMemo(() => {

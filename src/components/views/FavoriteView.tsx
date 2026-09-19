@@ -36,7 +36,7 @@ export default function FavoriteView({
   onToggleOutlinePanel,
   showCommentsPanel,
   onToggleCommentsPanel,
-}: FavoriteViewProps): import('react').ReactElement {
+}: FavoriteViewProps) {
   const [sortBy, setSortBy] = useState<SortType>('updated')
   const [groupBy, setGroupBy] = useState<GroupType>('none')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
@@ -88,7 +88,7 @@ export default function FavoriteView({
     return groups
   }, [sortedDocs, groupBy])
 
-  const toggleSortOrder = (): void => {
+  const toggleSortOrder = () => {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')
   }
 

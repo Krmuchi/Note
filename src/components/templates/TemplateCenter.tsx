@@ -14,7 +14,7 @@ type SortType = 'popular' | 'newest' | 'name';
 
 const FAVORITES_KEY = 'template-favorites';
 
-export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCenterProps): import('react').ReactElement {
+export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCenterProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');

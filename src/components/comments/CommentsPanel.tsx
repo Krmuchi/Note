@@ -10,8 +10,6 @@ interface CommentsPanelProps {
   onAddReply?: (docId: string, commentId: string, content: string) => void;
   isOpen: boolean;
   onClose: () => void;
-  /** 划词后待写入评论的引用文本（仅在编辑器中生效） */
-  pendingQuote?: string | null;
 }
 
 export const CommentsPanel: React.FC<CommentsPanelProps> = ({
@@ -22,7 +20,6 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
   onAddReply,
   isOpen,
   onClose,
-  pendingQuote = null,
 }) => {
   const [newComment, setNewComment] = useState('');
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -44,7 +41,7 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
     }
   }, [replyContent, docId, onAddReply]);
 
-  const formatDate = (dateString: string): string => formatDateTime(dateString);
+  const formatDate = (dateString: string) => formatDateTime(dateString);
 
   if (!isOpen) return null;
 
@@ -76,11 +73,6 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
                   <span className="comment-time">{formatDate(comment.createdAt)}</span>
                 </div>
                 <div className="comment-content">{comment.content}</div>
-                {comment.quote && (
-                  <div className="comment-quote" title={`位置：字符 ${comment.anchorStart ?? '?'}–${comment.anchorEnd ?? '?'}`}>
-                    “{comment.quote}”
-                  </div>
-                )}
                 <div className="comment-actions">
                   {onAddReply && (
                     <button
@@ -157,11 +149,6 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
       </div>
       
       <form className="comment-form" onSubmit={handleSubmit}>
-        {pendingQuote && (
-          <div className="comment-anchor-hint">
-            将关联选中文本：<span className="comment-anchor-quote">“{pendingQuote}”</span>
-          </div>
-        )}
         <textarea
           className="comment-input"
           value={newComment}

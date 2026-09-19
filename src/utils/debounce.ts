@@ -21,7 +21,7 @@ export function debounce<T extends AnyFunction>(
   }
   let hasPending = false
 
-  const invoke = (): void => {
+  const invoke = () => {
     if (hasPending) {
       func.apply(pending.thisArg, pending.args)
       hasPending = false

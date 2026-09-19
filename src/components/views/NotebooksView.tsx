@@ -44,7 +44,7 @@ export default function NotebooksView({
   onDocsResizeReset,
   docsDragging,
   isMobile = false,
-}: NotebooksViewProps): import('react').ReactElement {
+}: NotebooksViewProps) {
   return (
     <>
       <DocsSidebar

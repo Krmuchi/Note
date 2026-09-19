@@ -9,12 +9,7 @@ interface ConfirmConfig {
   onConfirm: () => void
 }
 
-export const useConfirmAction = (): {
-  confirmConfig: ConfirmConfig | null
-  confirm: (cfg: ConfirmConfig) => void
-  handleConfirm: () => void
-  handleCancel: () => void
-} => {
+export const useConfirmAction = () => {
   const [config, setConfig] = useState<ConfirmConfig | null>(null)
 
   const confirm = useCallback((cfg: ConfirmConfig) => {

@@ -4,7 +4,9 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 import { Mermaid } from '@/components/common/Mermaid';
+import { parseSafeStyle, previewSchema, previewUrlTransform } from '@/utils/previewSanitize';
 import 'katex/dist/katex.min.css';
 
 interface MarkdownPreviewProps {
@@ -60,7 +62,7 @@ const LANG_MAP: Record<string, string> = {
 /** 用 # 作为行注释的语言 */
 const HASH_COMMENT_LANGS = new Set(['python', 'bash', 'yaml', 'ruby', 'r', 'perl', 'toml']);
 
-const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const NUM_RE = /\b(\d+(?:\.\d+)?)\b/g;
 
 /** 对纯文本段做关键词 + 数字高亮（此时文本不含任何 HTML，二次替换安全） */
@@ -145,44 +147,25 @@ const CodeBlock = React.memo(({ language, children }: { language: string; childr
 CodeBlock.displayName = 'CodeBlock';
 
 /**
- * 把 rehype-raw 产出的 style 字符串（如 "color:#ff0000;text-align:center"）
- * 解析为 React 需要的样式对象。React 会忽略字符串形式的 style，
- * 导致编辑器插入的文字颜色/高亮/对齐在预览中全部失效。
- */
-function parseStyleAttribute(styleStr?: string): React.CSSProperties | undefined {
-  if (!styleStr || typeof styleStr !== 'string') return undefined;
-  const out: Record<string, string> = {};
-  for (const decl of styleStr.split(';')) {
-    const idx = decl.indexOf(':');
-    if (idx === -1) continue;
-    const prop = decl.slice(0, idx).trim().toLowerCase();
-    const value = decl.slice(idx + 1).trim();
-    if (!prop || !value) continue;
-    const camel = prop.startsWith('--') ? prop : prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-    out[camel] = value;
-  }
-  return out as React.CSSProperties;
-}
-
-/**
  * 编辑器插入的行内样式标签共用处理。
  *
- * react-markdown 依赖 style-to-js@1.0.0 把 hast 的 style 字符串转成对象，
- * 但该包的 CJS 导出形态（{__esModule, default}）在 Vite/Vitest 互操作下会
- * 解析失败并产出空对象，导致颜色/高亮/对齐在预览中丢失。
- * 因此当 style 为空对象时，回退到 hast node 上保留的原始 style 字符串自行解析。
+ * 两条历史坑都要兼顾：
+ * 1. react-markdown 依赖 style-to-js@1.0.0 把 hast 的 style 字符串转成对象，但该包的
+ *    CJS 导出形态（{__esModule, default}）在 Vite/Vitest 互操作下会解析失败并产出空对象，
+ *    导致颜色/高亮/对齐在预览中丢失，因此 style 为空时回退到 hast node 上的原始字符串。
+ * 2. 无论拿到字符串还是已转好的对象，都必须经 parseSafeStyle 过一遍样式白名单——
+ *    预览内容可能来自网页粘贴、导入的 .md 或他人给的备份，其中的 style 不可信，
+ *    对象形态同样要过滤（否则会成为绕过字符串过滤的缺口）。
  */
 function withParsedStyle(props: { style?: unknown; node?: unknown }): React.CSSProperties | undefined {
-  const s = props.style;
-  if (typeof s === 'string') return parseStyleAttribute(s);
-  if (s && typeof s === 'object' && Object.keys(s).length > 0) return s as React.CSSProperties;
+  const direct = parseSafeStyle(props.style);
+  if (direct) return direct;
   const raw = (props.node as { properties?: { style?: unknown } } | undefined)?.properties?.style;
-  if (typeof raw === 'string') return parseStyleAttribute(raw);
-  return undefined;
+  return parseSafeStyle(raw);
 }
 
 /** react-markdown 会传入 hast node，不能透传到 DOM */
-function stripNode({ node: _node, ...rest }: Record<string, unknown>): Record<string, unknown> {
+function stripNode({ node: _node, ...rest }: Record<string, unknown>) {
   return rest;
 }
 
@@ -229,7 +212,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       if (line !== undefined) box.setAttribute('data-task-line', String(line));
     });
     if (!onToggleTask) return;
-    const handler = (e: Event): void => {
+    const handler = (e: Event) => {
       const target = e.target as HTMLInputElement;
       if (target.type !== 'checkbox') return;
       const line = target.getAttribute('data-task-line');
@@ -380,7 +363,11 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeRaw, rehypeKatex]}
+        // 顺序不可调换：raw 解析出编辑器写入的行内 HTML → 消毒（安全基线）→ KaTeX 渲染公式。
+        // 消毒放在 KaTeX 之前，才能既拦住不可信 HTML，又不破坏 KaTeX 自身产出的 span/style。
+        rehypePlugins={[rehypeRaw, [rehypeSanitize, previewSchema], rehypeKatex]}
+        // 默认 urlTransform 会清空 file://（桌面端落盘图片）与 data:（内联图片）地址
+        urlTransform={previewUrlTransform}
         components={components}
       >
         {processedContent}

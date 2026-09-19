@@ -23,12 +23,7 @@ function safeSetItem(key: string, value: string): void {
   }
 }
 
-export const useTheme = (): {
-  theme: ThemeType
-  toggleTheme: () => void
-  setCustomTheme: (newTheme: ThemeType) => void
-  setTheme: (newTheme: ThemeType) => void
-} => {
+export const useTheme = () => {
   const [theme, setTheme] = useState<ThemeType>(() => {
     const saved = safeGetItem(THEME_STORAGE_KEY)
     if (saved && THEME_VALUES.includes(saved as ThemeType)) {
@@ -170,11 +165,7 @@ export type FontType = 'sans' | 'serif' | 'mono' | 'chinese' | 'noto-sans' | 'no
 const FONT_STORAGE_KEY = 'notes-font'
 const FONT_VALUES: FontType[] = ['sans', 'serif', 'mono', 'chinese', 'noto-sans', 'noto-serif', 'lxgw-wenkai']
 
-export const useFont = (): {
-  font: FontType
-  setCustomFont: (newFont: FontType) => void
-  setFont: (newFont: FontType) => void
-} => {
+export const useFont = () => {
   const [font, setFont] = useState<FontType>(() => {
     const saved = safeGetItem(FONT_STORAGE_KEY)
     if (saved && FONT_VALUES.includes(saved as FontType)) {

@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: var(--z-overlay);
+  z-index: 1000;
 }
 
 .version-history-panel {
@@ -529,7 +529,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: var(--z-overlay-raise);
+  z-index: 1100;
 }
 
 .vh-tag-modal {

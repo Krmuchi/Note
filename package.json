@@ -21,6 +21,7 @@
     "start": "node electron/launch.cjs"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "immer": "^11.1.8",
     "jszip": "^3.10.1",
     "katex": "^0.18.4",
@@ -30,6 +31,7 @@
     "react-markdown": "^10.1.0",
     "rehype-katex": "^7.0.1",
     "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "zustand": "^5.0.12"

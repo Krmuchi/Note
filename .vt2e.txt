@@ -1,0 +1,25 @@
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:7:25). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+[90mstderr[2m | src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22m[2mMarkdownPreview - 不可信内容消毒[2m > [22m[2m丢弃事件处理属性
+[22m[39mAn empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+[90mstderr[2m | src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22m[2mMarkdownPreview - 不可信内容消毒[2m > [22m[2m保留本地落盘图片的 file:// 与 data: 地址（否则预览里图片全部消失）
+[22m[39mAn empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+An empty string ("") was passed to the src attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to src instead of an empty string.
+
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22mMarkdownPreview - 不可信内容消毒[2m > [22m保留本地落盘图片的 file:// 与 data: 地址（否则预览里图片全部消失）
+[31m[1mAssertionError[22m: the given combination of arguments (null and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string[39m
+[36m [2m❯[22m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx:[2m65:41[22m[39m
+    [90m 63|[39m     [35mconst[39m imgs [33m=[39m [33mArray[39m[33m.[39m[35mfrom[39m(container[33m.[39m[34mquerySelectorAll[39m([32m'img'[39m))
+    [90m 64|[39m     [34mexpect[39m(imgs[33m.[39mlength)[33m.[39m[34mtoBe[39m([34m2[39m)
+    [90m 65|[39m     expect(imgs[0].getAttribute('src')).toContain('file:///C:/notes/im…
+    [90m   |[39m                                         [31m^[39m
+    [90m 66|[39m     expect(imgs[1].getAttribute('src')).toContain('data:image/png;base…
+    [90m 67|[39m   })
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+

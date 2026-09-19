@@ -15,7 +15,7 @@ const iconMap = {
   info: "ℹ️",
 }
 
-const ToastItemInner = ({ id, type, message, onClose, duration = 3000 }: ToastProps): import('react').ReactElement => {
+const ToastItemInner = ({ id, type, message, onClose, duration = 3000 }: ToastProps) => {
   const [isExiting, setIsExiting] = useState(false)
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
@@ -57,7 +57,7 @@ export interface ToastContainerProps {
   onClose: (id: string) => void
 }
 
-export function ToastContainer({ toasts, onClose }: ToastContainerProps): import('react').ReactElement {
+export function ToastContainer({ toasts, onClose }: ToastContainerProps) {
   return (
     <div className="toast-container" role="status" aria-live="polite">
       {toasts.map((toast) => (
@@ -92,15 +92,7 @@ export const toast = {
   info: (message: string, duration?: number) => emitToast({ type: "info", message, duration }),
 }
 
-export function useToast(): {
-  toasts: ToastProps[]
-  addToast: (message: ToastMessage) => string
-  removeToast: (id: string) => void
-  success: (message: string, duration?: number) => string
-  error: (message: string, duration?: number) => string
-  warning: (message: string, duration?: number) => string
-  info: (message: string, duration?: number) => string
-} {
+export function useToast() {
   const [toasts, setToasts] = useState<ToastProps[]>([])
 
   const removeToast = useCallback((id: string) => {

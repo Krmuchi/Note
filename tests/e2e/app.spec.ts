@@ -39,7 +39,10 @@ test.describe('笔记应用核心功能', () => {
     await page.locator('.sidebar-search').click();
     await expect(page.locator('.search-panel')).toBeVisible();
     await page.locator('.search-panel .search-input').fill('测试');
-    await expect(page.locator('.search-suggestions')).toBeVisible();
+    // 输入后经防抖触发搜索，进入结果视图（空库时展示空态）。
+    // 不断言 .search-suggestions：它只在"有匹配的文档/标签/历史"且搜索结果返回前短暂出现，
+    // 依赖预置数据 + 时序窗口，属不稳定断言
+    await expect(page.locator('.search-results')).toBeVisible();
   });
 
   test('主题切换', async ({ page }) => {

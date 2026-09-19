@@ -89,7 +89,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
     );
   }, [onSlashChange]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (activeDoc) {
       updateDocContent({ content: e.target.value });
     }
@@ -97,11 +97,11 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   /** 光标移动/点击时仅同步关闭，避免把光标落在已有 "/xxx" 文本上也唤出面板 */
-  const handleCursorMove = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
+  const handleCursorMove = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
     syncSlash(e.currentTarget, 'cursor');
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // 块续写与缩进：不依赖 onFormatShortcut，优先于格式化快捷键处理
     const ta = textareaRef.current;
     if (ta && activeDoc && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -252,7 +252,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   /** 纯文本粘贴：丢弃 HTML 富文本，仅插入 text/plain */
-  const handlePasteLocal = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+  const handlePasteLocal = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (!plainTextPasteRef.current) {
       handlePaste(e);
       return;
@@ -273,7 +273,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   /** 复制为 Markdown：把选区（无选区时为整行）的源码原样写入剪贴板 */
-  const handleCopy = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+  const handleCopy = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (!copyAsMarkdownRef.current) return;
     copyAsMarkdownRef.current = false;
     const ta = textareaRef.current;
@@ -293,7 +293,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   // 设置光标位置（使用 requestAnimationFrame 确保在 React 重渲染后执行）
-  const setCursorPosition = (position: number): void => {
+  const setCursorPosition = (position: number) => {
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (ta) {
@@ -303,7 +303,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   // 获取当前行索引和行首字符偏移量
-  const getCurrentLineInfo = (content: string, cursorPos: number): { lines: string[]; lineIndex: number; lineStartOffset: number } => {
+  const getCurrentLineInfo = (content: string, cursorPos: number) => {
     const lines = content.split('\n');
     let lineIndex = 0;
     let lineStartOffset = 0;
@@ -318,7 +318,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   // 复制当前行
-  const duplicateLine = (): void => {
+  const duplicateLine = () => {
     const ta = textareaRef.current;
     if (!ta || !activeDoc) return;
     
@@ -335,7 +335,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   // 移动行
-  const moveLine = (direction: -1 | 1): void => {
+  const moveLine = (direction: -1 | 1) => {
     const ta = textareaRef.current;
     if (!ta || !activeDoc) return;
     
@@ -360,7 +360,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   // 删除当前行
-  const deleteLine = (): void => {
+  const deleteLine = () => {
     const ta = textareaRef.current;
     if (!ta || !activeDoc) return;
     
@@ -381,7 +381,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   // 缩进行
-  const indentLine = (increase: boolean): void => {
+  const indentLine = (increase: boolean) => {
     const ta = textareaRef.current;
     if (!ta || !activeDoc) return;
     
@@ -407,7 +407,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   // 在下方插入空行
-  const insertLineBelow = (): void => {
+  const insertLineBelow = () => {
     const ta = textareaRef.current;
     if (!ta || !activeDoc) return;
     
@@ -423,7 +423,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   };
 
   // 在上方插入空行
-  const insertLineAbove = (): void => {
+  const insertLineAbove = () => {
     const ta = textareaRef.current;
     if (!ta || !activeDoc) return;
     

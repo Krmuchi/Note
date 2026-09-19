@@ -71,7 +71,7 @@ export function useAppInit({ onError }: UseAppInitOptions): UseAppInitReturn {
   }, [onError, loadNotes])
 
   useEffect(() => {
-    const handleBeforeUnload = (): void => {
+    const handleBeforeUnload = () => {
       const state = useNotesStore.getState()
       // 同步兜底：卸载前将当前状态写入 localStorage 草稿。
       // saveNotes 是异步 IPC，页面卸载时 promise 可能被中断；

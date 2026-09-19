@@ -9,7 +9,7 @@
 .presentation-container {
   position: fixed;
   inset: 0;
-  z-index: var(--z-fullscreen);
+  z-index: 9000;
   display: flex;
   background: #16171c;
   overflow: hidden;
@@ -29,7 +29,7 @@
   position: absolute;
   top: var(--space-4);
   right: var(--space-4);
-  z-index: var(--z-sticky);
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -206,7 +206,7 @@
   background: radial-gradient(circle, #ff2020 0%, rgba(255, 32, 32, 0.6) 45%, rgba(255, 32, 32, 0) 75%);
   transform: translate(-50%, -50%);
   pointer-events: none;
-  z-index: var(--z-inline);
+  z-index: 20;
 }
 
 /* ===== 演讲者面板 ===== */

@@ -33,8 +33,6 @@ interface EditorHeaderProps {
   canRedo: boolean;
   onStartPresentation?: () => void;
   onShowVersionHistory?: () => void;
-  /** 手动保存当前版本为快照 */
-  onSaveVersion?: () => void;
   applyFormat: (
     type: FormatType,
     options?: { color?: string; size?: string; rows?: number; cols?: number; language?: string },
@@ -112,7 +110,6 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   canRedo,
   onStartPresentation,
   onShowVersionHistory,
-  onSaveVersion,
   applyFormat,
   onFormatPainter,
   formatPainterActive = false,
@@ -173,7 +170,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   useEffect(() => {
     // rAF 节流：resize 高频触发时避免每帧多次 setState
     let rafId: number | null = null;
-    const onResize = (): void => {
+    const onResize = () => {
       if (rafId !== null) return;
       rafId = window.requestAnimationFrame(() => {
         rafId = null;
@@ -192,7 +189,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   const effectiveExpanded = !isMobile && toolbarExpanded;
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent): void => {
+    const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
       const insideColorTrigger = colorTriggerRefs.current.some(el => el && el.contains(target));
       if (headingMenuRef.current && !headingMenuRef.current.contains(target)) setShowHeadingMenu(false);
@@ -216,7 +213,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
     return 'paragraph';
   };
 
-  const handleHeadingSelect = (level: HeadingLevel): void => {
+  const handleHeadingSelect = (level: HeadingLevel) => {
     // 先清除现有标题标记（applyFormat 对标题是切换语义），paragraph 则仅清除
     HEADING_LEVELS.forEach(({ format }) => {
       if (activeFormats.has(format)) applyFormat(format);
@@ -247,7 +244,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   const hideRedo = winWidth < 1000;
   const hideTableAndDivider = winWidth < 800;
 
-  const renderColorPicker = (): import('react').ReactElement => (
+  const renderColorPicker = () => (
     <EditorHeaderColorPicker
       tab={showColorPicker}
       onTabChange={setShowColorPicker}
@@ -269,7 +266,6 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
         activeNotebookId={activeNotebookId}
         activeDocId={activeDocId}
         onShowVersionHistory={onShowVersionHistory}
-        onSaveVersion={onSaveVersion}
         setShowSharePanel={setShowSharePanel}
         isFullscreen={isFullscreen}
         onToggleFullscreen={onToggleFullscreen}
@@ -715,13 +711,6 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
                 </div>
               )}
             </div>
-            <IconBtn title="插入公式" onClick={() => applyFormat('formula')} active={activeFormats.has('formula')}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 4h4l5 16h5" />
-                <path d="M4 13h5" />
-                <path d="M14 10h4" />
-              </svg>
-            </IconBtn>
             <IconBtn title="插入图片" onClick={() => applyFormat('image')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />

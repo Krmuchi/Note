@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-async function openEditor(page: import('@playwright/test').Page): Promise<void> {
+async function openEditor(page: import('@playwright/test').Page) {
   await page.goto('/');
   await expect(page.locator('.app-shell')).toBeVisible();
   await page.getByRole('button', { name: '新建知识库' }).click();

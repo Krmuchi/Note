@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: var(--z-modal-content);
+  z-index: 10001;
   animation: fadeIn var(--transition-fast);
 }
 

@@ -19,7 +19,7 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({ initialText, onConfirm, 
   useEffect(() => {
     urlRef.current?.focus();
 
-    const handleKeyDown = (e: KeyboardEvent): void => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       // capture 阶段拦截并阻断全局 useKeyboard 的 Escape（避免一次 Esc 同时关掉背后的面板）
       e.stopImmediatePropagation();
@@ -31,7 +31,7 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({ initialText, onConfirm, 
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [onCancel]);
 
-  const submit = (): void => {
+  const submit = () => {
     const trimmedUrl = url.trim();
     if (!trimmedUrl) return;
     onConfirm(text.trim() || trimmedUrl, trimmedUrl);

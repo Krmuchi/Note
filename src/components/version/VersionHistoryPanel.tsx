@@ -16,7 +16,7 @@ interface VersionHistoryPanelProps {
 /**
  * 版本历史面板组件
  */
-function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanelProps): import('react').ReactElement | null {
+function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanelProps) {
   const { notebooks, restoreVersion, updateDoc } = useNotesStore(useShallow((s) => ({
     notebooks: s.notebooks,
     restoreVersion: s.restoreVersion,
@@ -41,7 +41,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   /**
    * 处理选择版本
    */
-  const handleSelectVersion = (version: DocVersion): void => {
+  const handleSelectVersion = (version: DocVersion) => {
     if (showDiff && compareVersion) {
       setSelectedVersion(version);
     } else {
@@ -53,7 +53,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   /**
    * 处理版本对比
    */
-  const handleCompare = (): void => {
+  const handleCompare = () => {
     if (selectedVersion) {
       setCompareVersion(selectedVersion);
       setSelectedVersion(null);
@@ -65,13 +65,13 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
    */
   const [confirmRestore, setConfirmRestore] = useState(false)
 
-  const handleRestore = (): void => {
+  const handleRestore = () => {
     if (selectedVersion) {
       setConfirmRestore(true)
     }
   }
 
-  const handleConfirmRestore = (): void => {
+  const handleConfirmRestore = () => {
     if (selectedVersion) {
       restoreVersion(notebookId, docId, selectedVersion.id)
       setConfirmRestore(false)
@@ -79,14 +79,14 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     }
   }
 
-  const handleCancelRestore = (): void => {
+  const handleCancelRestore = () => {
     setConfirmRestore(false)
   };
 
   /**
    * 处理添加版本标签
    */
-  const handleAddTag = (): void => {
+  const handleAddTag = () => {
     if (selectedVersion && versionTag.trim()) {
       updateDoc(notebookId, docId, { 
         versions: (currentDoc?.versions || []).map(v => 
@@ -104,7 +104,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   /**
    * 处理导出版本
    */
-  const handleExportVersion = (): void => {
+  const handleExportVersion = () => {
     if (selectedVersion) {
       const content = `# ${selectedVersion.title}\n\n${selectedVersion.content}`;
       const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
@@ -122,7 +122,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   /**
    * 获取版本类型标签
    */
-  const getVersionTypeLabel = (type: string): string => {
+  const getVersionTypeLabel = (type: string) => {
     switch (type) {
       case 'manual': return '手动保存';
       case 'published': return '已发布';
@@ -133,7 +133,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   /**
    * 获取版本类型样式类名
    */
-  const getVersionTypeClass = (type: string): string => {
+  const getVersionTypeClass = (type: string) => {
     switch (type) {
       case 'manual': return 'version-type-manual';
       case 'published': return 'version-type-published';
@@ -145,10 +145,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
    * 渲染版本对比视图
    */
   /** 基于 LCS 的行级 diff 算法 */
-  const computeDiff = (currentLines: string[], compareLines: string[]): {
-    current: { text: string; type: 'unchanged' | 'added' }[]
-    compare: { text: string; type: 'unchanged' | 'removed' }[]
-  } => {
+  const computeDiff = (currentLines: string[], compareLines: string[]) => {
     const m = currentLines.length
     const n = compareLines.length
     // 构建 LCS 矩阵
@@ -199,7 +196,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     return { current, compare }
   }
 
-  const renderDiff = (): import('react').ReactElement | null => {
+  const renderDiff = () => {
     if (!selectedVersion || !compareVersion) return null;
     
     const currentContent = selectedVersion.content.split('\n');
@@ -252,7 +249,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   /**
    * 渲染版本内容详情
    */
-  const renderVersionContent = (): import('react').ReactElement => {
+  const renderVersionContent = () => {
     if (!selectedVersion) {
       return (
         <div className="version-empty">

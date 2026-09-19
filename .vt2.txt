@@ -1,0 +1,22 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.11 [39m[90mD:/00_临时与交换区/桌面/笔记[39m
+
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22mMarkdownPreview - 不可信内容消毒[2m > [22m丢弃 <script> 及其内容[32m 43[2mms[22m[39m
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22mMarkdownPreview - 不可信内容消毒[2m > [22m丢弃事件处理属性[32m 16[2mms[22m[39m
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22mMarkdownPreview - 不可信内容消毒[2m > [22m丢弃 javascript: 链接协议[32m 8[2mms[22m[39m
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22mMarkdownPreview - 不可信内容消毒[2m > [22m丢弃 <iframe>、<style> 等标签的内容，避免降级文本漏进正文[32m 4[2mms[22m[39m
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22mMarkdownPreview - 不可信内容消毒[2m > [22m丢弃非白名单标签上的 style（如 <p style="background:url(...)">）[32m 4[2mms[22m[39m
+ [31m×[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22mMarkdownPreview - 不可信内容消毒[2m > [22m保留本地落盘图片的 file:// 与 data: 地址（否则预览里图片全部消失）[32m 12[2mms[22m[39m
+[31m   → the given combination of arguments (null and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string[39m
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22mMarkdownPreview - 不可信内容消毒[2m > [22m消毒后 KaTeX 公式仍能正常渲染[32m 20[2mms[22m[39m
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22mMarkdownPreview - 不可信内容消毒[2m > [22m编辑器写入的颜色/高亮/对齐样式仍然生效[32m 27[2mms[22m[39m
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22msanitizeCssStyle - 样式值白名单[2m > [22m保留合法声明并丢弃未知属性[32m 0[2mms[22m[39m
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22msanitizeCssStyle - 样式值白名单[2m > [22m丢弃外链、脚本与转义绕过写法[32m 0[2mms[22m[39m
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22msanitizeCssStyle - 样式值白名单[2m > [22m超长样式串直接判定为异常输入[32m 0[2mms[22m[39m
+ [32m✓[39m src/components/editor/__tests__/MarkdownPreview.sanitize.test.tsx[2m > [22msanitizeCssStyle - 样式值白名单[2m > [22mparseSafeStyle 对对象形态同样执行白名单过滤[32m 1[2mms[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m11 passed[39m[22m[90m (12)[39m
+[2m   Start at [22m 14:12:09
+[2m   Duration [22m 4.08s[2m (transform 205ms, setup 594ms, import 1.22s, tests 140ms, environment 1.64s)[22m
+

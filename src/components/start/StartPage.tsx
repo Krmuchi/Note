@@ -91,7 +91,7 @@ export default function StartPage({
   onViewDoc,
   onCreateDoc,
   onCreateNotebook
-}: StartPageProps): import('react').ReactElement {
+}: StartPageProps) {
   // 组件内自行订阅 notebooks，避免 App 顶层订阅整个 notebooks 导致每次击键全 App 重渲染
   const notebooks = useNotesStore((s) => s.notebooks);
   const [activeFilter, setActiveFilter] = useState<FilterType>("edited"); // 当前激活的过滤器
@@ -160,7 +160,7 @@ export default function StartPage({
   /**
    * 处理快捷操作点击
    */
-  const handleActionClick = (actionId: string): void => {
+  const handleActionClick = (actionId: string) => {
     if (actionId === "new-doc") {
       // 新建文档：选择第一个知识库创建
       if (notebooks.length > 0) {
@@ -181,7 +181,7 @@ export default function StartPage({
   /**
    * 处理 AI 写作助手插入
    */
-  const handleAiInsert = (title: string, content: string): void => {
+  const handleAiInsert = (title: string, content: string) => {
     if (notebooks.length > 0) {
       onCreateDoc(notebooks[0].id, null, { title, content });
     }
@@ -190,7 +190,7 @@ export default function StartPage({
   /**
    * 处理模板选择
    */
-  const handleSelectTemplate = (template: Template): void => {
+  const handleSelectTemplate = (template: Template) => {
     if (notebooks.length > 0) {
       const now = new Date();
       const content = template.content
@@ -219,7 +219,7 @@ export default function StartPage({
   /**
    * 处理文档点击
    */
-  const handleDocClick = (doc: { id: string; notebook?: Notebook }): void => {
+  const handleDocClick = (doc: { id: string; notebook?: Notebook }) => {
     if (doc.notebook) {
       onViewDoc(doc.notebook.id, doc.id);
     }
@@ -228,13 +228,13 @@ export default function StartPage({
   /**
    * 格式化时间显示（统一使用 utils/formatters）
    */
-  const formatTime = (dateString: string): string =>
+  const formatTime = (dateString: string) =>
     formatDateTime(dateString, { prefixToday: true, fallbackWithTime: true });
 
   /**
    * 获取个性化问候语
    */
-  const getGreeting = (): string => {
+  const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 6) return '夜深了';
     if (hour < 9) return '早上好';

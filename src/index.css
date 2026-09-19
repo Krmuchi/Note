@@ -5,24 +5,6 @@
 
 /* ----- 亮色主题 ----- */
 :root {
-  /* 层级 z-index（自上而下，数值间隔保留，禁止在组件里硬编码裸数字） */
-  --z-base: 1;
-  --z-base-raise: 2;
-  --z-sticky: 10;
-  --z-sticky-raise: 11;
-  --z-inline: 20;
-  --z-dropdown: 100;
-  --z-drawer-backdrop: 900;
-  --z-drawer: 902;
-  --z-overlay: 1000;
-  --z-overlay-raise: 1100;
-  --z-slash-menu: 1200;
-  --z-fullscreen: 9000;
-  --z-fullscreen-overlay: 9999;
-  --z-modal-backdrop: 10000;
-  --z-modal-content: 10001;
-  --z-toast: 100000;
-
   /* 主色 */
   --primary-50: #e6f4ff;
   --primary-100: #bae0ff;
@@ -370,6 +352,55 @@ a:hover {
    通用动画
    ============================================ */
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @keyframes slideOutRight {
   from {
     opacity: 1;
@@ -379,6 +410,16 @@ a:hover {
     opacity: 0;
     transform: translateX(20px);
   }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* ============================================
@@ -395,7 +436,7 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: var(--z-modal-backdrop);
+  z-index: 10000;
   animation: fadeIn var(--transition-fast);
 }
 

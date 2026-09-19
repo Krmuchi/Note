@@ -9,7 +9,7 @@
   width: 4px;
   cursor: col-resize;
   background: var(--border-secondary);
-  z-index: var(--z-inline);
+  z-index: 20;
   transition: background 0.15s ease;
 }
 
@@ -21,7 +21,7 @@
   bottom: 0;
   left: -3px;
   right: -3px;
-  z-index: var(--z-base);
+  z-index: 1;
 }
 
 .resize-handle:hover {
@@ -53,7 +53,7 @@
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
-  z-index: var(--z-base-raise);
+  z-index: 2;
   box-shadow: var(--shadow-sm);
 }
 
@@ -79,7 +79,7 @@ body.panel-resizing::after {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.02);
-  z-index: var(--z-fullscreen-overlay);
+  z-index: 9999;
   pointer-events: none;
 }
 

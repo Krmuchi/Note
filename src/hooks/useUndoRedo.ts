@@ -7,14 +7,7 @@ import type { DocSnapshot } from '@/store/slices/undoRedoSlice'
 const historyLimit = 200
 const mergeWindow = 1000
 
-export const useUndoRedo = (): {
-  undo: () => void;
-  redo: () => void;
-  canUndo: boolean;
-  canRedo: boolean;
-  recordSnapshot: (doc: { title?: string; content?: string; tags?: string[] }) => void;
-  clearHistory: (docId: string) => void;
-} => {
+export const useUndoRedo = () => {
   const lastHistoryAtRef = useRef<number>(0)
 
   const { activeNotebookId, activeDocId, updateDoc } = useNotesStore(useShallow((s) => ({

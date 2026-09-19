@@ -21,7 +21,7 @@ const PRESET_COLORS = [
   { name: '金色', value: '#faad14' },
 ];
 
-export default function SettingsPanel({ isOpen, onClose, fontSize, onFontSizeChange }: SettingsPanelProps): import('react').ReactElement | null {
+export default function SettingsPanel({ isOpen, onClose, fontSize, onFontSizeChange }: SettingsPanelProps) {
   const { theme, setCustomTheme } = useTheme();
   const { font, setCustomFont } = useFont();
   const [activeTab, setActiveTab] = useState<'general' | 'editor' | 'shortcuts'>('general');
@@ -36,13 +36,13 @@ export default function SettingsPanel({ isOpen, onClose, fontSize, onFontSizeCha
 
   // 应用自定义颜色（主题感知：色阶由 applyCustomPrimaryColor 按亮/暗主题分别生成，
   // 切换主题时自动跟随，重启后由 useTheme 挂载时的 restore 恢复）
-  const handleApplyCustomColor = (color: string): void => {
+  const handleApplyCustomColor = (color: string) => {
     setCustomColor(color);
     applyCustomPrimaryColor(color);
   };
 
   // 清除自定义主题色，恢复当前主题的默认色
-  const handleResetCustomColor = (): void => {
+  const handleResetCustomColor = () => {
     setCustomColor('#1677ff');
     applyCustomPrimaryColor(null);
   };

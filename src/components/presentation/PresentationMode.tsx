@@ -35,7 +35,7 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
   }, [isTimerRunning]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent): void => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
       } else if (e.key === 'ArrowRight' || e.key === ' ') {
@@ -64,7 +64,7 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
   }, [pages.length, onClose]);
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent): void => {
+    const handleMouseMove = (e: MouseEvent) => {
       if (showLaser && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
         setLaserPosition({
@@ -78,7 +78,7 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [showLaser]);
 
-  const formatTime = (seconds: number): string => {
+  const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;

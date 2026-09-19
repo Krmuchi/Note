@@ -15,7 +15,7 @@ interface TagPanelProps {
   onClose: () => void;   // 关闭回调
 }
 
-export default function TagPanel({ isOpen, onClose }: TagPanelProps): import('react').ReactElement | null {
+export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
   const {
     tags,
     createTag,
@@ -67,7 +67,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps): import('re
   /**
    * 处理创建标签
    */
-  const handleCreateTag = (name: string, color: string, icon: string, parentId: string | null): void => {
+  const handleCreateTag = (name: string, color: string, icon: string, parentId: string | null) => {
     createTag(name, color, icon, parentId);
     setShowCreateModal(false);
   };
@@ -75,7 +75,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps): import('re
   /**
    * 处理更新标签
    */
-  const handleUpdateTag = (tagId: string, updates: Partial<Tag>): void => {
+  const handleUpdateTag = (tagId: string, updates: Partial<Tag>) => {
     updateTag(tagId, updates);
     setEditTag(null);
   };
@@ -86,7 +86,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps): import('re
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null)
 
-  const handleDeleteTag = (tagId: string): void => {
+  const handleDeleteTag = (tagId: string) => {
     setConfirmMessage('确定要删除这个标签吗？所有使用该标签的文档将失去此标签。')
     setConfirmAction(() => () => {
       deleteTag(tagId)
@@ -96,7 +96,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps): import('re
     })
   }
 
-  const handleBatchDelete = (): void => {
+  const handleBatchDelete = () => {
     setConfirmMessage(`确定要删除选中的 ${selectedTags.length} 个标签吗？`)
     setConfirmAction(() => () => {
       selectedTags.forEach(tagId => deleteTag(tagId))
@@ -109,7 +109,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps): import('re
   /**
    * 批量更新标签（随机设置颜色和图标）
    */
-  const handleBatchUpdate = (): void => {
+  const handleBatchUpdate = () => {
     if (selectedTags.length === 0) return;
     const randomColor = TAG_DEFAULT_COLORS[Math.floor(Math.random() * TAG_DEFAULT_COLORS.length)];
     const randomIcon = TAG_DEFAULT_ICONS[Math.floor(Math.random() * TAG_DEFAULT_ICONS.length)];
@@ -120,7 +120,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps): import('re
   /**
    * 切换标签选中状态
    */
-  const toggleSelectTag = (tagId: string): void => {
+  const toggleSelectTag = (tagId: string) => {
     setSelectedTags(prev => 
       prev.includes(tagId) 
         ? prev.filter(id => id !== tagId)
@@ -131,7 +131,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps): import('re
   /**
    * 全选/取消全选
    */
-  const selectAllTags = (): void => {
+  const selectAllTags = () => {
     if (selectedTags.length === filteredTags.length) {
       setSelectedTags([]);
     } else {
@@ -142,7 +142,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps): import('re
   /**
    * 递归渲染标签树
    */
-  const renderTagTree = (tagList: Tag[], depth = 0): import('react').ReactElement[] => {
+  const renderTagTree = (tagList: Tag[], depth = 0) => {
     return tagList.map(tag => (
       <div key={tag.id}>
         <div 

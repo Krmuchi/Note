@@ -92,7 +92,7 @@ export const DocumentOutline: React.FC<DocumentOutlineProps> = ({
     });
   }, []);
 
-  const renderHeadingItem = (heading: Heading, depth: number = 0): import('react').ReactElement => {
+  const renderHeadingItem = (heading: Heading, depth: number = 0) => {
     const indent = depth * 16;
     const levelClass = 'heading-level-' + heading.level;
     const hasChildren = heading.children && heading.children.length > 0;

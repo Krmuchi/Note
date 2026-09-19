@@ -12,7 +12,7 @@ function scheduleIdleCallback(callback: () => void, timeout: number = 5000): voi
 
 const MAX_RETRY = 3
 
-export const useAutoSave = (debounceMs: number = 3000): { scheduleSave: () => void } => {
+export const useAutoSave = (debounceMs: number = 3000) => {
   // 仅订阅 lastMutationAt（毫秒时间戳），避免因 notebooks 引用变化触发无关重渲染
   const lastMutationAt = useNotesStore(state => state.lastMutationAt)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -46,7 +46,7 @@ export const useAutoSave = (debounceMs: number = 3000): { scheduleSave: () => vo
       // 记录开始保存时的变更戳，用于判断保存期间是否产生了新变更
       const startMutationAt = useNotesStore.getState().lastMutationAt
 
-      const handleSave = async (): Promise<void> => {
+      const handleSave = async () => {
         // saveNotes 内部会吞掉异常并置 saveStatus（catch 分支不可达），需读取状态判断成败
         let shouldRetry = false
         try {
@@ -90,7 +90,7 @@ export const useAutoSave = (debounceMs: number = 3000): { scheduleSave: () => vo
   }, [lastMutationAt, scheduleSave])
 
   useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (saveInProgressRef.current) {
         e.preventDefault()
       }

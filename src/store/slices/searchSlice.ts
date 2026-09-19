@@ -86,7 +86,7 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
     const { notebooks, tags } = get()
     const results: SearchResult[] = []
 
-    const parseQuery = (q: string): { term: string; isNot: boolean; isExact: boolean }[] => {
+    const parseQuery = (q: string) => {
       const terms: { term: string; isNot: boolean; isExact: boolean }[] = []
       const parts = q.split(/\s+/)
 
@@ -134,12 +134,12 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
       })
     }
 
-    const matchesTagFilter = (docTags: string[]): boolean => {
+    const matchesTagFilter = (docTags: string[]) => {
       if (!filters?.tags || filters.tags.length === 0) return true
       return filters.tags.some(tagId => docTags.includes(tagId))
     }
 
-    const matchesDateFilter = (updatedAt: string): boolean => {
+    const matchesDateFilter = (updatedAt: string) => {
       if (!filters?.dateRange) return true
       const docDate = new Date(updatedAt)
       if (Number.isNaN(docDate.getTime())) return false

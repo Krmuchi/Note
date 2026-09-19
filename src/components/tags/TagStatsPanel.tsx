@@ -11,11 +11,11 @@ interface TagStatsPanelProps {
 /**
  * 标签统计面板组件
  */
-export default function TagStatsPanel({ stats }: TagStatsPanelProps): import('react').ReactElement {
+export default function TagStatsPanel({ stats }: TagStatsPanelProps) {
   /**
    * 计算进度条宽度百分比
    */
-  const getBarWidth = (count: number, max: number): number => {
+  const getBarWidth = (count: number, max: number) => {
     if (max === 0) return 0;
     return (count / max) * 100;
   };

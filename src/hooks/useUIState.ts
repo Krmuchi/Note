@@ -28,7 +28,7 @@ const loadPersistedUIState = (): Partial<UIState> => {
   return {}
 }
 
-const persistUIState = (state: Partial<UIState>): void => {
+const persistUIState = (state: Partial<UIState>) => {
   try {
     // 与已持久化的字段合并后再写，否则各处写各自字段会互相覆盖，
     // 重启后只有最后一次写入的那一项被恢复
@@ -39,7 +39,6 @@ const persistUIState = (state: Partial<UIState>): void => {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export const useUIState = () => {
   // 只在首次渲染读取一次 localStorage，避免每次渲染都同步执行 getItem + JSON.parse
   const persisted = useMemo(() => loadPersistedUIState(), [])

@@ -83,7 +83,7 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
 
   useEffect(() => {
     if (!notebookContextMenu) return;
-    const handleClick = (): void => setNotebookContextMenu(null);
+    const handleClick = () => setNotebookContextMenu(null);
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
   }, [notebookContextMenu]);

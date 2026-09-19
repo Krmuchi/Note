@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage } = require("electron");
 const path = require("node:path");
 const { createStorageHandlers } = require("./ipc/handlers-storage.cjs");
 const { createExportHandlers } = require("./ipc/handlers-export.cjs");
+const { createAiHandlers } = require("./ipc/handlers-ai.cjs");
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
 let dataPath = null;
@@ -82,13 +83,19 @@ function createWindow() {
       .then(() => console.log("[main] loadURL success"))
       .catch((err) => console.error("[main] Failed to load URL:", err));
     win.webContents.openDevTools({ mode: "right" });
-    win.webContents.on('did-finish-load', () => console.log('[main] did-finish-load'));
-    win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
-      console.error('[main] did-fail-load', errorCode, errorDescription);
-    });
   } else {
-    win.loadFile(path.join(__dirname, "../dist/index.html"));
+    // 未执行 npm run build 时 dist/index.html 不存在，loadFile 会 reject；
+    // 不捕获则整个主进程以未处理拒绝退出，且没有任何可定位的信息
+    win.loadFile(path.join(__dirname, "../dist/index.html")).catch((err) => {
+      console.error("[main] 加载 dist/index.html 失败，请先执行 npm run build：", err);
+    });
   }
+
+  // 加载结果诊断对开发/生产都要生效，否则生产启动失败时只剩空白窗口、无任何日志
+  win.webContents.on('did-finish-load', () => console.log('[main] did-finish-load'));
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error('[main] did-fail-load', errorCode, errorDescription);
+  });
 
   win.webContents.on('will-navigate', (event, url) => {
     const allowedHosts = isDev ? ['localhost', '127.0.0.1'] : [];
@@ -108,9 +115,11 @@ function createWindow() {
   win.webContents.on('unresponsive', () => {
     console.error('[main] renderer unresponsive');
   });
-  win.webContents.on('console-message', (_event, _level, message) => {
-    if (/error|failed/i.test(message)) {
-      console.error('[renderer]', message);
+  // Electron 41 起 (level, message, ...) 位置参数已废弃，改用事件对象上的 message；
+  // 仍按旧签名取值会在后续版本静默失效（渲染错误不再上报）
+  win.webContents.on('console-message', (event) => {
+    if (event.level === 'error' || /error|failed/i.test(event.message)) {
+      console.error('[renderer]', event.message);
     }
   });
 
@@ -124,7 +133,7 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   dataPath = path.join(app.getPath("userData"), "notes-data.json");
 
   const { session } = require("electron");
@@ -209,9 +218,18 @@ app.whenReady().then(() => {
 
   const storage = createStorageHandlers({ app, ipcMain, getDataPath: () => dataPath, defaultData });
   const exporter = createExportHandlers({ ipcMain, BrowserWindow, dialog, JSZip: require("jszip") });
+  const ai = createAiHandlers({ app, ipcMain, safeStorage });
 
   storage.register();
   exporter.register();
+
+  // AI 配置用 safeStorage 加密存储，必须在 whenReady 之后才可用
+  try {
+    await ai.load();
+    ai.register();
+  } catch (err) {
+    console.error("[main] AI 模块初始化失败：", err && err.message ? err.message : err);
+  }
 
   createWindow();
 

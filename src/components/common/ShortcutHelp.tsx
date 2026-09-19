@@ -49,7 +49,7 @@ const PANEL_NAV_GROUPS: HelpGroup[] = [
   ]},
 ];
 
-export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps): import('react').ReactElement | null {
+export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   // 键位单一数据源：来自 keyboardSlice（含用户自定义覆盖），避免与编辑器实现漂移
   const shortcuts = useNotesStore((s) => s.shortcuts);
@@ -66,7 +66,7 @@ export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps): im
 
   useEffect(() => {
     if (!isOpen) return;
-    const handleKey = (e: KeyboardEvent): void => {
+    const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', handleKey);

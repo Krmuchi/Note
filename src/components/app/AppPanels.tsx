@@ -62,7 +62,7 @@ export function AppPanels({
   onDeleteShareLink,
   onCopyShareLink,
   onFontSizeChange,
-}: AppPanelsProps): import('react').ReactElement {
+}: AppPanelsProps) {
   return (
     <>
       {showSharePanel && (

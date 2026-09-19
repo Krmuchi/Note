@@ -12,7 +12,6 @@ import {
   insertTextAtCursor,
   buildTableMarkdown,
   buildCodeFence,
-  insertFormula,
 } from '@/utils/editorTextOps';
 import { htmlToMarkdown, HTML_TO_MD_MAX_LENGTH } from '@/utils/htmlToMarkdown';
 import type { NoteDoc } from '@/types';
@@ -27,8 +26,7 @@ export type FormatType =
   | 'indent' | 'outdent'
   | 'textColor' | 'highlight'
   | 'fontSize'
-  | 'table' | 'divider' | 'clearFormat'
-  | 'formula';
+  | 'table' | 'divider' | 'clearFormat';
 
 interface UseEditorFormattingOptions {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -40,7 +38,6 @@ interface UseEditorFormattingOptions {
   onLinkInsert?: () => void;
 }
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function useEditorFormatting({
   textareaRef,
   textareaNode,
@@ -160,7 +157,7 @@ export function useEditorFormatting({
     const ta = textareaNode;
     if (!ta) return;
 
-    const handlers = (): void => { setTimeout(detectFormats, 0); };
+    const handlers = () => { setTimeout(detectFormats, 0); };
     ta.addEventListener('keyup', handlers);
     ta.addEventListener('mouseup', handlers);
     ta.addEventListener('click', handlers);
@@ -402,9 +399,6 @@ export function useEditorFormatting({
           break;
         case 'divider':
           newContent = insertAtLine(ta, '---');
-          break;
-        case 'formula':
-          newContent = insertFormula(ta);
           break;
         case 'table':
           newContent = insertAtLine(ta, buildTableMarkdown(options?.rows ?? 3, options?.cols ?? 3));

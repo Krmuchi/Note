@@ -27,7 +27,6 @@ test('文字颜色插入链路', async ({ page }) => {
   await page.waitForTimeout(300);
 
   const value = await editor.inputValue();
-  // eslint-disable-next-line no-console
   console.log('TEXTAREA VALUE:', JSON.stringify(value));
 
   // 预览渲染管线已由组件测试覆盖（MarkdownPreview.pipeline.test.tsx），
@@ -58,7 +57,6 @@ test('文字高亮插入链路', async ({ page }) => {
   await page.waitForTimeout(300);
 
   const value = await editor.inputValue();
-  // eslint-disable-next-line no-console
   console.log('HIGHLIGHT TEXTAREA VALUE:', JSON.stringify(value));
   expect(value).toContain('<mark');
 });

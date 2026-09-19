@@ -45,7 +45,7 @@
   border: 1px solid var(--border-color);
   padding: var(--space-2);
   margin-top: var(--space-1);
-  z-index: var(--z-dropdown);
+  z-index: 100;
   animation: fadeInDown var(--transition-fast);
 }
 

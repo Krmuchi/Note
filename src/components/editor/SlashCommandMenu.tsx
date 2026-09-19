@@ -84,7 +84,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent): void => {
+    const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         e.stopPropagation();

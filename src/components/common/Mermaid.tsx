@@ -63,7 +63,7 @@ export const Mermaid: React.FC<MermaidProps> = ({ code, className = '' }) => {
 
     let cancelled = false;
 
-    const renderChart = async (): Promise<void> => {
+    const renderChart = async () => {
       try {
         setLoading(true);
         const mermaid = await import('mermaid').then(m => m.default || m);
