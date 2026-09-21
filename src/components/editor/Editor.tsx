@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useNotesStore } from '@/store';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useEditorFormatting } from '@/hooks/useEditorFormatting';
+import { useAiSelectionAction } from '@/hooks/useAiSelectionAction';
 import { EditorHeader } from './EditorHeader';
 import { EditorContent, type SlashTriggerState } from './EditorContent';
 import { SlashCommandMenu, type SlashCommandItem } from './SlashCommandMenu';
@@ -13,6 +14,7 @@ import { DocumentOutline } from '@/components/outline/DocumentOutline';
 import { CommentsPanel } from '@/components/comments/CommentsPanel';
 import { EmptyState } from '@/components/common/EmptyState';
 import { LinkDialog } from '@/components/dialogs/LinkDialog';
+import AiSelectionMenu from '@/components/ai/AiSelectionMenu';
 import { copyToClipboard } from '@/utils/clipboard';
 import { findShortcutId } from '@/utils/shortcuts';
 import type { FormatType } from '@/hooks/useEditorFormatting';
@@ -190,6 +192,24 @@ export const Editor: React.FC<EditorProps> = ({
       }
     });
   }, [linkDialog, textareaRef, updateDocContent]);
+
+  // 选区 AI 操作：浮层内完成流式预览，用户确认后一次性回写（保留撤销与版本快照）
+  const {
+    position: aiMenuPosition,
+    selection: aiSelection,
+    open: openAiSelection,
+    close: closeAiSelection,
+    apply: applyAiResult,
+  } = useAiSelectionAction({
+    textareaRef,
+    updateDocContent,
+    activeDocId,
+    enabled: previewMode !== 'preview',
+  });
+
+  const handleAiAction = useCallback(() => {
+    openAiSelection();
+  }, [openAiSelection]);
 
   // 使用格式化 hook
   const {
@@ -452,6 +472,7 @@ export const Editor: React.FC<EditorProps> = ({
           applyFormat={applyFormat}
           onFormatPainter={handleFormatPainter}
           formatPainterActive={!!painterFormats}
+          onAiAction={handleAiAction}
           activeFormats={activeFormats}
           showOutlinePanel={showOutlinePanel}
           onToggleOutlinePanel={onToggleOutlinePanel}
@@ -532,6 +553,14 @@ export const Editor: React.FC<EditorProps> = ({
           initialText={linkDialog.text}
           onConfirm={handleLinkConfirm}
           onCancel={() => setLinkDialog(null)}
+        />
+      )}
+      {aiSelection && aiMenuPosition && (
+        <AiSelectionMenu
+          selection={aiSelection}
+          position={aiMenuPosition}
+          onApply={applyAiResult}
+          onClose={closeAiSelection}
         />
       )}
     </>

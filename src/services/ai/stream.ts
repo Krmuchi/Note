@@ -160,6 +160,23 @@ export interface StreamSession {
   isSettled: () => boolean
 }
 
+function createHandle(session: Session, done: Promise<AiResponse>): AiStreamHandle {
+  return {
+    requestId: session.requestId,
+    cancel: () => {
+      if (session.settled) return
+      // 先本地结算，保证句柄与注册表一定被释放（即使主进程无响应）；
+      // 再把取消意图发给主进程，避免上游继续消耗配额。
+      settle(session, { ok: false, error: createAbortedError() })
+      const api = getNotesApi()
+      void api?.aiCancel(session.requestId).catch(() => {
+        /* 通道异常时忽略：本地已结算，不影响用户体验 */
+      })
+    },
+    done,
+  }
+}
+
 /**
  * 打开一个流式会话并注册事件回调。
  * 调用方必须在**之后**才发出 ai:stream:start，否则可能丢首包。
@@ -186,6 +203,28 @@ export function openStreamSession(params: {
     resolveDone,
     unsubscribe: null,
   }
+
+  const duplicate = sessions.get(requestId)
+  if (duplicate && !duplicate.settled) {
+    // 重复注册必须拒绝而不是覆盖：覆盖会让旧会话的 done Promise 永不落定（泄漏）。
+    const error: AiError = {
+      code: 'AI_ERR_BAD_REQUEST',
+      message: 'requestId 重复，已拒绝本次请求',
+      retryable: false,
+    }
+    session.settled = true
+    handlers.onError(error)
+    resolveDone({ ok: false, error })
+    return {
+      requestId,
+      handle: createHandle(session, done),
+      fail: () => {
+        /* 已结算 */
+      },
+      isSettled: () => true,
+    }
+  }
+
   sessions.set(requestId, session)
 
   const api = getNotesApi()
@@ -193,23 +232,9 @@ export function openStreamSession(params: {
     session.unsubscribe = api.aiStreamSubscribe(requestId, dispatchStreamEvent)
   }
 
-  const handle: AiStreamHandle = {
-    requestId,
-    cancel: () => {
-      if (session.settled) return
-      // 先本地结算，保证句柄与注册表一定被释放（即使主进程无响应）；
-      // 再把取消意图发给主进程，避免上游继续消耗配额。
-      settle(session, { ok: false, error: createAbortedError() })
-      void api?.aiCancel(requestId).catch(() => {
-        /* 通道异常时忽略：本地已结算，不影响用户体验 */
-      })
-    },
-    done,
-  }
-
   return {
     requestId,
-    handle,
+    handle: createHandle(session, done),
     fail: (error: AiError) => settle(session, { ok: false, error }),
     isSettled: () => session.settled,
   }

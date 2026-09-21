@@ -1,6 +1,11 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTheme, THEME_OPTIONS, useFont, FONT_OPTIONS, applyCustomPrimaryColor } from '@/shared/hooks';
 import { modKey } from '@/utils/platform';
+import { aiClient } from '@/services/ai';
+import type { AiConfigView, AiFailure } from '@/types/ai';
+import AiSettingsTab from './AiSettingsTab';
+
+type SettingsTabId = 'general' | 'editor' | 'ai' | 'shortcuts';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -24,7 +29,18 @@ const PRESET_COLORS = [
 export default function SettingsPanel({ isOpen, onClose, fontSize, onFontSizeChange }: SettingsPanelProps) {
   const { theme, setCustomTheme } = useTheme();
   const { font, setCustomFont } = useFont();
-  const [activeTab, setActiveTab] = useState<'general' | 'editor' | 'shortcuts'>('general');
+  const [activeTab, setActiveTab] = useState<SettingsTabId>('general');
+  /** AI 配置在切到该页签时才加载：放在事件处理器里而不是 effect 中，避免级联渲染 */
+  const [aiConfig, setAiConfig] = useState<AiConfigView | AiFailure | null>(null);
+
+  const handleSelectTab = useCallback(
+    (tabId: SettingsTabId) => {
+      setActiveTab(tabId);
+      if (tabId !== 'ai' || aiConfig !== null) return;
+      void aiClient.config.get().then(setAiConfig);
+    },
+    [aiConfig],
+  );
   const [customColor, setCustomColor] = useState(() => {
     // 从 localStorage 加载自定义颜色
     try {
@@ -52,6 +68,7 @@ export default function SettingsPanel({ isOpen, onClose, fontSize, onFontSizeCha
   const tabs = [
     { id: 'general' as const, label: '通用', icon: '⚙️' },
     { id: 'editor' as const, label: '编辑器', icon: '📝' },
+    { id: 'ai' as const, label: 'AI', icon: '🤖' },
     { id: 'shortcuts' as const, label: '快捷键', icon: '⌨️' },
   ];
 
@@ -68,7 +85,7 @@ export default function SettingsPanel({ isOpen, onClose, fontSize, onFontSizeCha
             <button
               key={tab.id}
               className={`settings-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleSelectTab(tab.id)}
             >
               <span className="settings-tab-icon">{tab.icon}</span>
               <span className="settings-tab-text">{tab.label}</span>
@@ -179,6 +196,8 @@ export default function SettingsPanel({ isOpen, onClose, fontSize, onFontSizeCha
               </div>
             </div>
           )}
+
+          {activeTab === 'ai' && <AiSettingsTab initial={aiConfig} onViewChange={setAiConfig} />}
 
           {activeTab === 'shortcuts' && (
             <div className="settings-section">

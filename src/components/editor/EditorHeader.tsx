@@ -40,6 +40,8 @@ interface EditorHeaderProps {
   /** 格式刷：null 表示未激活；激活态由父级持有（首次点击复制格式，再次点击应用） */
   onFormatPainter?: () => void;
   formatPainterActive?: boolean;
+  /** 选区 AI 操作：父级捕获当前选区并弹出浮层 */
+  onAiAction?: () => void;
   activeFormats?: Set<string>;
   showOutlinePanel?: boolean;
   onToggleOutlinePanel?: () => void;
@@ -113,6 +115,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   applyFormat,
   onFormatPainter,
   formatPainterActive = false,
+  onAiAction,
   activeFormats = new Set(),
   showOutlinePanel,
   onToggleOutlinePanel,
@@ -580,6 +583,15 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 4l2 2-9.5 9.5a2.12 2.12 0 0 1-3-3z" />
                   <path d="M6 14c-1.5 1.5-1 4-1 4s2.5.5 4-1" />
+                </svg>
+              </IconBtn>
+            )}
+
+            {onAiAction && (
+              <IconBtn title="AI 处理选中文本（润色 / 改写 / 扩写 / 总结 / 风格转换）" onClick={onAiAction}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z" />
+                  <path d="M18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z" />
                 </svg>
               </IconBtn>
             )}
