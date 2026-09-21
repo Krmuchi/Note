@@ -30,6 +30,7 @@ export type AiErrorCode =
   | 'AI_ERR_CONTENT_FILTER'
   | 'AI_ERR_BAD_FORMAT'
   | 'AI_ERR_EMPTY_CONTENT'
+  | 'AI_ERR_REASONING_ONLY'
   | 'AI_ERR_INPUT_TOO_LONG'
   | 'AI_ERR_ENCRYPTION_UNAVAILABLE'
   | 'AI_ERR_UNKNOWN'
@@ -143,8 +144,20 @@ export interface AiTestResult {
   ok: true
   latencyMs: number
   model: string
+  /** 可见回复；推理型模型可能为空，此时看 note */
   reply: string
+  /** 连通但无可见文本时的说明（如推理模型吃光 token 预算） */
+  note?: string
   encryptionAvailable: boolean
+}
+
+/** ai:models:list 的成功返回；失败时返回 AiFailure 信封 */
+export interface AiModelsResult {
+  ok: true
+  /** 服务商当前提供的模型 id，已去重排序 */
+  models: string[]
+  /** 实际查询的 baseUrl（便于 UI 判断结果是否对应当前输入） */
+  baseUrl: string
 }
 
 /* ================= 渲染进程客户端接口 ================= */

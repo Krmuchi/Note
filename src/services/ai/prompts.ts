@@ -52,6 +52,49 @@ export const AI_CAPABILITIES: AiCapability[] = ['generate', 'optimize', 'transfo
 
 export const MAX_TOKENS_PARAMS: MaxTokensParam[] = ['max_tokens', 'max_completion_tokens']
 
+export interface ProviderPreset {
+  id: string
+  label: string
+  baseUrl: string
+  model: string
+  /**
+   * 部分服务商只接受 max_completion_tokens（如小米 MiMo），预设需一并切换，
+   * 否则输出长度参数不生效。
+   */
+  maxTokensParam?: MaxTokensParam
+}
+
+/**
+ * 服务商预设。每个条目都会被 tests/unit/aiProviderPresets.test.ts 用主进程同一套
+ * 校验函数验证，确保填进去的值一定能通过保存校验。
+ */
+export const PROVIDER_PRESETS: ProviderPreset[] = [
+  { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  { id: 'moonshot', label: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
+  {
+    id: 'dashscope',
+    label: '通义（兼容模式）',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen-plus',
+  },
+  {
+    id: 'xiaomi-mimo',
+    label: '小米 MiMo（按量付费）',
+    baseUrl: 'https://api.xiaomimimo.com/v1',
+    model: 'mimo-v2.5-pro',
+    maxTokensParam: 'max_completion_tokens',
+  },
+  {
+    id: 'xiaomi-mimo-plan',
+    label: '小米 MiMo（Token Plan）',
+    baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+    model: 'mimo-v2.5-pro',
+    maxTokensParam: 'max_completion_tokens',
+  },
+  { id: 'ollama', label: 'Ollama（本地）', baseUrl: 'http://localhost:11434', model: 'qwen2.5:7b' },
+]
+
 export const STYLE_LABELS: Record<WritingStyle, string> = {
   formal: '正式',
   casual: '轻松',

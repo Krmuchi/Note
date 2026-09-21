@@ -15,6 +15,7 @@ export {
   AI_CAPABILITIES,
   MAX_TOKENS_PARAMS,
   OPTIMIZE_ACTIONS,
+  PROVIDER_PRESETS,
   STYLE_LABELS,
   WRITING_LENGTHS,
   WRITING_STYLES,
@@ -22,4 +23,4 @@ export {
   getLengthOption,
   getStyleOption,
 } from './prompts'
-export type { LengthOption, OptimizeActionOption, StyleOption } from './prompts'
+export type { LengthOption, OptimizeActionOption, ProviderPreset, StyleOption } from './prompts'

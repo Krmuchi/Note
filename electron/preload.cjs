@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld("notesApi", {
   aiConfigSet: (patch) => ipcRenderer.invoke('ai:config:set', patch),
   aiConfigClear: () => ipcRenderer.invoke('ai:config:clear'),
   aiConfigTest: (patch) => ipcRenderer.invoke('ai:config:test', patch),
+  aiListModels: (patch) => ipcRenderer.invoke('ai:models:list', patch),
   aiGenerate: (payload) => ipcRenderer.invoke('ai:generate', payload),
   aiBatch: (payloads) => ipcRenderer.invoke('ai:batch', payloads),
   aiStreamStart: (payload) => ipcRenderer.invoke('ai:stream:start', payload),

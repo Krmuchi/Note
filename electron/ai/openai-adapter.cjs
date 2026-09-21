@@ -7,6 +7,7 @@
 const { AI_ERROR_CODES, aiErrorException } = require('./error-map.cjs');
 
 const CHAT_COMPLETIONS_PATH = '/chat/completions';
+const MODELS_PATH = '/models';
 const DEFAULT_MAX_TOKENS_PARAM = 'max_tokens';
 
 /**
@@ -44,12 +45,27 @@ function buildChatUrl(baseUrl) {
   return `${normalizeBaseUrl(baseUrl)}${CHAT_COMPLETIONS_PATH}`;
 }
 
+/** baseUrl + /models（OpenAI 兼容协议的模型列表端点） */
+function buildModelsUrl(baseUrl) {
+  return `${normalizeBaseUrl(baseUrl)}${MODELS_PATH}`;
+}
+
 function buildHeaders(apiKey, stream) {
   return {
     'Content-Type': 'application/json',
     Accept: stream ? 'text/event-stream' : 'application/json',
     Authorization: `Bearer ${apiKey}`,
   };
+}
+
+/**
+ * 模型列表请求头：本地服务（如 Ollama）不需要鉴权，
+ * 此时不发送 Authorization，避免被上游当作非法凭证拒绝。
+ */
+function buildModelsHeaders(apiKey) {
+  const headers = { Accept: 'application/json' };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  return headers;
 }
 
 /**
@@ -136,6 +152,42 @@ function normalizeUsage(usage) {
   return { promptTokens, completionTokens, totalTokens };
 }
 
+/**
+ * 解析 /models 响应，提取模型 id 列表。
+ *
+ * 兼容三种常见形状：
+ * - OpenAI 标准：{ object: 'list', data: [{ id: 'gpt-4o', ... }] }
+ * - 部分网关：{ models: [{ id | name }] }（Ollama 原生风格用 name）
+ * - 少数网关：['a', 'b'] 或 [{ id }] 裸数组
+ *
+ * 不做「过滤非对话模型」的启发式裁剪：用户要的是该服务当前提供的全部模型，
+ * 猜测哪些不能用于对话反而会隐藏合法模型。
+ *
+ * @returns {string[]} 去重并排序后的模型 id
+ */
+function parseModelsResponse(json) {
+  let raw;
+  if (Array.isArray(json)) raw = json;
+  else if (json && typeof json === 'object') raw = json.data ?? json.models;
+  if (!Array.isArray(raw)) throw aiErrorException(AI_ERROR_CODES.BAD_FORMAT);
+
+  const ids = [];
+  for (const item of raw) {
+    if (typeof item === 'string') {
+      if (item) ids.push(item);
+      continue;
+    }
+    if (item && typeof item === 'object') {
+      const id = typeof item.id === 'string' ? item.id : typeof item.name === 'string' ? item.name : '';
+      if (id) ids.push(id);
+    }
+  }
+
+  const unique = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  if (unique.length === 0) throw aiErrorException(AI_ERROR_CODES.BAD_FORMAT);
+  return unique.sort((a, b) => a.localeCompare(b));
+}
+
 /** 整体被三反引号包裹时剥掉外层围栏（模型偶尔无视指令） */
 const OVERALL_FENCE_RE = /^```[A-Za-z0-9_+.-]*[ \t]*\n([\s\S]*?)\n?```$/;
 
@@ -164,8 +216,11 @@ function extractTitle(markdown, fallback = '') {
 /**
  * 解析非流式 chat completion 响应。
  * @param {any} json
- * @param {{capability?: string, topic?: string, fallbackModel?: string}} [options]
- * @returns {{text: string, title?: string, usage?: object, finishReason: string|null, model: string}}
+ * @param {{capability?: string, topic?: string, fallbackModel?: string, allowEmpty?: boolean}} [options]
+ *   allowEmpty：连通性测试用 —— 只要 HTTP 200 且响应结构合法，就说明地址/密钥/模型都对，
+ *   此时可见正文为空不应判定为连接失败。
+ * @returns {{text: string, title?: string, usage?: object, finishReason: string|null, model: string,
+ *            reasoningOnly?: boolean}}
  */
 function parseChatCompletion(json, options = {}) {
   if (!json || typeof json !== 'object' || Array.isArray(json)) {
@@ -174,6 +229,7 @@ function parseChatCompletion(json, options = {}) {
 
   const choices = Array.isArray(json.choices) ? json.choices : [];
   let rawContent = null;
+  let reasoningOnly = false;
   let finishReason = null;
 
   if (choices.length > 0) {
@@ -181,6 +237,9 @@ function parseChatCompletion(json, options = {}) {
     if (typeof choice.finish_reason === 'string') finishReason = choice.finish_reason;
     if (choice.message && typeof choice.message === 'object') {
       rawContent = extractText(choice.message.content);
+      // 思维链字段有内容、可见正文为空 → 典型的「推理吃光 token 预算」
+      const reasoning = choice.message.reasoning_content;
+      if (!rawContent && typeof reasoning === 'string' && reasoning.trim()) reasoningOnly = true;
     }
   } else if (typeof json.output_text === 'string') {
     // 兼容 Responses API 风格的返回
@@ -196,7 +255,18 @@ function parseChatCompletion(json, options = {}) {
 
   const text = normalizeMarkdown(rawContent);
   if (!text) {
-    throw aiErrorException(AI_ERROR_CODES.EMPTY_CONTENT);
+    if (options.allowEmpty) {
+      const model = typeof json.model === 'string' && json.model ? json.model : options.fallbackModel || '';
+      const empty = { text: '', finishReason, model };
+      if (reasoningOnly) empty.reasoningOnly = true;
+      const usage = normalizeUsage(json.usage);
+      if (usage) empty.usage = usage;
+      return empty;
+    }
+    throw aiErrorException(
+      reasoningOnly ? AI_ERROR_CODES.REASONING_ONLY : AI_ERROR_CODES.EMPTY_CONTENT,
+      { n: options.maxTokens },
+    );
   }
 
   const model = typeof json.model === 'string' && json.model ? json.model : options.fallbackModel || '';
@@ -214,12 +284,15 @@ module.exports = {
   DEFAULT_MAX_TOKENS_PARAM,
   normalizeBaseUrl,
   buildChatUrl,
+  buildModelsUrl,
   buildHeaders,
+  buildModelsHeaders,
   buildChatRequest,
   isStreamOptionsRejection,
   extractErrorDetail,
   extractText,
   normalizeUsage,
+  parseModelsResponse,
   normalizeMarkdown,
   extractTitle,
   parseChatCompletion,

@@ -99,6 +99,14 @@ function createAiHandlers(deps) {
       }
     });
 
+    ipcMain.handle('ai:models:list', async (_event, payload) => {
+      try {
+        return await service.listModels(payload);
+      } catch (err) {
+        return envelopeError(err);
+      }
+    });
+
     ipcMain.handle('ai:generate', async (_event, payload) => {
       try {
         const normalized = assertAiRequestPayload(payload, {

@@ -3,6 +3,7 @@ import type {
   AiConfigPatch,
   AiConfigView,
   AiFailure,
+  AiModelsResult,
   AiRequestPayload,
   AiResponse,
   AiStreamEvent,
@@ -13,6 +14,8 @@ import type {
 export type AiConfigResult = AiConfigView | AiFailure
 /** 连通性测试：成功返回结果，失败返回信封 */
 export type AiTestResultOrFailure = AiTestResult | AiFailure
+/** 模型列表：成功返回结果，失败返回信封 */
+export type AiModelsResultOrFailure = AiModelsResult | AiFailure
 /** 批量：成功返回结果数组，失败返回信封 */
 export type AiBatchResult = { ok: true; results: AiResponse[] } | AiFailure
 /** 流式启动：成功返回 requestId，失败返回信封 */
@@ -40,6 +43,7 @@ declare global {
       aiConfigSet: (patch: AiConfigPatch) => Promise<AiConfigResult>
       aiConfigClear: () => Promise<AiConfigResult>
       aiConfigTest: (patch?: AiConfigPatch) => Promise<AiTestResultOrFailure>
+      aiListModels: (patch?: AiConfigPatch) => Promise<AiModelsResultOrFailure>
       aiGenerate: (payload: AiRequestPayload & { bypassCache?: boolean }) => Promise<AiResponse>
       aiBatch: (payloads: AiRequestPayload[]) => Promise<AiBatchResult>
       aiStreamStart: (payload: AiRequestPayload) => Promise<AiStreamStartResult>

@@ -14,6 +14,7 @@ import type {
   AiConfigPatch,
   AiConfigView,
   AiFailure,
+  AiModelsResult,
   AiRequestPayload,
   AiResponse,
   AiStreamHandle,
@@ -186,6 +187,21 @@ async function testConfig(patch?: AiConfigPatch): Promise<AiTestResult | AiFailu
 }
 
 /**
+ * 拉取服务商当前提供的模型列表。
+ * 可携带未保存的 baseUrl / apiKey（「先看列表再保存」场景）。
+ */
+async function listModels(patch?: AiConfigPatch): Promise<AiModelsResult | AiFailure> {
+  const api = getApi()
+  if (!api || typeof api.aiListModels !== 'function') return NOT_AVAILABLE
+  try {
+    const result = await api.aiListModels(patch)
+    return isAiFailure(result) ? failure(result.error) : result
+  } catch (err) {
+    return failure(err)
+  }
+}
+
+/**
  * 启动流式生成。**同步返回句柄**，错误通过 handlers.onError 与 handle.done 反馈。
  */
 function stream(task: AiTaskSpec, handlers: StreamHandlers, options?: CallOptions): AiStreamHandle {
@@ -277,6 +293,7 @@ export const aiClient = {
     set: setConfig,
     clear: clearConfig,
     test: testConfig,
+    listModels,
   },
 }
 

@@ -420,6 +420,10 @@
   line-height: 1.5;
 }
 
+.ai-hint.is-warn {
+  color: var(--warning-600, #d68910);
+}
+
 .ai-form {
   display: flex;
   flex-direction: column;

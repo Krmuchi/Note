@@ -18,9 +18,12 @@ const {
 const { buildMessages, resolveParams, TEMPLATE_VERSION } = require('./prompt-templates.cjs');
 const {
   buildChatUrl,
+  buildModelsUrl,
   buildHeaders,
+  buildModelsHeaders,
   buildChatRequest,
   parseChatCompletion,
+  parseModelsResponse,
   normalizeMarkdown,
   extractTitle,
   isStreamOptionsRejection,
@@ -34,7 +37,12 @@ const { assertAiConfigPayload } = require('./ai-validate.cjs');
 
 /** 流式增量合流窗口（约 60fps），避免一字一条 IPC */
 const STREAM_FLUSH_MS = 16;
-const TEST_MAX_TOKENS = 32;
+/**
+ * 连通性测试的输出预算。
+ * 不能太小：推理型模型（DeepSeek-R1、小米 MiMo 思考模式等）的 max_tokens 包含思维链，
+ * 32 这种量级会被推理过程吃光，导致可见正文为空、误判成连接失败。
+ */
+const TEST_MAX_TOKENS = 256;
 const FIRST_BYTE_TIMEOUT_CAP_MS = 20000;
 
 function makeCacheKey({ capability, model, temperature, maxTokens, maxTokensParam, messages }) {
@@ -210,6 +218,7 @@ function createAiService(deps) {
       capability: ctx.capability,
       topic: ctx.topic,
       fallbackModel: ctx.config.model,
+      maxTokens: ctx.maxTokens,
     });
   }
 
@@ -347,6 +356,7 @@ function createAiService(deps) {
         capability: ctx.capability,
         topic: ctx.topic,
         fallbackModel: ctx.config.model,
+        maxTokens: ctx.maxTokens,
       });
       pushDelta(parsed.text);
       return parsed;
@@ -682,17 +692,78 @@ function createAiService(deps) {
       } catch {
         throw aiErrorException(AI_ERROR_CODES.BAD_FORMAT);
       }
-      const parsed = parseChatCompletion(json, { fallbackModel: merged.model });
+      const parsed = parseChatCompletion(json, {
+        fallbackModel: merged.model,
+        maxTokens: TEST_MAX_TOKENS,
+        // 连通性测试的目标是验证「地址可达 + 密钥有效 + 模型存在」，
+        // 拿到合法响应即已证明；可见正文为空（推理模型吃光预算）不该报连接失败。
+        allowEmpty: true,
+      });
 
-      return {
+      const reply = parsed.text.slice(0, 200);
+      const result = {
         ok: true,
         latencyMs: Math.max(0, now() - start),
         model: parsed.model || merged.model,
-        reply: parsed.text.slice(0, 200),
+        reply,
         encryptionAvailable: configStore.isEncryptionAvailable(),
       };
+      if (!reply) {
+        result.note = parsed.reasoningOnly
+          ? '接口连通正常，但该模型把 token 预算全用在了思维链上、没有可见正文。生成正文时请提高「单次最大输出 token」'
+          : '接口连通正常，但模型未返回可见文本';
+      }
+      return result;
     } catch (err) {
       throw toWrappedError(err, attempt.flags, merged.timeoutMs);
+    } finally {
+      attempt.dispose();
+    }
+  }
+
+  /**
+   * 拉取服务商当前提供的模型列表（GET {baseUrl}/models）。
+   *
+   * 与 testConnection 同样支持携带临时 patch（未保存的 baseUrl / apiKey），
+   * 这样用户在设置页填完就能直接拉列表，不必先保存。
+   * 本地服务（Ollama）不需要 Key，因此这里只要求 baseUrl，Key 可以为空。
+   */
+  async function listModels(rawPatch) {
+    const config = configStore.getConfig();
+    const overrides =
+      rawPatch === undefined || rawPatch === null ? {} : assertAiConfigPayload(rawPatch);
+    const baseUrl = overrides.baseUrl !== undefined ? overrides.baseUrl : config.baseUrl;
+    const apiKey = overrides.apiKey !== undefined ? overrides.apiKey : config.apiKey;
+
+    if (!baseUrl) throw aiErrorException(AI_ERROR_CODES.NOT_CONFIGURED);
+
+    const timeoutMs = config.timeoutMs;
+    const attempt = createAttemptSignal({ timeoutMs, userSignal: null });
+    try {
+      const response = await fetchImpl(buildModelsUrl(baseUrl), {
+        method: 'GET',
+        headers: buildModelsHeaders(apiKey),
+        signal: attempt.controller.signal,
+      });
+
+      if (!response.ok) {
+        const text = await safeReadText(response);
+        throw aiErrorException(classifyHttpStatus(response.status, text), {
+          httpStatus: response.status,
+          detail: extractErrorDetail(text),
+        });
+      }
+
+      let json;
+      try {
+        json = await response.json();
+      } catch {
+        throw aiErrorException(AI_ERROR_CODES.BAD_FORMAT);
+      }
+
+      return { ok: true, models: parseModelsResponse(json), baseUrl };
+    } catch (err) {
+      throw toWrappedError(err, attempt.flags, timeoutMs);
     } finally {
       attempt.dispose();
     }
@@ -718,6 +789,7 @@ function createAiService(deps) {
     startStream,
     cancel,
     testConnection,
+    listModels,
     updateConfig,
     clearConfig,
     getView: () => configStore.getView(),

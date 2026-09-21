@@ -9,6 +9,7 @@ interface FakeApi {
   aiConfigSet: ReturnType<typeof vi.fn>
   aiConfigClear: ReturnType<typeof vi.fn>
   aiConfigTest: ReturnType<typeof vi.fn>
+  aiListModels: ReturnType<typeof vi.fn>
   aiGenerate: ReturnType<typeof vi.fn>
   aiBatch: ReturnType<typeof vi.fn>
   aiStreamStart: ReturnType<typeof vi.fn>
@@ -67,6 +68,11 @@ function installApi(overrides: Partial<FakeApi> = {}): void {
       model: 'test-model',
       reply: '可用',
       encryptionAvailable: true,
+    })),
+    aiListModels: vi.fn(async () => ({
+      ok: true,
+      models: ['test-model'],
+      baseUrl: 'https://api.example.com',
     })),
     aiGenerate: vi.fn(async () => SUCCESS),
     aiBatch: vi.fn(async (payloads: unknown[]) => ({
@@ -462,5 +468,67 @@ describe('aiClient - 配置', () => {
     const view = await aiClient.config.clear()
     expect(api.aiConfigClear).toHaveBeenCalledTimes(1)
     expect(view).toEqual(CONFIG_VIEW)
+  })
+})
+
+describe('aiClient - 模型列表', () => {
+  it('返回服务商当前提供的模型与查询地址', async () => {
+    installApi({
+      aiListModels: vi.fn(async () => ({
+        ok: true,
+        models: ['m-a', 'm-b'],
+        baseUrl: 'https://api.example.com',
+      })),
+    })
+    const result = await aiClient.config.listModels()
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('预期成功')
+    expect(result.models).toEqual(['m-a', 'm-b'])
+  })
+
+  it('透传未保存的 baseUrl 与 apiKey', async () => {
+    await aiClient.config.listModels({ baseUrl: 'https://api.deepseek.com', apiKey: 'sk-temp' })
+    expect(api.aiListModels).toHaveBeenCalledWith({
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk-temp',
+    })
+  })
+
+  it('失败时返回信封而不抛错', async () => {
+    installApi({
+      aiListModels: vi.fn(async () => ({
+        ok: false,
+        error: { code: 'AI_ERR_NOT_FOUND', message: '接口地址不存在', retryable: false },
+      })),
+    })
+    const result = await aiClient.config.listModels()
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('预期失败')
+    expect(result.error.code).toBe('AI_ERR_NOT_FOUND')
+  })
+
+  it('IPC 被拒绝时归一化为结构化错误', async () => {
+    installApi({
+      aiListModels: vi.fn(async () => {
+        throw new Error("Error invoking remote method 'ai:models:list'")
+      }),
+    })
+    const result = await aiClient.config.listModels()
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('预期失败')
+    expect(result.error.code).toBe('AI_ERR_UNKNOWN')
+  })
+
+  it('旧版本 preload 未暴露 aiListModels 时返回不可用信封', async () => {
+    installApi()
+    Object.defineProperty(window, 'notesApi', {
+      value: { ...api, aiListModels: undefined },
+      configurable: true,
+      writable: true,
+    })
+    const result = await aiClient.config.listModels()
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('预期失败')
+    expect(result.error.message).toContain('桌面应用')
   })
 })

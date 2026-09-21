@@ -603,6 +603,111 @@ describe('流式请求', () => {
   })
 })
 
+describe('listModels - 拉取服务商模型列表', () => {
+  const MODELS_BODY = { object: 'list', data: [{ id: 'm-b' }, { id: 'm-a' }] }
+
+  it('成功返回去重排序后的模型 id 与查询地址', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(MODELS_BODY))
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
+
+    const result = await service.listModels()
+    expect(result).toEqual({ ok: true, models: ['m-a', 'm-b'], baseUrl: 'https://api.example.com' })
+
+    // 必须打 /models 且用 GET
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('https://api.example.com/v1/models')
+    expect(init.method).toBe('GET')
+    expect(init.headers.Authorization).toBe('Bearer sk-test-key-1234')
+  })
+
+  it('可携带未保存的 baseUrl 与 apiKey（先看列表再保存）', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(MODELS_BODY))
+    const configStore = makeConfigStore({ baseUrl: '' }, '')
+    const service = createAiService({ configStore, fetchImpl })
+
+    const result = await service.listModels({
+      baseUrl: 'https://api.xiaomimimo.com/v1',
+      apiKey: 'sk-temp-key-abcdef',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.baseUrl).toBe('https://api.xiaomimimo.com/v1')
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.xiaomimimo.com/v1/models')
+    expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe('Bearer sk-temp-key-abcdef')
+    // 临时 patch 不得写入配置
+    expect(configStore._update).not.toHaveBeenCalled()
+  })
+
+  it('本地服务无 Key 时不发送 Authorization', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ models: [{ name: 'qwen2.5:7b' }] }))
+    const configStore = makeConfigStore({ baseUrl: 'http://localhost:11434' }, '')
+    const service = createAiService({ configStore, fetchImpl })
+
+    const result = await service.listModels()
+    expect(result).toEqual({ ok: true, models: ['qwen2.5:7b'], baseUrl: 'http://localhost:11434' })
+    expect(fetchImpl.mock.calls[0][1].headers).not.toHaveProperty('Authorization')
+  })
+
+  it('未配置 baseUrl 时抛 NOT_CONFIGURED 且不发请求', async () => {
+    const fetchImpl = vi.fn()
+    const service = createAiService({ configStore: makeConfigStore({ baseUrl: '' }, ''), fetchImpl })
+
+    await expect(service.listModels()).rejects.toMatchObject({
+      aiError: { code: 'AI_ERR_NOT_CONFIGURED' },
+    })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('鉴权失败抛结构化 AUTH 错误', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: { message: 'bad key' } }, { status: 401 }))
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
+
+    await expect(service.listModels()).rejects.toMatchObject({
+      aiError: { code: 'AI_ERR_AUTH', retryable: false },
+    })
+  })
+
+  it('服务商未开放 /models（404）抛 NOT_FOUND，供 UI 提示手动输入', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: { message: 'not found' } }, { status: 404 }))
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
+
+    await expect(service.listModels()).rejects.toMatchObject({
+      aiError: { code: 'AI_ERR_NOT_FOUND' },
+    })
+  })
+
+  it('响应形状无法识别时抛 BAD_FORMAT', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ unexpected: true }))
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
+
+    await expect(service.listModels()).rejects.toMatchObject({
+      aiError: { code: 'AI_ERR_BAD_FORMAT' },
+    })
+  })
+
+  it('网络异常抛 NETWORK', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('fetch failed')
+    })
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
+
+    await expect(service.listModels()).rejects.toMatchObject({
+      aiError: { code: 'AI_ERR_NETWORK' },
+    })
+  })
+
+  it('超时抛 TIMEOUT', async () => {
+    const service = createAiService({
+      configStore: makeConfigStore({ timeoutMs: 20 }),
+      fetchImpl: hangingFetch(),
+    })
+
+    await expect(service.listModels()).rejects.toMatchObject({
+      aiError: { code: 'AI_ERR_TIMEOUT' },
+    })
+  })
+})
+
 describe('testConnection - 连通性测试', () => {
   it('成功后返回延迟、模型与回复', async () => {
     const fetchImpl = vi
@@ -652,6 +757,50 @@ describe('testConnection - 连通性测试', () => {
     await expect(service.testConnection()).rejects.toMatchObject({
       aiError: { code: 'AI_ERR_AUTH', retryable: false },
     })
+  })
+
+  it('推理型模型只返回思维链时仍判定连通成功，并给出可操作说明', async () => {
+    // 小米 MiMo / DeepSeek-R1 等在 max_tokens 偏小时会返回空 content + 有 reasoning_content
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: { content: '', reasoning_content: '用户想让我回复「可用」，我直接回复即可…' },
+            finish_reason: 'length',
+          },
+        ],
+      }),
+    )
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
+
+    const result = await service.testConnection()
+    expect(result.ok).toBe(true)
+    expect(result.reply).toBe('')
+    expect(result.note).toContain('思维链')
+    expect(result.note).toContain('单次最大输出 token')
+  })
+
+  it('响应结构非法时仍报错，不会把无效响应当成连通成功', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ unexpected: true }))
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
+
+    await expect(service.testConnection()).rejects.toMatchObject({
+      aiError: { code: 'AI_ERR_BAD_FORMAT' },
+    })
+  })
+
+  it('连通性测试的输出预算足够推理模型使用（不能被思维链吃光）', async () => {
+    const bodies: string[] = []
+    const fetchImpl = vi.fn(async (_url: string, init: { body: string }) => {
+      bodies.push(init.body)
+      return jsonResponse({ choices: [{ message: { content: '可用' } }] })
+    })
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
+    await service.testConnection()
+
+    const sent = JSON.parse(bodies[0])
+    expect(sent.max_tokens).toBeGreaterThanOrEqual(128)
   })
 })
 

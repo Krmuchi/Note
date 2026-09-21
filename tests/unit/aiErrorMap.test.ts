@@ -36,6 +36,15 @@ describe('错误码元数据', () => {
     expect(isRetryable(AI_ERROR_CODES.ABORTED)).toBe(false)
     expect(isRetryable(AI_ERROR_CODES.INPUT_TOO_LONG)).toBe(false)
     expect(isRetryable(AI_ERROR_CODES.NOT_CONFIGURED)).toBe(false)
+    // 思维链吃光 token 是配置问题，重试无用
+    expect(isRetryable(AI_ERROR_CODES.REASONING_ONLY)).toBe(false)
+  })
+
+  it('REASONING_ONLY 文案给出可操作的调整方向', () => {
+    const message = formatMessage(AI_ERROR_CODES.REASONING_ONLY, { n: 256 })
+    expect(message).toContain('256')
+    expect(message).toContain('单次最大输出 token')
+    expect(message).not.toMatch(/[{}]/)
   })
 
   it('变量被正确渲染进文案', () => {

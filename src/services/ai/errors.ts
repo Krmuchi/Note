@@ -22,6 +22,8 @@ const FALLBACK_MESSAGES: Record<AiErrorCode, string> = {
   AI_ERR_CONTENT_FILTER: '内容被模型安全策略拦截，请调整输入后再试',
   AI_ERR_BAD_FORMAT: '服务返回格式异常，可能不是 OpenAI 兼容接口',
   AI_ERR_EMPTY_CONTENT: '模型没有返回内容，请重试或更换模型',
+  AI_ERR_REASONING_ONLY:
+    '模型只返回了思维链、没有可见正文：推理过程已消耗完 max_tokens。请提高「单次最大输出 token」或更换模型',
   AI_ERR_INPUT_TOO_LONG: '输入内容过长，请缩短后重试',
   AI_ERR_ENCRYPTION_UNAVAILABLE: '当前系统不支持安全存储，API Key 仅本次运行有效',
   AI_ERR_UNKNOWN: '生成失败，请稍后重试',

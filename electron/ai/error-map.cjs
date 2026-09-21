@@ -20,6 +20,7 @@ const AI_ERROR_CODES = {
   CONTENT_FILTER: 'AI_ERR_CONTENT_FILTER',
   BAD_FORMAT: 'AI_ERR_BAD_FORMAT',
   EMPTY_CONTENT: 'AI_ERR_EMPTY_CONTENT',
+  REASONING_ONLY: 'AI_ERR_REASONING_ONLY',
   INPUT_TOO_LONG: 'AI_ERR_INPUT_TOO_LONG',
   ENCRYPTION_UNAVAILABLE: 'AI_ERR_ENCRYPTION_UNAVAILABLE',
   UNKNOWN: 'AI_ERR_UNKNOWN',
@@ -78,6 +79,13 @@ const ERROR_META = {
   [AI_ERROR_CODES.EMPTY_CONTENT]: {
     retryable: true,
     message: '模型没有返回内容，请重试或更换模型',
+  },
+  // 推理型模型（DeepSeek-R1、小米 MiMo 思考模式等）会把 max_tokens 先用于思维链，
+  // 预算偏小时可见正文为空。与「真的没返回」区分开，否则用户完全不知道该怎么改。
+  [AI_ERROR_CODES.REASONING_ONLY]: {
+    retryable: false,
+    message:
+      '模型只返回了思维链、没有可见正文：推理过程已消耗完 max_tokens（当前 {n}）。请提高「单次最大输出 token」或更换模型',
   },
   [AI_ERROR_CODES.INPUT_TOO_LONG]: {
     retryable: false,

@@ -11,8 +11,8 @@
 
 import { useCallback, useState } from 'react'
 
-import type { AiConfigPatch, AiConfigView, AiFailure, MaxTokensParam } from '@/types/ai'
-import { aiClient, isAiFailure } from '@/services/ai'
+import type { AiConfigPatch, AiConfigView, AiError, AiFailure, MaxTokensParam } from '@/types/ai'
+import { aiClient, isAiFailure, PROVIDER_PRESETS } from '@/services/ai'
 
 interface AiFormState {
   baseUrl: string
@@ -43,19 +43,6 @@ const EMPTY_FORM: AiFormState = {
   cacheEnabled: true,
   consent: false,
 }
-
-const PROVIDER_PRESETS = [
-  { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
-  { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  { id: 'moonshot', label: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
-  {
-    id: 'dashscope',
-    label: '通义（兼容模式）',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    model: 'qwen-plus',
-  },
-  { id: 'ollama', label: 'Ollama（本地）', baseUrl: 'http://localhost:11434', model: 'qwen2.5:7b' },
-]
 
 interface StatusMessage {
   kind: 'info' | 'success' | 'error'
@@ -108,6 +95,12 @@ function buildOverrides(form: AiFormState, apiKey: string): AiConfigPatch {
   return patch
 }
 
+/** 模型列表失败时的提示：NOT_FOUND 说明该服务商没实现这个端点，而非配置写错 */
+function modelsErrorHint(error: AiError): string {
+  if (error.code === 'AI_ERR_NOT_FOUND') return '该服务商未提供 /models 接口'
+  return error.message
+}
+
 export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabProps) {
   const [override, setOverride] = useState<AiConfigView | null>(null)
   const [draft, setDraft] = useState<AiFormState | null>(null)
@@ -115,6 +108,10 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
   const [status, setStatus] = useState<StatusMessage | null>(null)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  /** 已拉取的模型列表；baseUrl 用于判断缓存是否对应当前输入 */
+  const [modelsState, setModelsState] = useState<{ baseUrl: string; models: string[] } | null>(null)
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState<AiError | null>(null)
 
   const initialView = initial && !isAiFailure(initial) ? initial : null
   const view = override ?? initialView
@@ -139,21 +136,67 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
     (presetId: string): void => {
       const preset = PROVIDER_PRESETS.find((item) => item.id === presetId)
       if (!preset) return
-      patchForm({ baseUrl: preset.baseUrl, model: preset.model })
+      patchForm({
+        baseUrl: preset.baseUrl,
+        model: preset.model,
+        ...(preset.maxTokensParam ? { maxTokensParam: preset.maxTokensParam } : null),
+      })
+      // 换了服务商，之前拉取的列表不再对应当前地址
+      setModelsState(null)
+      setModelsError(null)
     },
     [patchForm],
   )
+
+  /**
+   * 拉取服务商当前提供的模型列表（GET {baseUrl}/models）。
+   * 非强制时，同一 baseUrl 已有结果就直接复用，避免每次聚焦都打一次请求。
+   */
+  const loadModels = useCallback(
+    async (force: boolean): Promise<void> => {
+      const baseUrl = form.baseUrl.trim()
+      if (!baseUrl) {
+        setModelsError({ code: 'AI_ERR_NOT_CONFIGURED', message: '请先填写接口地址', retryable: false })
+        return
+      }
+      if (!force && modelsState?.baseUrl === baseUrl) return
+
+      setModelsLoading(true)
+      setModelsError(null)
+
+      const patch: AiConfigPatch = { baseUrl }
+      const key = apiKeyInput.trim()
+      // 未填 Key 时也允许尝试：本地服务（Ollama）无需鉴权
+      if (key) patch.apiKey = key
+
+      const result = await aiClient.config.listModels(patch)
+      if (isAiFailure(result)) {
+        setModelsError(result.error)
+        setModelsState(null)
+      } else {
+        setModelsState({ baseUrl: result.baseUrl, models: result.models })
+      }
+      setModelsLoading(false)
+    },
+    [form.baseUrl, apiKeyInput, modelsState],
+  )
+
+  // 只有与当前地址匹配的列表才作为候选项展示，避免显示上一个服务商的模型
+  const modelOptions =
+    modelsState && modelsState.baseUrl === form.baseUrl.trim() ? modelsState.models : []
 
   const handleTest = useCallback(async (): Promise<void> => {
     setTesting(true)
     setStatus({ kind: 'info', text: '正在测试连接…' })
     const result = await aiClient.config.test(buildOverrides(form, apiKeyInput.trim()))
     if (isAiFailure(result)) {
-      setStatus({ kind: 'error', text: result.error.message })
+      setStatus({ kind: 'error', text: `[${result.error.code}] ${result.error.message}` })
     } else {
       setStatus({
         kind: 'success',
-        text: `连接成功 · 模型 ${result.model} · 耗时 ${result.latencyMs}ms · 回复「${result.reply}」`,
+        text: result.note
+          ? `连接成功 · 模型 ${result.model} · 耗时 ${result.latencyMs}ms。${result.note}`
+          : `连接成功 · 模型 ${result.model} · 耗时 ${result.latencyMs}ms · 回复「${result.reply}」`,
       })
     }
     setTesting(false)
@@ -241,10 +284,10 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
             value=""
             onChange={(e) => handleApplyPreset(e.target.value)}
           >
-            <option value="">选择后自动填入接口地址与模型</option>
+            <option value="">选择后自动填入接口地址</option>
             {PROVIDER_PRESETS.map((preset) => (
               <option key={preset.id} value={preset.id}>
-                {preset.label} · {preset.model}
+                {preset.label}
               </option>
             ))}
           </select>
@@ -295,14 +338,46 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
           <label className="ai-field-label" htmlFor="ai-model">
             模型名称
           </label>
-          <input
-            id="ai-model"
-            className="ai-input"
-            type="text"
-            value={form.model}
-            placeholder="deepseek-chat"
-            onChange={(e) => patchForm({ model: e.target.value })}
-          />
+          <div className="ai-key-row">
+            <input
+              id="ai-model"
+              className="ai-input"
+              type="text"
+              list="ai-model-options"
+              value={form.model}
+              placeholder="点击可从服务商拉取，或直接输入，如 deepseek-chat"
+              onChange={(e) => patchForm({ model: e.target.value })}
+              onFocus={() => void loadModels(false)}
+            />
+            <button
+              className="ai-btn secondary"
+              onClick={() => void loadModels(true)}
+              disabled={modelsLoading}
+              type="button"
+            >
+              {modelsLoading ? '获取中…' : '获取列表'}
+            </button>
+          </div>
+          <datalist id="ai-model-options">
+            {modelOptions.map((id) => (
+              <option key={id} value={id} />
+            ))}
+          </datalist>
+          {modelsError ? (
+            <span className="ai-hint is-warn">
+              获取模型列表失败 [{modelsError.code}]：{modelsErrorHint(modelsError)}
+              {modelsError.httpStatus ? `（HTTP ${modelsError.httpStatus}）` : ''}
+              ，可直接手动输入模型名称
+            </span>
+          ) : modelOptions.length > 0 ? (
+            <span className="ai-hint">
+              已从该服务商获取 {modelOptions.length} 个当前提供的模型，输入时会自动匹配
+            </span>
+          ) : (
+            <span className="ai-hint">
+              点击输入框或「获取列表」可拉取该服务商当前提供的模型；部分服务商未开放此接口，此时手动输入即可
+            </span>
+          )}
         </div>
 
         <div className="ai-row">

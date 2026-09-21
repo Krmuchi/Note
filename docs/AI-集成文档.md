@@ -49,6 +49,7 @@ HTTP      fetch(`${baseUrl}/chat/completions`, { Authorization: Bearer <key> })
 | `ai:config:set` | invoke | `AiConfigPatch` → `AiConfigView` |
 | `ai:config:clear` | invoke | void → `AiConfigView` |
 | `ai:config:test` | invoke | `AiConfigPatch?` → `AiTestResult` |
+| `ai:models:list` | invoke | `AiConfigPatch?` → `AiModelsResult`（`{ ok, models, baseUrl }`） |
 | `ai:generate` | invoke | `AiRequestPayload & { bypassCache?: boolean }` → `AiResponse` |
 | `ai:stream:start` | invoke | `AiRequestPayload` → `{ ok: true, requestId }`（**立即返回**） |
 | `ai:cancel` | invoke | `{ requestId }` → `{ ok: true, cancelled: boolean }` |
@@ -75,9 +76,31 @@ HTTP      fetch(`${baseUrl}/chat/completions`, { Authorization: Bearer <key> })
 | OpenAI | `https://api.openai.com/v1` | 原样 | `gpt-4o-mini`、`gpt-4o` | platform.openai.com |
 | Moonshot | `https://api.moonshot.cn/v1` | 原样 | `moonshot-v1-8k` | platform.moonshot.cn |
 | 通义（兼容模式） | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 原样 | `qwen-plus`、`qwen-max` | dashscope.aliyun.com |
+| 小米 MiMo（按量付费） | `https://api.xiaomimimo.com/v1` | 原样 | `mimo-v2.5-pro`、`mimo-v2.5` | platform.xiaomimimo.com |
+| 小米 MiMo（Token Plan） | `https://token-plan-cn.xiaomimimo.com/v1` | 原样 | `mimo-v2.5-pro`、`mimo-v2.5` | 订阅后在套餐控制台获取 |
 | Ollama（本地） | `http://localhost:11434` | `…/v1` | `qwen2.5:7b` | 无需 Key（Ollama 默认不校验；若开了校验则填任意值） |
 
 **baseUrl 归一化规则**：去尾部斜杠 → 末尾不是版本段（`/v\d+`）时自动补 `/v1` → 请求地址为 `baseUrl + '/chat/completions'`。协议只允许 `http:`/`https:`（`file:`/`javascript:` 一律拒绝），因为 baseUrl 是主进程的出网目标，属 SSRF 面；不禁 `http` 是为了让本地 Ollama 可用。
+
+### 3.1.1 小米 MiMo 接入说明
+
+小米 MiMo API 开放平台（`platform.xiaomimimo.com`）兼容 OpenAI Chat Completions 协议，有两种接入方式，**凭证格式与 baseUrl 都不同，不能混用**：
+
+| 方式 | baseUrl | API Key 格式 |
+|---|---|---|
+| 按量付费 | `https://api.xiaomimimo.com/v1` | `sk-xxxxx` |
+| Token Plan（订阅制） | `https://token-plan-cn.xiaomimimo.com/v1` | `tp-xxxxx` |
+
+设置页的「服务商预设」已内置这两个条目，选择后会自动填入 baseUrl、模型与参数名。
+
+**必须注意的两点**：
+
+1. **输出长度参数名**：官方参数表提供的是 `max_completion_tokens`，**没有 `max_tokens`**。预设已自动把「输出长度参数名」切换为 `max_completion_tokens`；若手工配置而漏改这一项，输出长度设置不会生效。该值也会通过模型默认值兜底（`mimo-v2.5-pro` 默认 131072，`mimo-v2.5` 默认 32768）。
+2. **鉴权方式**：官方同时支持 `api-key: <key>` 头与标准 Bearer 鉴权，本应用使用标准 `Authorization: Bearer <key>`，无需额外配置。
+
+**思考模式**：MiMo 在思考模式下会返回 `reasoning_content` 字段。本应用有意忽略该字段，不把思维链写入文档正文。
+
+**token 上限提示**：本应用「单次最大输出 token」配置项上限为 32000，低于 MiMo 支持的 131072。若需要更长的单次输出，需调整 `electron/ai/ai-validate.cjs` 中 `LIMITS.MAX_TOKENS_MAX`。
 
 ### 3.2 Ollama 本地部署
 
@@ -90,7 +113,31 @@ ollama serve            # 默认监听 127.0.0.1:11434
 
 **注意**：不要把 Ollama 端口暴露到局域网或公网（`OLLAMA_HOST=0.0.0.0`），该端口没有任何鉴权。
 
-### 3.3 参数含义与推荐值
+### 3.3 模型列表（自动拉取）
+
+设置页的「模型名称」字段支持从服务商实时拉取当前提供的模型列表：
+
+- **触发方式**：点击模型输入框（聚焦即拉取）或点右侧「获取列表」按钮强制刷新
+- **数据来源**：`GET {baseUrl}/models`（OpenAI 兼容协议的标准端点），因此拿到的是**当前仍在提供**的模型，而不是会过期的内置清单
+- **使用方式**：输入框同时支持下拉选择与手动输入 —— 部分服务商未开放 `/models`，此时直接手填即可
+- **缓存**：同一 `baseUrl` 已拉取过就复用结果，不会每次聚焦都发请求；切换服务商（baseUrl 变化）后自动失效
+- **鉴权**：会带上当前表单里填的（可能尚未保存的）baseUrl 与 API Key；无 Key 时不发送 `Authorization`，以便本地 Ollama 使用
+- **解析兼容**：`{ data: [{ id }] }`（OpenAI 标准）、`{ models: [{ id | name }] }`（Ollama 风格）、裸数组三种形状
+- **不做过滤**：返回服务商的全部模型 id（去重排序），不猜测哪些不能用于对话 —— 那会隐藏合法模型
+
+失败时的错误码与含义：
+
+| 错误码 | 含义 | 处置 |
+|---|---|---|
+| `AI_ERR_NOT_CONFIGURED` | 尚未填写接口地址 | 先填 baseUrl |
+| `AI_ERR_AUTH` | Key 无效 | 检查 API Key |
+| `AI_ERR_NOT_FOUND` | 该服务商未开放 `/models` | 手动输入模型名称 |
+| `AI_ERR_BAD_FORMAT` | 返回结构无法识别 | 手动输入模型名称 |
+| `AI_ERR_NETWORK` / `AI_ERR_TIMEOUT` | 网络问题 | 检查网络或地址 |
+
+UI 在失败时会显示「获取模型列表失败：{原因}（可直接手动输入模型名称）」，**不会阻塞保存流程**。
+
+### 3.4 参数含义与推荐值
 
 | 参数 | 范围 | 默认 | 说明 |
 |---|---|---|---|
@@ -98,19 +145,20 @@ ollama serve            # 默认监听 127.0.0.1:11434
 | `maxTokens` | 1-32000 | 1600 | **上限封顶**：按能力算出的 max_tokens 会与之取小 |
 | `timeoutMs` | 1000-300000 | 60000 | 非流式的总超时；流式下同时作为「空闲超时」 |
 | `stream` | boolean | true | 是否流式输出 |
-| `maxTokensParam` | 枚举 | `max_tokens` | OpenAI o 系列只认 `max_completion_tokens` |
+| `maxTokensParam` | 枚举 | `max_tokens` | OpenAI o 系列、小米 MiMo 只认 `max_completion_tokens` |
 | `disableStreamOptions` | boolean | false | 部分网关不认识 `stream_options` 会直接 400 |
 | `concurrency` | 1-8 | 3 | 主进程同时进行中的请求上限（含流式） |
 | `maxInputTokens` | 500-128000 | 8000 | 本地输入长度预算，超限直接拦截不发往服务商 |
 | `cacheEnabled` | boolean | true | 关闭后立即清空已有缓存 |
 | `consent` | boolean | false | 数据外发授权；未勾选则所有 AI 功能关闭 |
 
-### 3.4 连通性测试步骤
+### 3.5 连通性测试步骤
 
-1. 打开「设置 → AI」，选择「服务商预设」自动填入 baseUrl 与模型（或手工填写）。
-2. 粘贴 API Key，勾选数据外发授权。
-3. 点「测试连接」。成功会显示：`连接成功 · 模型 <model> · 耗时 <n>ms · 回复「可用」`。
-4. 点「保存配置」，页面顶部徽标变为「已配置」。
+1. 打开「设置 → AI」，选择「服务商预设」自动填入 baseUrl（下拉里只显示服务商名，模型请在下一步选）。
+2. 点「模型名称」输入框，从该服务商**当前提供的模型列表**中选择（也可手动输入）。
+3. 粘贴 API Key，勾选数据外发授权。
+4. 点「测试连接」。成功会显示：`连接成功 · 模型 <model> · 耗时 <n>ms · 回复「可用」`。
+5. 点「保存配置」，页面顶部徽标变为「已配置」。
 
 **「先测后存」**：`ai:config:test` 允许携带临时 `apiKey`，该密钥只用于本次请求，**不落盘、不回显、不记日志**。这是本方案唯一让密钥经过 IPC 的受控例外。
 
@@ -139,6 +187,7 @@ aiClient.config.get():    Promise<AiConfigView | AiFailure>
 aiClient.config.set(patch: AiConfigPatch): Promise<AiConfigView | AiFailure>
 aiClient.config.clear():  Promise<AiConfigView | AiFailure>
 aiClient.config.test(patch?: AiConfigPatch): Promise<AiTestResult | AiFailure>
+aiClient.config.listModels(patch?: AiConfigPatch): Promise<AiModelsResult | AiFailure>
 ```
 
 ### 4.2 入参类型
@@ -304,6 +353,7 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 | `AI_ERR_CONTENT_FILTER` | `finish_reason=content_filter`，或 400 且响应体含 `safety`/`content_policy`/`风险` 等 | 否 | 内容被模型安全策略拦截，请调整输入后再试 |
 | `AI_ERR_BAD_FORMAT` | JSON 解析失败 / 响应缺 choices / SSE 全程无有效 delta | 是 | 服务返回格式异常，可能不是 OpenAI 兼容接口 |
 | `AI_ERR_EMPTY_CONTENT` | HTTP 200 但正文为空 | 是 | 模型没有返回内容，请重试或更换模型 |
+| `AI_ERR_REASONING_ONLY` | 正文为空但返回了 `reasoning_content`（推理型模型把 `max_tokens` 用在了思维链上） | 否 | 模型只返回了思维链、没有可见正文：推理过程已消耗完 max_tokens（当前 {n}）。请提高「单次最大输出 token」或更换模型 |
 | `AI_ERR_INPUT_TOO_LONG` | 本地长度/字节校验超限 | 否 | 输入内容过长（上限 {n} 字），请缩短后重试 |
 | `AI_ERR_ENCRYPTION_UNAVAILABLE` | safeStorage 不可用 | 否 | 当前系统不支持安全存储，无法保存 API Key（仅本次运行有效） |
 | `AI_ERR_UNKNOWN` | 兜底 | 否 | 生成失败：{msg} |
@@ -422,15 +472,16 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 | 测试文件 | 用例数 | 覆盖要点 |
 |---|---|---|
 | `tests/unit/aiSseParser.test.ts` | 9 | 单包解析；**一行 JSON 被 TCP 切成两半能拼回**；`: keep-alive` 忽略；`[DONE]`；非法 JSON 行跳过且不中断流；`reasoning_content` 忽略；`usage` 仅末包；尾包无换行时 `flush()`；**中文多字节跨 chunk 解码不产生 U+FFFD** |
-| `tests/unit/aiOpenAiAdapter.test.ts` | 25 | `normalizeBaseUrl` 覆盖 5 家服务商 + 拒绝 `file:`/`javascript:`；`buildChatRequest` 的 stream / max_tokens 切换 / stream_options 开关；`isStreamOptionsRejection` 识别；`normalizeMarkdown` 剥围栏 / CRLF 归一 / 空行折叠；`parseChatCompletion` 的 usage / 数组式 content / output_text 兼容 / BAD_FORMAT / CONTENT_FILTER / EMPTY_CONTENT |
+| `tests/unit/aiOpenAiAdapter.test.ts` | 38 | `normalizeBaseUrl` 覆盖 5 家服务商 + 拒绝 `file:`/`javascript:`；`buildChatRequest` 的 stream / max_tokens 切换 / stream_options 开关；`isStreamOptionsRejection` 识别；**推理型模型只返回 `reasoning_content` 时抛 `REASONING_ONLY` 且文案带上 max_tokens**；**`allowEmpty` 下结构非法仍抛 `BAD_FORMAT`**；`buildModelsUrl` 拼接不产生重复版本段；`buildModelsHeaders` 无 Key 时不发 Authorization；`parseModelsResponse` 兼容三种响应形状并去重排序；`normalizeMarkdown` 剥围栏 / CRLF 归一 / 空行折叠；`parseChatCompletion` 的 usage / 数组式 content / output_text 兼容 / BAD_FORMAT / CONTENT_FILTER / EMPTY_CONTENT |
 | `tests/unit/aiPromptTemplates.test.ts` | 19 | **与渲染端 `prompts.ts` 的 key 集合交叉断言**；5 种 style 的 system 非空且两两不同；用户文本只进 user message；length → 800/1600/3200；4 个 action 均有指令；temperature 落在 0-2；`maxTokensCap` 封顶生效 |
-| `tests/unit/aiErrorMap.test.ts` | 17 | 每个错误码文案非空且不残留占位符；可重试集合正确；401/403/404/408/422/429/5xx 状态码映射；400 + 安全关键词 → CONTENT_FILTER；`AbortError` + userCancelled → ABORTED（优先于 timedOut）；TypeError → NETWORK；日志脱敏 |
+| `tests/unit/aiErrorMap.test.ts` | 18 | 每个错误码文案非空且不残留占位符；可重试集合正确（含 `REASONING_ONLY` 不可重试）；`REASONING_ONLY` 文案带 max_tokens 与调整方向；401/403/404/408/422/429/5xx 状态码映射；400 + 安全关键词 → CONTENT_FILTER；`AbortError` + userCancelled → ABORTED（优先于 timedOut）；TypeError → NETWORK；日志脱敏 |
 | `tests/unit/aiRetry.test.ts` | 15 | 退避上界与抖动区间；3 次尝试共调用 3 次；不可重试立即抛；`canRetry` 为 false 时放弃；`Retry-After` 数字秒 / HTTP-date / 非法值 / clamp 30s |
 | `tests/unit/aiLruCache.test.ts` | 10 | 命中移末尾；超容淘汰最旧；TTL 过期；单条超限拒绝写入；**同 key 并发共享同一 Promise，loader 只执行一次**；loader 失败不写缓存且清理在途记录 |
 | `tests/unit/aiValidate.test.ts` | 27 | 非法 payload/枚举/requestId；topic > 2000、text > 8000 → INPUT_TOO_LONG；`maxInputTokens` 收紧预算；**未知字段被忽略，无法注入 messages**；baseUrl 协议白名单；model 字符集；apiKey 换行/长度；数值范围；batch 1-16 条 |
-| `tests/unit/aiService.test.ts` | 35 | 未配置/未授权 → NOT_CONFIGURED；缓存命中与 `bypassCache` 语义；`cacheEnabled=false` 不走缓存；401 不重试；503 重试 3 次；429 用 `Retry-After`；超时 → TIMEOUT；**并发峰值 ≤ concurrency**；批量单项失败不影响其他项；流式增量合流；**已推送 chunk 后失败不重试**；取消 → ABORTED 且不重试；`stream_options` 被拒自动降级；上游返回 JSON 时非流式兜底；取消不存在的 requestId；重复 requestId 被拒；`testConnection` 的成功/临时 Key/缺 Key/鉴权失败 |
-| `tests/unit/aiClient.test.ts` | 28 | 三种能力的载荷映射（不含 messages）；失败信封透传；IPC 被拒不抛错；缺少 notesApi 的降级；**同 key 去重只发一次 IPC**；流式先注册后启动；帧节流；meta/error/done 结算；取消后忽略迟到事件；已中止 signal；signal 监听器被移除；批量长度一致；配置四个方法 |
+| `tests/unit/aiService.test.ts` | 47 | 未配置/未授权 → NOT_CONFIGURED；缓存命中与 `bypassCache` 语义；`cacheEnabled=false` 不走缓存；401 不重试；503 重试 3 次；429 用 `Retry-After`；超时 → TIMEOUT；**并发峰值 ≤ concurrency**；批量单项失败不影响其他项；流式增量合流；**已推送 chunk 后失败不重试**；取消 → ABORTED 且不重试；`stream_options` 被拒自动降级；上游返回 JSON 时非流式兜底；取消不存在的 requestId；重复 requestId 被拒；`testConnection` 的成功/临时 Key/缺 Key/鉴权失败/**推理模型空正文仍判连通成功并给说明/输出预算 ≥128**；`listModels` 的 GET /models、临时 patch 不落盘、无 Key 不发 Authorization、404 → NOT_FOUND、形状异常 → BAD_FORMAT |
+| `tests/unit/aiClient.test.ts` | 33 | 三种能力的载荷映射（不含 messages）；失败信封透传；IPC 被拒不抛错；缺少 notesApi 的降级；**同 key 去重只发一次 IPC**；流式先注册后启动；帧节流；meta/error/done 结算；取消后忽略迟到事件；已中止 signal；signal 监听器被移除；批量长度一致；配置四个方法；**`config.listModels` 的透传、失败信封、旧 preload 降级** |
 | `tests/unit/aiStream.test.ts` | 17 | `createRequestId` 符合主进程正则且不重复；**done/error/cancel/卸载四路径都清空注册表**；同 requestId 重复注册被拒且不覆盖旧会话；同帧多 chunk 只回调一次；跨帧顺序不变；**done 前先冲刷残留增量**；结算后迟到 chunk 被忽略；多会话不串台；fail 幂等 |
+| `tests/unit/aiProviderPresets.test.ts` | 9 | **每个服务商预设的 baseUrl / model / maxTokensParam 都用主进程同一套校验函数过一遍**（避免预设非法导致用户点保存才失败）；归一化后请求地址统一落在 `/v1/chat/completions` 且不出现 `/v1/v1`；id 唯一；小米 MiMo 两种接入方式的 baseUrl、模型与 `max_completion_tokens` 断言 |
 
 ---
 
@@ -449,7 +500,7 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 | 输入上限 | topic ≤ 2000 字 / 选区 ≤ 8000 字 / batch ≤ 16 项 | `aiValidate.test.ts` |
 | 生成端到端（medium / 云端） | P50 ≤ 8s | `done.latencyMs` 日志统计 |
 | 新增运行时依赖 | 0 | `git diff package.json` 无 `dependencies` 变化 |
-| 单测规模 | ≥ 200 个 AI 用例全绿 | `npm run test:unit` |
+| 单测规模 | ≥ 200 个 AI 用例全绿 | `npm run test:unit`（AI 相关 242 例 / 11 个文件） |
 
 ---
 
@@ -464,8 +515,26 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 **Q：流式请求 400，错误信息提到 `stream_options`**
 在设置页勾选「禁用 stream_options」。主进程其实也会在遇到该 400 时自动去掉字段重试一次，但预先禁用可以省一次往返。
 
-**Q：OpenAI o 系列模型报参数错误**
-把「输出长度参数名」改成 `max_completion_tokens`。
+**Q：OpenAI o 系列或小米 MiMo 报参数错误 / 输出长度设置不生效**
+把「输出长度参数名」改成 `max_completion_tokens`。用「服务商预设」选择这两家时会自动切换；手工填 baseUrl 时需自己改。
+
+**Q：小米 MiMo 返回 401**
+确认 baseUrl 与 Key 格式匹配：按量付费用 `https://api.xiaomimimo.com/v1` + `sk-` 开头的 Key；Token Plan 用 `https://token-plan-cn.xiaomimimo.com/v1` + `tp-` 开头的 Key。两者混用会鉴权失败。
+
+**Q：提示 `AI_ERR_REASONING_ONLY`（模型只返回了思维链）**
+说明这是推理型模型（DeepSeek-R1、小米 MiMo 思考模式等），它的 `max_tokens` **包含思维链 token**，预算偏小时推理过程就把额度用完了，可见正文为空。把「单次最大输出 token」调大（建议 ≥ 2000），或改用非推理模型。
+
+**Q：连通性测试的 max_tokens 是多少？会不会被思维链吃光？**
+测试请求使用 256 token（`TEST_MAX_TOKENS`）。即使被思维链吃光，**测试仍判定为连接成功** —— 因为连通性测试要验证的是「地址可达 + 密钥有效 + 模型存在」，拿到合法响应即已证明。此时会附加说明文字而不是报失败。
+
+**Q：模型名称输入框点开没有候选项**
+两种情况：① 该服务商未开放 `/models` 接口（错误提示会是 `AI_ERR_NOT_FOUND`）→ 直接手动输入模型名；② 还没填 API Key → 先填 Key 再点「获取列表」。
+
+**Q：换了服务商，模型候选还是旧的**
+候选列表与 baseUrl 绑定，baseUrl 变化后旧列表立即失效。若已重新拉取仍是旧的，点「获取列表」强制刷新（浏览器/服务商侧可能有缓存）。
+
+**Q：模型列表里有很多非对话模型（embedding、TTS 等）**
+这是服务商的真实返回，本应用**不做过滤** —— 按 id 猜测哪些不能用于对话会隐藏合法模型。输入框支持边输入边过滤，直接输入前缀即可缩小范围。
 
 **Q：原文明明没变，为什么点了两次「润色」结果一样？**
 第二次命中了主进程缓存（10 分钟内相同输入）。这是预期行为，用于节省配额；需要不同结果时用「重新生成」（流式路径天然绕过缓存，或走非流式时带 `bypassCache: true`）。
@@ -492,6 +561,9 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 | 版本 | 变更 |
 |---|---|
 | 1.0.0 | 首次集成：OpenAI 兼容适配层、SSE 流式、三能力统一接口、错误归一与重试、LRU 缓存 + 并发闸门、safeStorage 密钥存储、AI 设置页、编辑器选区 AI 操作、集成文档与 202 个单测 |
+| 1.0.1 | 新增小米 MiMo 服务商预设（按量付费 / Token Plan 两种接入方式）；预设结构支持携带 `maxTokensParam`，解决 MiMo 仅接受 `max_completion_tokens` 的问题；新增预设与主进程校验规则的一致性测试 |
+| 1.0.2 | 服务商预设下拉只显示服务商名；模型名称改为可从服务商实时拉取（`GET {baseUrl}/models`）并支持下拉选择 + 手动输入；新增 `ai:models:list` 通道与 `aiClient.config.listModels()`；`parseModelsResponse` 兼容三种响应形状 |
+| 1.0.3 | 修复推理型模型（小米 MiMo 思考模式、DeepSeek-R1 等）被误判为连接失败：新增 `AI_ERR_REASONING_ONLY` 错误码（与 `EMPTY_CONTENT` 区分）；连通性测试输出预算 32 → 256，且可见正文为空时改为「连通成功 + 说明」而非报错；设置页错误提示统一带上错误码与 HTTP 状态便于排查 |
 
 ### TEMPLATE_VERSION 递增规则
 

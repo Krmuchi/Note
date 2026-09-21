@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest'
 import {
   normalizeBaseUrl,
   buildChatUrl,
+  buildModelsUrl,
   buildHeaders,
+  buildModelsHeaders,
   buildChatRequest,
   isStreamOptionsRejection,
   extractErrorDetail,
+  parseModelsResponse,
   normalizeMarkdown,
   extractTitle,
   parseChatCompletion,
@@ -189,5 +192,113 @@ describe('parseChatCompletion - 非流式响应解析', () => {
   it('非 generate 能力不抽标题', () => {
     const result = parseChatCompletion({ choices: [{ message: { content: '# 标题\n正文' } }] })
     expect(result.title).toBeUndefined()
+  })
+})
+
+describe('parseChatCompletion - 推理型模型只返回思维链', () => {
+  const reasoningOnlyBody = {
+    model: 'mimo-v2.5-pro',
+    choices: [
+      {
+        message: { role: 'assistant', content: '', reasoning_content: '让我想想…用户想让我自我介绍。' },
+        finish_reason: 'length',
+      },
+    ],
+  }
+
+  it('可见正文为空但存在 reasoning_content 时抛 REASONING_ONLY（而非笼统的 EMPTY_CONTENT）', () => {
+    expectCode(() => parseChatCompletion(reasoningOnlyBody), 'AI_ERR_REASONING_ONLY')
+  })
+
+  it('错误文案带上当前 max_tokens，便于用户直接调参', () => {
+    let caught: { aiError?: { message?: string } } | null = null
+    try {
+      parseChatCompletion(reasoningOnlyBody, { maxTokens: 256 })
+    } catch (err) {
+      caught = err as { aiError?: { message?: string } }
+    }
+    expect(caught?.aiError?.message).toContain('256')
+  })
+
+  it('没有 reasoning_content 的空正文仍归类为 EMPTY_CONTENT', () => {
+    expectCode(
+      () => parseChatCompletion({ choices: [{ message: { content: '   ' }, finish_reason: 'stop' }] }),
+      'AI_ERR_EMPTY_CONTENT',
+    )
+  })
+
+  it('allowEmpty 时不抛错，返回空正文并标记 reasoningOnly（连通性测试用）', () => {
+    const result = parseChatCompletion(reasoningOnlyBody, { allowEmpty: true, maxTokens: 256 })
+    expect(result.text).toBe('')
+    expect(result.reasoningOnly).toBe(true)
+    expect(result.finishReason).toBe('length')
+    expect(result.model).toBe('mimo-v2.5-pro')
+  })
+
+  it('allowEmpty 但响应结构非法时仍抛 BAD_FORMAT（不能把无效响应当连通成功）', () => {
+    expectCode(() => parseChatCompletion({ unexpected: true }, { allowEmpty: true }), 'AI_ERR_BAD_FORMAT')
+    expectCode(() => parseChatCompletion(null, { allowEmpty: true }), 'AI_ERR_BAD_FORMAT')
+  })
+
+  it('allowEmpty 且正常返回正文时照常给出 text', () => {
+    const result = parseChatCompletion(
+      { choices: [{ message: { content: '可用' } }] },
+      { allowEmpty: true, maxTokens: 256 },
+    )
+    expect(result.text).toBe('可用')
+    expect(result.reasoningOnly).toBeUndefined()
+  })
+})
+
+describe('buildModelsUrl / buildModelsHeaders - 模型列表请求', () => {
+  it('拼出 /v1/models，且不会出现重复版本段', () => {
+    expect(buildModelsUrl('https://api.deepseek.com')).toBe('https://api.deepseek.com/v1/models')
+    expect(buildModelsUrl('https://api.xiaomimimo.com/v1')).toBe('https://api.xiaomimimo.com/v1/models')
+    expect(buildModelsUrl('http://localhost:11434')).toBe('http://localhost:11434/v1/models')
+    expect(buildModelsUrl('https://api.openai.com/v1/')).toBe('https://api.openai.com/v1/models')
+  })
+
+  it('有 Key 时带 Bearer，无 Key 时不发 Authorization（本地服务）', () => {
+    expect(buildModelsHeaders('sk-abc').Authorization).toBe('Bearer sk-abc')
+    expect(buildModelsHeaders('')).not.toHaveProperty('Authorization')
+    expect(buildModelsHeaders(undefined)).not.toHaveProperty('Authorization')
+    expect(buildModelsHeaders('').Accept).toBe('application/json')
+  })
+})
+
+describe('parseModelsResponse - 模型列表解析', () => {
+  it('解析 OpenAI 标准形状并排序', () => {
+    const models = parseModelsResponse({
+      object: 'list',
+      data: [{ id: 'gpt-4o' }, { id: 'gpt-4o-mini' }, { id: 'o1' }],
+    })
+    expect(models).toEqual(['gpt-4o', 'gpt-4o-mini', 'o1'])
+  })
+
+  it('兼容 models 数组与 name 字段（Ollama 风格）', () => {
+    expect(parseModelsResponse({ models: [{ name: 'qwen2.5:7b' }, { name: 'llama3' }] })).toEqual([
+      'llama3',
+      'qwen2.5:7b',
+    ])
+  })
+
+  it('兼容裸数组（字符串或对象）', () => {
+    expect(parseModelsResponse(['b', 'a'])).toEqual(['a', 'b'])
+    expect(parseModelsResponse([{ id: 'x' }, 'y'])).toEqual(['x', 'y'])
+  })
+
+  it('去重、去空白、忽略无 id 的条目', () => {
+    const models = parseModelsResponse({
+      data: [{ id: 'dup' }, { id: 'dup' }, { id: '  ' }, { id: '' }, {}, { id: 'other' }, 'dup'],
+    })
+    expect(models).toEqual(['dup', 'other'])
+  })
+
+  it('形状无法识别或没有有效模型时抛 BAD_FORMAT', () => {
+    expectCode(() => parseModelsResponse(null), 'AI_ERR_BAD_FORMAT')
+    expectCode(() => parseModelsResponse({ object: 'list' }), 'AI_ERR_BAD_FORMAT')
+    expectCode(() => parseModelsResponse({ data: [] }), 'AI_ERR_BAD_FORMAT')
+    expectCode(() => parseModelsResponse({ data: [{ noId: 1 }] }), 'AI_ERR_BAD_FORMAT')
+    expectCode(() => parseModelsResponse('oops'), 'AI_ERR_BAD_FORMAT')
   })
 })
