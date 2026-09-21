@@ -12,7 +12,7 @@
 import { useCallback, useState } from 'react'
 
 import type { AiConfigPatch, AiConfigView, AiError, AiFailure, MaxTokensParam } from '@/types/ai'
-import { aiClient, isAiFailure, PROVIDER_PRESETS } from '@/services/ai'
+import { aiClient, isAiFailure, PROVIDER_PRESETS, presetToFormPatch } from '@/services/ai'
 
 interface AiFormState {
   baseUrl: string
@@ -136,11 +136,8 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
     (presetId: string): void => {
       const preset = PROVIDER_PRESETS.find((item) => item.id === presetId)
       if (!preset) return
-      patchForm({
-        baseUrl: preset.baseUrl,
-        model: preset.model,
-        ...(preset.maxTokensParam ? { maxTokensParam: preset.maxTokensParam } : null),
-      })
+      // 只填接口地址与兼容参数，模型留空 —— 必须由用户从实时列表中选择
+      patchForm(presetToFormPatch(preset))
       // 换了服务商，之前拉取的列表不再对应当前地址
       setModelsState(null)
       setModelsError(null)
@@ -184,6 +181,11 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
   // 只有与当前地址匹配的列表才作为候选项展示，避免显示上一个服务商的模型
   const modelOptions =
     modelsState && modelsState.baseUrl === form.baseUrl.trim() ? modelsState.models : []
+
+  // 当前 baseUrl 对应的预设（用于给模型输入框一个示例提示，而不是填入值）
+  const matchedPreset = PROVIDER_PRESETS.find((preset) => preset.baseUrl === form.baseUrl.trim())
+  /** 模型必须显式选择：主进程不接受空模型名，留空保存会让旧模型被静默沿用 */
+  const modelMissing = !form.model.trim()
 
   const handleTest = useCallback(async (): Promise<void> => {
     setTesting(true)
@@ -345,7 +347,11 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
               type="text"
               list="ai-model-options"
               value={form.model}
-              placeholder="点击可从服务商拉取，或直接输入，如 deepseek-chat"
+              placeholder={
+                matchedPreset
+                  ? `从下方列表选择，或手动输入，如 ${matchedPreset.model}`
+                  : '点击可从服务商拉取，或直接输入'
+              }
               onChange={(e) => patchForm({ model: e.target.value })}
               onFocus={() => void loadModels(false)}
             />
@@ -377,6 +383,9 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
             <span className="ai-hint">
               点击输入框或「获取列表」可拉取该服务商当前提供的模型；部分服务商未开放此接口，此时手动输入即可
             </span>
+          )}
+          {modelMissing && (
+            <span className="ai-hint is-warn">请先选择或输入模型名称，否则无法保存配置</span>
           )}
         </div>
 
@@ -521,10 +530,22 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
         </label>
 
         <div className="ai-actions">
-          <button className="ai-btn secondary" onClick={handleTest} disabled={testing || saving} type="button">
+          <button
+            className="ai-btn secondary"
+            onClick={handleTest}
+            disabled={testing || saving || modelMissing}
+            title={modelMissing ? '请先选择或输入模型名称' : undefined}
+            type="button"
+          >
             {testing ? '测试中…' : '测试连接'}
           </button>
-          <button className="ai-btn primary" onClick={handleSave} disabled={saving || testing} type="button">
+          <button
+            className="ai-btn primary"
+            onClick={handleSave}
+            disabled={saving || testing || modelMissing}
+            title={modelMissing ? '请先选择或输入模型名称' : undefined}
+            type="button"
+          >
             {saving ? '保存中…' : '保存配置'}
           </button>
           <button className="ai-btn danger" onClick={handleReset} disabled={saving || testing} type="button">

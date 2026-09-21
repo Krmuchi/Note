@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PROVIDER_PRESETS, MAX_TOKENS_PARAMS } from '@/services/ai'
+import { PROVIDER_PRESETS, MAX_TOKENS_PARAMS, presetToFormPatch } from '@/services/ai'
 import { assertAiConfigPayload } from '../../electron/ai/ai-validate.cjs'
 import { normalizeBaseUrl, buildChatUrl } from '../../electron/ai/openai-adapter.cjs'
 
@@ -82,5 +82,34 @@ describe('小米 MiMo 预设', () => {
     for (const preset of xiaomiPresets) {
       expect(preset.maxTokensParam).toBe('max_completion_tokens')
     }
+  })
+})
+
+describe('presetToFormPatch - 应用预设后的表单补丁', () => {
+  it('不填模型：所有预设的补丁 model 都为空（模型必须由用户显式选择）', () => {
+    for (const preset of PROVIDER_PRESETS) {
+      expect(presetToFormPatch(preset).model, `预设 ${preset.id} 不应自动填入模型`).toBe('')
+    }
+  })
+
+  it('只带入接口地址', () => {
+    const preset = PROVIDER_PRESETS[0]
+    expect(presetToFormPatch(preset).baseUrl).toBe(preset.baseUrl)
+  })
+
+  it('maxTokensParam 仅在预设声明时才带入', () => {
+    const deepseek = PROVIDER_PRESETS.find((item) => item.id === 'deepseek')
+    const xiaomi = PROVIDER_PRESETS.find((item) => item.id === 'xiaomi-mimo')
+    expect(deepseek && presetToFormPatch(deepseek)).not.toHaveProperty('maxTokensParam')
+    expect(xiaomi && presetToFormPatch(xiaomi).maxTokensParam).toBe('max_completion_tokens')
+  })
+
+  it('返回新对象，不修改预设本身（预设的 model 仍作为示例提示保留）', () => {
+    const preset = PROVIDER_PRESETS.find((item) => item.id === 'xiaomi-mimo')
+    if (!preset) throw new Error('缺少小米预设')
+    const before = preset.model
+    const patch = presetToFormPatch(preset)
+    patch.model = '被改坏的值'
+    expect(preset.model).toBe(before)
   })
 })

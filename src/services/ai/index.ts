@@ -22,5 +22,6 @@ export {
   getActionOption,
   getLengthOption,
   getStyleOption,
+  presetToFormPatch,
 } from './prompts'
 export type { LengthOption, OptimizeActionOption, ProviderPreset, StyleOption } from './prompts'

@@ -154,11 +154,13 @@ UI 在失败时会显示「获取模型列表失败：{原因}（可直接手动
 
 ### 3.5 连通性测试步骤
 
-1. 打开「设置 → AI」，选择「服务商预设」自动填入 baseUrl（下拉里只显示服务商名，模型请在下一步选）。
-2. 点「模型名称」输入框，从该服务商**当前提供的模型列表**中选择（也可手动输入）。
+1. 打开「设置 → AI」，选择「服务商预设」——**只会填入接口地址**（以及该服务商需要的兼容参数），模型名刻意留空。
+2. 点「模型名称」输入框，从该服务商**当前提供的模型列表**中选择（也可手动输入）。模型名必须显式选择：留空时「测试连接」「保存配置」为禁用状态。
 3. 粘贴 API Key，勾选数据外发授权。
 4. 点「测试连接」。成功会显示：`连接成功 · 模型 <model> · 耗时 <n>ms · 回复「可用」`。
 5. 点「保存配置」，页面顶部徽标变为「已配置」。
+
+**为什么预设不填模型**：模型名会随服务商迭代而过期（改名、下线、分级调整），写死一个默认值会让用户在不知情的情况下用上非预期的模型。因此模型一律从 `/models` 的实时结果中选择。预设里的 `model` 字段仅作为输入框的示例提示（placeholder），不会写入表单。
 
 **「先测后存」**：`ai:config:test` 允许携带临时 `apiKey`，该密钥只用于本次请求，**不落盘、不回显、不记日志**。这是本方案唯一让密钥经过 IPC 的受控例外。
 
@@ -481,7 +483,7 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 | `tests/unit/aiService.test.ts` | 47 | 未配置/未授权 → NOT_CONFIGURED；缓存命中与 `bypassCache` 语义；`cacheEnabled=false` 不走缓存；401 不重试；503 重试 3 次；429 用 `Retry-After`；超时 → TIMEOUT；**并发峰值 ≤ concurrency**；批量单项失败不影响其他项；流式增量合流；**已推送 chunk 后失败不重试**；取消 → ABORTED 且不重试；`stream_options` 被拒自动降级；上游返回 JSON 时非流式兜底；取消不存在的 requestId；重复 requestId 被拒；`testConnection` 的成功/临时 Key/缺 Key/鉴权失败/**推理模型空正文仍判连通成功并给说明/输出预算 ≥128**；`listModels` 的 GET /models、临时 patch 不落盘、无 Key 不发 Authorization、404 → NOT_FOUND、形状异常 → BAD_FORMAT |
 | `tests/unit/aiClient.test.ts` | 33 | 三种能力的载荷映射（不含 messages）；失败信封透传；IPC 被拒不抛错；缺少 notesApi 的降级；**同 key 去重只发一次 IPC**；流式先注册后启动；帧节流；meta/error/done 结算；取消后忽略迟到事件；已中止 signal；signal 监听器被移除；批量长度一致；配置四个方法；**`config.listModels` 的透传、失败信封、旧 preload 降级** |
 | `tests/unit/aiStream.test.ts` | 17 | `createRequestId` 符合主进程正则且不重复；**done/error/cancel/卸载四路径都清空注册表**；同 requestId 重复注册被拒且不覆盖旧会话；同帧多 chunk 只回调一次；跨帧顺序不变；**done 前先冲刷残留增量**；结算后迟到 chunk 被忽略；多会话不串台；fail 幂等 |
-| `tests/unit/aiProviderPresets.test.ts` | 9 | **每个服务商预设的 baseUrl / model / maxTokensParam 都用主进程同一套校验函数过一遍**（避免预设非法导致用户点保存才失败）；归一化后请求地址统一落在 `/v1/chat/completions` 且不出现 `/v1/v1`；id 唯一；小米 MiMo 两种接入方式的 baseUrl、模型与 `max_completion_tokens` 断言 |
+| `tests/unit/aiProviderPresets.test.ts` | 13 | **每个服务商预设的 baseUrl / model / maxTokensParam 都用主进程同一套校验函数过一遍**（避免预设非法导致用户点保存才失败）；归一化后请求地址统一落在 `/v1/chat/completions` 且不出现 `/v1/v1`；id 唯一；小米 MiMo 两种接入方式的 baseUrl、模型与 `max_completion_tokens` 断言；**`presetToFormPatch` 对所有预设都不填 model（防止默认模型被重新加回）、只带 baseUrl、maxTokensParam 按需带入、不修改预设本身** |
 
 ---
 
@@ -500,7 +502,7 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 | 输入上限 | topic ≤ 2000 字 / 选区 ≤ 8000 字 / batch ≤ 16 项 | `aiValidate.test.ts` |
 | 生成端到端（medium / 云端） | P50 ≤ 8s | `done.latencyMs` 日志统计 |
 | 新增运行时依赖 | 0 | `git diff package.json` 无 `dependencies` 变化 |
-| 单测规模 | ≥ 200 个 AI 用例全绿 | `npm run test:unit`（AI 相关 242 例 / 11 个文件） |
+| 单测规模 | ≥ 200 个 AI 用例全绿 | `npm run test:unit`（AI 相关 246 例 / 11 个文件） |
 
 ---
 
@@ -564,6 +566,7 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 | 1.0.1 | 新增小米 MiMo 服务商预设（按量付费 / Token Plan 两种接入方式）；预设结构支持携带 `maxTokensParam`，解决 MiMo 仅接受 `max_completion_tokens` 的问题；新增预设与主进程校验规则的一致性测试 |
 | 1.0.2 | 服务商预设下拉只显示服务商名；模型名称改为可从服务商实时拉取（`GET {baseUrl}/models`）并支持下拉选择 + 手动输入；新增 `ai:models:list` 通道与 `aiClient.config.listModels()`；`parseModelsResponse` 兼容三种响应形状 |
 | 1.0.3 | 修复推理型模型（小米 MiMo 思考模式、DeepSeek-R1 等）被误判为连接失败：新增 `AI_ERR_REASONING_ONLY` 错误码（与 `EMPTY_CONTENT` 区分）；连通性测试输出预算 32 → 256，且可见正文为空时改为「连通成功 + 说明」而非报错；设置页错误提示统一带上错误码与 HTTP 状态便于排查 |
+| 1.0.4 | 应用服务商预设时**不再自动填入默认模型**，模型必须从实时列表显式选择；模型名为空时禁用「测试连接」「保存配置」并给出提示（避免主进程不接受空模型名导致旧模型被静默沿用）；预设的 `model` 改为仅作输入框示例提示；新增 `presetToFormPatch` 纯函数与回归测试 |
 
 ### TEMPLATE_VERSION 递增规则
 

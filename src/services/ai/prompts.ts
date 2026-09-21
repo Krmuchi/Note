@@ -56,12 +56,32 @@ export interface ProviderPreset {
   id: string
   label: string
   baseUrl: string
+  /** 官方推荐模型，仅用作输入框的示例提示（placeholder），不会被自动填入 */
   model: string
   /**
    * 部分服务商只接受 max_completion_tokens（如小米 MiMo），预设需一并切换，
    * 否则输出长度参数不生效。
    */
   maxTokensParam?: MaxTokensParam
+}
+
+/**
+ * 预设应用后的表单补丁。
+ *
+ * **刻意不填 model**：模型名会随服务商迭代而过期，写死一个默认值会让用户在不知情的情况下
+ * 用上已下线或非预期的模型。模型必须由用户从「获取列表」拉到的实时结果中显式选择，
+ * 因此这里把 model 清空，由 UI 强制要求选择后才能保存。
+ */
+export function presetToFormPatch(preset: ProviderPreset): {
+  baseUrl: string
+  model: string
+  maxTokensParam?: MaxTokensParam
+} {
+  return {
+    baseUrl: preset.baseUrl,
+    model: '',
+    ...(preset.maxTokensParam ? { maxTokensParam: preset.maxTokensParam } : null),
+  }
 }
 
 /**
