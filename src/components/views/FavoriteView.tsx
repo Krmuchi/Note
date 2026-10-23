@@ -1,19 +1,23 @@
 import { useState, useMemo } from 'react'
+import type { JSX } from 'react'
 import type { FavoriteDocItem } from '@/types'
+import { useNotesStore } from '@/store'
+import { useFavoriteDocs } from '@/hooks/useFavoriteDocs'
 import { Editor } from '@/components/editor/Editor'
 import { EmptyState } from '@/components/common/EmptyState'
+import { IconStar } from '@/components/common/Icon'
 
 type SortType = 'updated' | 'created' | 'name' | 'notebook'
 type GroupType = 'none' | 'notebook'
 
 interface FavoriteViewProps {
-  favoriteDocs: FavoriteDocItem[]
   activeDocId: string
   fontSize: string
   onFontSizeChange: (size: string) => void
   onViewDoc: (notebookId: string, docId: string) => void
-  activeDoc: import('@/types').NoteDoc | null
   activeNotebookId: string
+  /** 空态引导：跳到文档树去收藏第一篇（空态必须给出下一步动作） */
+  onGoToDocs?: () => void
   onShowVersionHistory?: () => void
   onShowSharePanel?: () => void
   showOutlinePanel?: boolean
@@ -23,20 +27,23 @@ interface FavoriteViewProps {
 }
 
 export default function FavoriteView({
-  favoriteDocs,
   activeDocId,
   fontSize,
   onFontSizeChange,
   onViewDoc,
-  activeDoc,
   activeNotebookId,
+  onGoToDocs,
   onShowVersionHistory,
   onShowSharePanel,
   showOutlinePanel,
   onToggleOutlinePanel,
   showCommentsPanel,
   onToggleCommentsPanel,
-}: FavoriteViewProps) {
+}: FavoriteViewProps): JSX.Element {
+  const activeDoc = useNotesStore((s) => s.activeDoc)
+  // 收藏列表订阅 notebooks（每次击键都会变），所以只在本视图里订阅，
+  // 不能让 App 外壳代算 —— 否则整棵外壳跟着输入重渲染
+  const favoriteDocs = useFavoriteDocs()
   const [sortBy, setSortBy] = useState<SortType>('updated')
   const [groupBy, setGroupBy] = useState<GroupType>('none')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
@@ -88,7 +95,7 @@ export default function FavoriteView({
     return groups
   }, [sortedDocs, groupBy])
 
-  const toggleSortOrder = () => {
+  const toggleSortOrder = (): void => {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')
   }
 
@@ -142,9 +149,21 @@ export default function FavoriteView({
         <div className="docs-list">
           {favoriteDocs.length === 0 ? (
             <EmptyState
-              icon="⭐"
+              icon={<IconStar size={32} />}
               title="暂无收藏"
-              description="点击文档标题旁的星标，将常用文档添加到收藏夹"
+              description="在文档树里点标题旁的星标，就能把常用文档固定到这里"
+              actions={
+                onGoToDocs
+                  ? [
+                      {
+                        label: '去文档树收藏',
+                        icon: '📄',
+                        variant: 'primary',
+                        onClick: onGoToDocs,
+                      },
+                    ]
+                  : undefined
+              }
             />
           ) : (
             Object.entries(groupedDocs).map(([groupName, docs]) => (
@@ -202,6 +221,7 @@ export default function FavoriteView({
         onToggleOutlinePanel={onToggleOutlinePanel}
         showCommentsPanel={showCommentsPanel}
         onToggleCommentsPanel={onToggleCommentsPanel}
+        onViewDoc={onViewDoc}
       />
     </>
   )

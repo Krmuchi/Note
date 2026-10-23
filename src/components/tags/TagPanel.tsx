@@ -1,11 +1,15 @@
 // 导入 React hooks 和类型定义
 import { useState } from "react";
+import type { JSX } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Tag, TagStats } from "@/types";
 import { useNotesStore } from "@/store";
 import TagEditModal from "./TagEditModal";
 import TagStatsPanel from "./TagStatsPanel";
+import { EmptyState } from "@/components/common/EmptyState";
+import { IconSearch } from "@/components/common/Icon";
 import { TAG_DEFAULT_COLORS, TAG_DEFAULT_ICONS } from "@/shared/constants";
+import { confirmAction } from "@/hooks/useConfirmAction";
 
 /**
  * 标签面板组件属性接口
@@ -15,7 +19,7 @@ interface TagPanelProps {
   onClose: () => void;   // 关闭回调
 }
 
-export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
+export default function TagPanel({ isOpen, onClose }: TagPanelProps): JSX.Element | null {
   const {
     tags,
     createTag,
@@ -67,7 +71,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
   /**
    * 处理创建标签
    */
-  const handleCreateTag = (name: string, color: string, icon: string, parentId: string | null) => {
+  const handleCreateTag = (name: string, color: string, icon: string, parentId: string | null): void => {
     createTag(name, color, icon, parentId);
     setShowCreateModal(false);
   };
@@ -75,7 +79,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
   /**
    * 处理更新标签
    */
-  const handleUpdateTag = (tagId: string, updates: Partial<Tag>) => {
+  const handleUpdateTag = (tagId: string, updates: Partial<Tag>): void => {
     updateTag(tagId, updates);
     setEditTag(null);
   };
@@ -83,33 +87,34 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
   /**
    * 处理删除标签
    */
-  const [confirmMessage, setConfirmMessage] = useState<string | null>(null)
-  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null)
-
-  const handleDeleteTag = (tagId: string) => {
-    setConfirmMessage('确定要删除这个标签吗？所有使用该标签的文档将失去此标签。')
-    setConfirmAction(() => () => {
-      deleteTag(tagId)
-      setSelectedTags(selectedTags.filter(id => id !== tagId))
-      setConfirmMessage(null)
-      setConfirmAction(null)
+  const handleDeleteTag = (tagId: string): void => {
+    confirmAction({
+      title: '确认操作',
+      message: '确定要删除这个标签吗？所有使用该标签的文档将失去此标签。',
+      variant: 'danger',
+      onConfirm: () => {
+        deleteTag(tagId)
+        setSelectedTags(selectedTags.filter(id => id !== tagId))
+      },
     })
   }
 
-  const handleBatchDelete = () => {
-    setConfirmMessage(`确定要删除选中的 ${selectedTags.length} 个标签吗？`)
-    setConfirmAction(() => () => {
-      selectedTags.forEach(tagId => deleteTag(tagId))
-      setSelectedTags([])
-      setConfirmMessage(null)
-      setConfirmAction(null)
+  const handleBatchDelete = (): void => {
+    confirmAction({
+      title: '确认操作',
+      message: `确定要删除选中的 ${selectedTags.length} 个标签吗？`,
+      variant: 'danger',
+      onConfirm: () => {
+        selectedTags.forEach(tagId => deleteTag(tagId))
+        setSelectedTags([])
+      },
     })
   }
 
   /**
    * 批量更新标签（随机设置颜色和图标）
    */
-  const handleBatchUpdate = () => {
+  const handleBatchUpdate = (): void => {
     if (selectedTags.length === 0) return;
     const randomColor = TAG_DEFAULT_COLORS[Math.floor(Math.random() * TAG_DEFAULT_COLORS.length)];
     const randomIcon = TAG_DEFAULT_ICONS[Math.floor(Math.random() * TAG_DEFAULT_ICONS.length)];
@@ -120,7 +125,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
   /**
    * 切换标签选中状态
    */
-  const toggleSelectTag = (tagId: string) => {
+  const toggleSelectTag = (tagId: string): void => {
     setSelectedTags(prev => 
       prev.includes(tagId) 
         ? prev.filter(id => id !== tagId)
@@ -131,7 +136,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
   /**
    * 全选/取消全选
    */
-  const selectAllTags = () => {
+  const selectAllTags = (): void => {
     if (selectedTags.length === filteredTags.length) {
       setSelectedTags([]);
     } else {
@@ -142,7 +147,7 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
   /**
    * 递归渲染标签树
    */
-  const renderTagTree = (tagList: Tag[], depth = 0) => {
+  const renderTagTree = (tagList: Tag[], depth = 0): JSX.Element[] => {
     return tagList.map(tag => (
       <div key={tag.id}>
         <div 
@@ -258,10 +263,34 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
               </div>
               
               {filteredTags.length === 0 ? (
-                <div className="tag-empty">
-                  <span className="tag-empty-icon">🏷️</span>
-                  <span className="tag-empty-text">暂无标签</span>
-                </div>
+                /*
+                 * 区分"搜索没结果"与"真的还没标签"：
+                 * 前者给"清除搜索"，后者给"新建标签" —— 空态必须能告诉用户下一步做什么。
+                 */
+                searchText.trim() ? (
+                  <EmptyState
+                    icon={<IconSearch size={32} />}
+                    title="没有匹配的标签"
+                    description={`没有标签名包含「${searchText.trim()}」`}
+                    actions={[
+                      { label: '清除搜索', icon: '✕', variant: 'secondary', onClick: () => setSearchText('') },
+                    ]}
+                  />
+                ) : (
+                  <EmptyState
+                    icon="🏷️"
+                    title="还没有标签"
+                    description="用标签给文档分类，之后可以按标签过滤文档树"
+                    actions={[
+                      {
+                        label: '新建标签',
+                        icon: '＋',
+                        variant: 'primary',
+                        onClick: () => setShowCreateModal(true),
+                      },
+                    ]}
+                  />
+                )
               ) : (
                 renderTagTree(visibleHierarchy)
               )}
@@ -289,19 +318,6 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps) {
           />
         )}
       </div>
-
-      {confirmMessage && (
-        <div className="confirm-dialog-overlay" onClick={() => { setConfirmMessage(null); setConfirmAction(null) }}>
-          <div className="confirm-dialog confirm-dialog-warning" onClick={(e) => e.stopPropagation()}>
-            <h3>确认操作</h3>
-            <p>{confirmMessage}</p>
-            <div className="confirm-dialog-actions">
-              <button onClick={() => { setConfirmMessage(null); setConfirmAction(null) }}>取消</button>
-              <button onClick={() => confirmAction?.()} className="btn-primary">确认</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

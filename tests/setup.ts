@@ -25,6 +25,13 @@ Object.defineProperty(window, 'IntersectionObserver', {
   })),
 });
 
+// jsdom 未实现 scrollIntoView，而浮层（斜杠命令 / 快速打开）用它滚动高亮项
+Object.defineProperty(Element.prototype, 'scrollIntoView', {
+  writable: true,
+  configurable: true,
+  value: vi.fn(),
+});
+
 Object.defineProperty(global, 'requestAnimationFrame', {
   writable: true,
   value: vi.fn((cb) => setTimeout(cb, 0)),

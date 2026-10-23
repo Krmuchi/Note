@@ -1,5 +1,28 @@
 import JSZip from 'jszip'
-import type { AppStore, NoteDoc } from '@/types'
+import type {
+  AppAction,
+  AppInfoResult,
+  AppSettings,
+  AppSettingsResult,
+  AppStore,
+  BackupResult,
+  CrashLogResult,
+  FileAssociationState,
+  ImportFilesResult,
+  ImportKind,
+  LoadStoreResult,
+  MigrateDataDirResult,
+  NoteDoc,
+  PdfExportOptions,
+  PrintResult,
+  UpdateCheckResult,
+} from '@/types'
+// 与 Electron 主进程共用同一份导出 HTML 生成实现，避免 Web 模式维护第二套
+// 粗糙的 markdown→HTML 转换（旧实现 li 无包裹、代码块被丢弃）。
+// 该文件是 ESM(.mjs)：渲染层由 Vite 原生解析，主进程用 require()（Electron 41 支持 require(esm)）。
+// 注意不要改回 .cjs —— Vite dev server 不做 CJS→ESM 互操作，会报
+// "does not provide an export named 'buildExportDocument'"，整树被 ErrorBoundary 兜住变白屏。
+import { buildExportDocument } from '../../electron/ipc/shared.mjs'
 
 /**
  * 存储适配层：统一 Electron IPC 与 Web 浏览器模式的数据持久化接口。
@@ -73,12 +96,60 @@ function emptyStore(): AppStore {
 
 /* ---------------- 统一接口 ---------------- */
 
-export async function loadAppStore(): Promise<AppStore> {
+/** 读取持久化数据；失败返回信封（与主进程 notes:load 契约一致，不抛错） */
+export async function loadAppStore(): Promise<LoadStoreResult> {
   if (!isWebMode) {
     return window.notesApi.load()
   }
-  const stored = await idbGet<AppStore>(APP_STORE_KEY)
-  return stored ?? emptyStore()
+  try {
+    const stored = await idbGet<AppStore>(APP_STORE_KEY)
+    return { ok: true, data: stored ?? emptyStore() }
+  } catch (err) {
+    // Web 模式也返回同一个信封，让上层只有一条失败处理路径
+    return { ok: false, error: err instanceof Error ? err.message : '读取本地数据失败' }
+  }
+}
+
+/** 应用信息（版本与数据目录）；Web 模式返回失败信封 */
+export async function getAppInfo(): Promise<AppInfoResult> {
+  if (!isWebMode) {
+    return window.notesApi.appInfo()
+  }
+  return { ok: false, error: '浏览器模式没有本地数据目录' }
+}
+
+/** 打开数据目录（Electron 专用）；Web 模式返回失败信封 */
+export async function openDataDir(): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isWebMode) {
+    return window.notesApi.openDataDir()
+  }
+  return { ok: false, error: '浏览器模式没有本地数据目录' }
+}
+
+/* ---------------- 本机偏好设置（Electron 专用） ---------------- */
+
+const NO_APP_SETTINGS = { ok: false as const, error: '浏览器模式没有本机偏好设置' }
+
+export async function getAppSettings(): Promise<AppSettingsResult> {
+  if (!isWebMode) {
+    return window.notesApi.appSettingsGet()
+  }
+  return NO_APP_SETTINGS
+}
+
+export async function setAppSettings(patch: Partial<AppSettings>): Promise<AppSettingsResult> {
+  if (!isWebMode) {
+    return window.notesApi.appSettingsSet(patch)
+  }
+  return NO_APP_SETTINGS
+}
+
+/** 订阅主进程动作（托盘菜单 / 全局快捷键）；Web 模式返回空取消函数 */
+export function onAppAction(cb: (action: AppAction) => void): () => void {
+  if (!isWebMode) {
+    return window.notesApi.onAppAction(cb)
+  }
+  return () => {}
 }
 
 export async function saveAppStore(payload: AppStore): Promise<AppStore> {
@@ -125,10 +196,17 @@ export async function exportNotebookZip(payload: { title: string; docs: NoteDoc[
   return true
 }
 
-/** Web 模式下返回原 data URL 直接用于编辑器引用，Electron 下由主进程落盘返回文件路径。 */
+/**
+ * Web 模式下返回原 data URL 直接用于编辑器引用，Electron 下由主进程落盘返回文件路径。
+ * 主进程返回 { ok:false,error } 信封时抛错，调用方据此区分"失败内联回退"与成功落盘。
+ */
 export async function saveImage(payload: { name: string; data: string }): Promise<string> {
   if (!isWebMode) {
-    return window.notesApi.saveImage(payload)
+    const result = await window.notesApi.saveImage(payload)
+    if (!result.ok) {
+      throw new Error(result.error || '文件保存失败')
+    }
+    return result.path
   }
   return payload.data
 }
@@ -143,59 +221,6 @@ export async function saveFile(payload: { name: string; data: string }): Promise
 }
 
 /* ---------------- 导出/导入（Web 模式走浏览器下载与文件选择） ---------------- */
-
-function escapeHtml(str: string): string {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-/** 将 markdown 文本按行转换为带转义的简单 HTML（仅 Web 模式导出用） */
-function markdownToSimpleHtml(content: string): string {
-  return (content || '').split('\n').map((raw) => {
-    const esc = escapeHtml(raw)
-    if (raw.startsWith('# ')) return `<h1>${escapeHtml(raw.slice(2))}</h1>`
-    if (raw.startsWith('## ')) return `<h2>${escapeHtml(raw.slice(3))}</h2>`
-    if (raw.startsWith('### ')) return `<h3>${escapeHtml(raw.slice(4))}</h3>`
-    if (raw.startsWith('#### ')) return `<h4>${escapeHtml(raw.slice(5))}</h4>`
-    if (raw.startsWith('> ')) return `<blockquote><p>${escapeHtml(raw.slice(2))}</p></blockquote>`
-    if (raw.startsWith('- ')) return `<li>${escapeHtml(raw.slice(2))}</li>`
-    if (raw.startsWith('* ')) return `<li>${escapeHtml(raw.slice(2))}</li>`
-    if (raw.startsWith('```')) return ''
-    if (/^\d+\.\s/.test(raw)) return `<li>${escapeHtml(raw.replace(/^\d+\.\s/, ''))}</li>`
-    if (raw.trim() === '') return '<br>'
-    return `<p>${esc}</p>`
-  }).join('\n')
-}
-
-function buildHtmlDocument(title: string, content: string): string {
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <title>${escapeHtml(title || '文档')}</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #333; }
-    h1 { border-bottom: 2px solid #eee; padding-bottom: 0.3em; }
-    code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; font-size: 90%; }
-    pre { background: #f5f5f5; padding: 16px; border-radius: 6px; overflow-x: auto; }
-    blockquote { border-left: 4px solid #ddd; margin: 1em 0; padding: 0.5em 1em; color: #666; background: #f9f9f9; }
-    table { border-collapse: collapse; width: 100%; margin: 1em 0; }
-    th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
-  </style>
-</head>
-<body>
-  <h1>${escapeHtml(title || '未命名文档')}</h1>
-  <div class="doc-meta">导出时间: ${new Date().toLocaleString('zh-CN')}</div>
-  <div class="doc-content">
-    ${markdownToSimpleHtml(content)}
-  </div>
-</body>
-</html>`
-}
 
 function pickFiles(accept: string, multiple: boolean): Promise<File[]> {
   return new Promise((resolve) => {
@@ -213,12 +238,16 @@ export async function exportHtmlDoc(payload: { title: string; content: string })
   if (!isWebMode) {
     return window.notesApi.exportHtml(payload)
   }
-  const html = buildHtmlDocument(payload.title, payload.content)
+  const html = buildExportDocument({ title: payload.title, content: payload.content })
   downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${sanitizeFilename(payload.title)}.html`)
   return true
 }
 
-export async function exportPdfDoc(payload: { title: string; content: string }): Promise<boolean> {
+export async function exportPdfDoc(payload: {
+  title: string
+  content: string
+  options?: PdfExportOptions
+}): Promise<boolean> {
   if (!isWebMode) {
     return window.notesApi.exportPdf(payload)
   }
@@ -227,11 +256,27 @@ export async function exportPdfDoc(payload: { title: string; content: string }):
   if (!printWindow) {
     throw new Error('无法打开打印窗口，请允许弹出窗口后重试')
   }
-  printWindow.document.write(buildHtmlDocument(payload.title, payload.content))
+  printWindow.document.write(buildExportDocument({ title: payload.title, content: payload.content, forPrint: true }))
   printWindow.document.close()
   printWindow.focus()
   printWindow.print()
   return true
+}
+
+/** 系统打印（C5）；Web 模式退化为浏览器打印 */
+export async function printDoc(payload: { title: string; content: string }): Promise<PrintResult> {
+  if (!isWebMode) {
+    return window.notesApi.printDoc(payload)
+  }
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) {
+    return { ok: false, error: '无法打开打印窗口，请允许弹出窗口后重试' }
+  }
+  printWindow.document.write(buildExportDocument({ title: payload.title, content: payload.content, forPrint: true }))
+  printWindow.document.close()
+  printWindow.focus()
+  printWindow.print()
+  return { ok: true }
 }
 
 export async function exportAllData(payload: AppStore): Promise<boolean> {
@@ -259,6 +304,117 @@ export async function importMarkdownDocs(): Promise<{ title: string; content: st
     docs.push({ title: titleMatch ? titleMatch[1].trim() : basename, content })
   }
   return docs
+}
+
+/* ---------------- 本地备份（仅 Electron：userData/backups） ---------------- */
+
+const WEB_NO_BACKUP: { ok: false; error: string } = {
+  ok: false,
+  error: '浏览器模式不支持本地自动备份，请使用"导出全部/导入备份"',
+}
+
+/** 列出本地自动备份；Web 模式返回失败信封 */
+export async function listLocalBackups(): Promise<BackupResult> {
+  if (!isWebMode) {
+    return window.notesApi.backupList()
+  }
+  return WEB_NO_BACKUP
+}
+
+/** 从本地备份覆盖式恢复；Web 模式返回失败信封 */
+export async function restoreLocalBackup(name: string): Promise<{ ok: true; restoredAt: string } | { ok: false; error: string }> {
+  if (!isWebMode) {
+    return window.notesApi.restoreBackup({ name })
+  }
+  return WEB_NO_BACKUP
+}
+
+/** 订阅"自动备份完成"通知；Web 模式返回空取消函数 */
+export function onBackupCreated(cb: (info: { at: string; name: string }) => void): () => void {
+  if (!isWebMode) {
+    return window.notesApi.onBackupCreated(cb)
+  }
+  return () => {}
+}
+
+/** 批量导入文件夹 / zip 包（O4）；Web 模式不支持 */
+/** 用系统浏览器打开 https 链接（Web 模式退回 window.open） */
+export async function openExternal(url: string): Promise<void> {
+  if (isWebMode) {
+    window.open(url, '_blank', 'noopener,noreferrer')
+    return
+  }
+  const result = await window.notesApi.openExternal(url)
+  if (!result.ok) throw new Error(result.error || '打开链接失败')
+}
+
+/** P5：读取 .md 文件关联状态 */
+export async function getFileAssociation(): Promise<FileAssociationState> {
+  if (isWebMode) return { ok: true, supported: false, enabled: false }
+  return window.notesApi.fileAssociationGet()
+}
+
+/** P5：开启 / 关闭 .md 文件关联（仅 Windows，写 HKCU，可恢复） */
+export async function setFileAssociation(enabled: boolean): Promise<FileAssociationState> {
+  if (isWebMode) return { ok: false, supported: false, enabled: false, error: '浏览器模式不支持文件关联' }
+  return window.notesApi.fileAssociationSet(enabled)
+}
+
+/** O5：迁移数据目录（Web 模式没有数据目录概念） */
+export async function migrateDataDir(): Promise<MigrateDataDirResult> {
+  if (isWebMode) return { ok: false, error: '浏览器模式不支持迁移数据目录' }
+  return window.notesApi.migrateDataDir()
+}
+
+/** O5：重启应用 */
+export async function relaunchApp(): Promise<{ ok: boolean; error?: string }> {
+  if (isWebMode) return { ok: false, error: '浏览器模式不支持重启应用' }
+  return window.notesApi.relaunchApp()
+}
+
+/** D5：读取本机崩溃记录（Web 模式没有主进程，返回空） */
+export async function readCrashLog(): Promise<CrashLogResult> {
+  if (isWebMode) return { ok: true, entries: [], latest: null, summary: '浏览器模式没有崩溃日志' }
+  return window.notesApi.crashLogGet()
+}
+
+/** D5：清空崩溃记录 */
+export async function clearCrashLog(): Promise<{ ok: boolean; error?: string }> {
+  if (isWebMode) return { ok: true }
+  return window.notesApi.crashLogClear()
+}
+
+/** D3：检查更新 */
+export async function checkForUpdate(url?: string): Promise<UpdateCheckResult> {
+  if (isWebMode) return { ok: false, error: '浏览器模式不支持检查更新' }
+  return window.notesApi.checkUpdate(url ? { url } : undefined)
+}
+
+/** P7：系统通知（窗口不在前台时才会真正弹出） */
+export async function notify(payload: { title: string; body?: string }): Promise<void> {
+  if (isWebMode) return
+  try {
+    await window.notesApi.notify(payload)
+  } catch {
+    // 通知失败不该影响主流程
+  }
+}
+
+/** P10：把最近文档推给主进程，用于任务栏跳转列表 */
+export async function updateRecents(docs: { id: string; title: string }[]): Promise<void> {
+  if (isWebMode) return
+  try {
+    await window.notesApi.updateRecents(docs)
+  } catch {
+    // 跳转列表更新失败不影响使用
+  }
+}
+
+export async function importFiles(kind: ImportKind): Promise<ImportFilesResult> {
+  if (!isWebMode) {
+    return window.notesApi.importFiles({ kind })
+  }
+  return { ok: false, error: '浏览器模式不支持批量导入' }
 }
 
 export async function importBackupData(): Promise<AppStore | null> {

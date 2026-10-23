@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { JSX } from 'react';
 
 import type { WritingLength, WritingStyle } from '@/types/ai';
-import { WRITING_LENGTHS, WRITING_STYLES, shouldOfferRetry } from '@/services/ai';
+import { INSTRUCTIONS_MAX_LENGTH, WRITING_LENGTHS, WRITING_STYLES, shouldOfferRetry } from '@/services/ai';
 import { useAiWriter } from '@/hooks/useAiWriter';
+import { IconSparkle } from '@/components/common/Icon';
 
 interface AiWriterProps {
   isOpen: boolean;
@@ -16,6 +18,8 @@ interface WritingConfig {
   length: WritingLength;
   includeOutline: boolean;
   includeExamples: boolean;
+  /** 附加要求：拼入 user message，用于补充主题之外的约束（如"多用表格""面向新手"） */
+  instructions: string;
 }
 
 const DEFAULT_CONFIG: WritingConfig = {
@@ -24,6 +28,7 @@ const DEFAULT_CONFIG: WritingConfig = {
   length: 'medium',
   includeOutline: true,
   includeExamples: true,
+  instructions: '',
 };
 
 function formatSeconds(ms: number): string {
@@ -37,7 +42,7 @@ function formatSeconds(ms: number): string {
  * 增量按帧累积渲染，完成后由用户确认再一次性插入文档 —— 流式文本绝不逐块写进 store，
  * 否则会瞬间打满自动版本快照上限并污染撤销栈。
  */
-export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps) {
+export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps): JSX.Element | null {
   const [config, setConfig] = useState<WritingConfig>(DEFAULT_CONFIG);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -89,7 +94,7 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps) {
         {/* 头部 */}
         <div className="ai-writer-header">
           <div className="ai-writer-title">
-            <span className="ai-icon">🤖</span>
+            <span className="ai-icon"><IconSparkle size={18} /></span>
             <h2>AI 帮你写</h2>
           </div>
           <button className="ai-writer-close" onClick={onClose}>✕</button>
@@ -102,7 +107,7 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps) {
             <div className="ai-writer-config">
               {/* 主题输入 */}
               <div className="config-section">
-                <label className="config-label">📝 写作主题</label>
+                <label className="config-label">写作主题</label>
                 <textarea
                   ref={textareaRef}
                   className="topic-input"
@@ -115,7 +120,7 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps) {
 
               {/* 写作风格 */}
               <div className="config-section">
-                <label className="config-label">🎨 写作风格</label>
+                <label className="config-label">写作风格</label>
                 <div className="style-options">
                   {WRITING_STYLES.map((option) => (
                     <button
@@ -133,7 +138,7 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps) {
 
               {/* 内容长度 */}
               <div className="config-section">
-                <label className="config-label">📏 内容长度</label>
+                <label className="config-label">内容长度</label>
                 <div className="length-options">
                   {WRITING_LENGTHS.map((option) => (
                     <button
@@ -148,9 +153,28 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps) {
                 </div>
               </div>
 
+              {/* 附加要求 */}
+              <div className="config-section">
+                <label className="config-label" htmlFor="ai-writer-instructions">
+                  附加要求（可选）
+                </label>
+                <textarea
+                  id="ai-writer-instructions"
+                  className="instructions-input"
+                  value={config.instructions}
+                  onChange={(e) => setConfig((prev) => ({ ...prev, instructions: e.target.value }))}
+                  placeholder={'补充主题之外的约束，例如：\n- 面向零基础读者，少用术语\n- 用表格对比两种方案的优缺点'}
+                  rows={3}
+                  maxLength={INSTRUCTIONS_MAX_LENGTH}
+                />
+                <div className="instructions-counter">
+                  {config.instructions.length} / {INSTRUCTIONS_MAX_LENGTH}
+                </div>
+              </div>
+
               {/* 附加选项 */}
               <div className="config-section">
-                <label className="config-label">⚙️ 附加选项</label>
+                <label className="config-label">附加选项</label>
                 <div className="extra-options">
                   <label className="checkbox-option">
                     <input
@@ -177,7 +201,7 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps) {
                 onClick={handleGenerate}
                 disabled={!config.topic.trim()}
               >
-                ✨ 开始生成
+                开始生成
               </button>
             </div>
           ) : (
@@ -185,7 +209,7 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps) {
             <div className="ai-writer-result">
               <div className="result-header">
                 <h3>
-                  {isStreaming ? '正在生成…' : status === 'error' ? '⚠️ 生成失败' : '📄 生成结果'}
+                  {isStreaming ? '正在生成…' : status === 'error' ? '生成失败' : '生成结果'}
                 </h3>
                 <button className="back-btn" onClick={reset} disabled={isStreaming}>
                   ← 返回编辑
@@ -240,7 +264,7 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps) {
                       </button>
                     )}
                     <button className="action-btn primary" onClick={handleInsert} disabled={!text.trim()}>
-                      📥 插入到文档
+                      插入到文档
                     </button>
                   </>
                 )}

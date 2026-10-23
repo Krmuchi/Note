@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { appendErrorLog } from './utils/errorLog'
 
 interface Props {
   children: ReactNode
@@ -28,12 +29,12 @@ class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error }
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     this.reportError(error, errorInfo)
     this.logError(error, errorInfo)
   }
 
-  private reportError(error: Error, errorInfo: ErrorInfo) {
+  private reportError(error: Error, errorInfo: ErrorInfo): void {
     if (window.Sentry) {
       window.Sentry.captureException(error, { 
         extra: { componentStack: errorInfo.componentStack } 
@@ -41,32 +42,27 @@ class ErrorBoundary extends Component<Props, State> {
     }
   }
 
-  private logError(error: Error, errorInfo: ErrorInfo) {
+  private logError(error: Error, errorInfo: ErrorInfo): void {
     console.error('ErrorBoundary caught:', error)
     console.error('Component stack:', errorInfo.componentStack)
-    
-    try {
-      const logs = JSON.parse(localStorage.getItem('error-logs') || '[]')
-      logs.push({
-        timestamp: new Date().toISOString(),
-        error: error.message,
-        stack: errorInfo.componentStack
-      })
-      localStorage.setItem('error-logs', JSON.stringify(logs.slice(-50)))
-    } catch {
-      // ignore
-    }
+
+    // 统一走 utils/errorLog（设置里的"诊断信息"会读取同一份数据）
+    appendErrorLog({
+      source: 'render',
+      message: error.message,
+      stack: (error.stack ?? '') + (errorInfo.componentStack ?? ''),
+    })
   }
 
-  private handleReset = () => {
+  private handleReset = (): void => {
     this.setState({ hasError: false, error: null })
   }
 
-  private handleReload = () => {
+  private handleReload = (): void => {
     window.location.reload()
   }
 
-  private handleCopyError = async () => {
+  private handleCopyError = async (): Promise<void> => {
     const { error } = this.state
     if (!error) return
     const text = `[${new Date().toISOString()}] ${error.message}\n\n${error.stack ?? ''}`
@@ -77,7 +73,7 @@ class ErrorBoundary extends Component<Props, State> {
     }
   }
 
-  public render() {
+  public render(): ReactNode {
     if (this.state.hasError) {
       if (this.props.fallback) {
         return this.props.fallback

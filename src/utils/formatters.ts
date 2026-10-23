@@ -70,3 +70,22 @@ export function formatDateTime(input: DateInput, options: DateTimeFormatOptions 
     ? `${date.getMonth() + 1}/${pad2(date.getDate())} ${time}`
     : date.toLocaleDateString('zh-CN')
 }
+
+/**
+ * ISO 8601 周序号（如「2026年第1周」）。
+ * 周一为一周起始，跨年时年份取 ISO 周年（12/29 可能属于下一年第 1 周）。
+ */
+export function formatIsoWeek(input: DateInput): string {
+  const date = toDate(input)
+  if (!date) return ''
+
+  // 用 UTC 承载本地年月日，避免时区把日期挪到前一天
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const dayNum = d.getUTCDay() || 7
+  // 移到本周的周四，该日所属年份即 ISO 周年
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+  const isoYear = d.getUTCFullYear()
+  const yearStart = Date.UTC(isoYear, 0, 1)
+  const week = Math.ceil(((d.getTime() - yearStart) / DAY + 1) / 7)
+  return `${isoYear}年第${week}周`
+}

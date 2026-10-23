@@ -6,7 +6,8 @@
 // 修改任何模板文案或映射值后，必须递增 TEMPLATE_VERSION —— 它是缓存 key 的一部分，
 // 不递增会导致旧模板产出的缓存结果继续命中。
 
-const TEMPLATE_VERSION = '1.0.0';
+// 1.0.1：buildMessages 开始消费 payload.instructions（此前被校验/发送但未进入 prompt）
+const TEMPLATE_VERSION = '1.0.1';
 
 const STYLE_KEYS = ['formal', 'casual', 'technical', 'creative', 'academic'];
 const LENGTH_KEYS = ['short', 'medium', 'long'];
@@ -81,13 +82,26 @@ const ABSOLUTE_MAX_TOKENS = 4096;
 const MIN_OPTIMIZE_TOKENS = 800;
 
 /**
+ * 用户附加指令（渲染侧可选传入）。只作为 user message 的补充，绝不进入 system，
+ * 与"用户文本只进 user message"的防注入约定保持一致。
+ * @param {{instructions?: string}} payload
+ * @returns {string} 无附加指令时返回空串
+ */
+function instructionsSuffix(payload) {
+  const text = typeof payload.instructions === 'string' ? payload.instructions.trim() : '';
+  return text ? `\n附加要求：${text}` : '';
+}
+
+/**
  * 构造 chat messages。用户文本只进入 user message，绝不拼进 system，降低 prompt 注入影响面。
  * @param {{capability: string, topic?: string, text?: string, action?: string, targetStyle?: string,
- *          style?: string, length?: string, includeOutline?: boolean, includeExamples?: boolean}} payload
+ *          style?: string, length?: string, includeOutline?: boolean, includeExamples?: boolean,
+ *          instructions?: string}} payload
  * @returns {{role: 'system'|'user', content: string}[]}
  */
 function buildMessages(payload) {
   const capability = payload.capability;
+  const extra = instructionsSuffix(payload);
 
   if (capability === 'generate') {
     const style = payload.style || 'formal';
@@ -104,7 +118,8 @@ function buildMessages(payload) {
           `风格：${STYLE_LABELS[style]}\n` +
           `篇幅：${LENGTH_GUIDE[length]}\n` +
           `要求：${requirements.join('；')}\n` +
-          '请输出完整的 Markdown 文档，首行为一级标题。',
+          '请输出完整的 Markdown 文档，首行为一级标题。' +
+          extra,
       },
     ];
   }
@@ -113,7 +128,7 @@ function buildMessages(payload) {
     const action = payload.action;
     return [
       { role: 'system', content: OUTPUT_CONSTRAINT },
-      { role: 'user', content: `${ACTION_INSTRUCTION[action]}\n\n---\n原文：\n${payload.text}` },
+      { role: 'user', content: `${ACTION_INSTRUCTION[action]}${extra}\n\n---\n原文：\n${payload.text}` },
     ];
   }
 
@@ -123,7 +138,7 @@ function buildMessages(payload) {
       { role: 'system', content: `${STYLE_SYSTEM[targetStyle]}\n${TRANSFORM_SYSTEM_SUFFIX}` },
       {
         role: 'user',
-        content: `请将以下文本转换为${STYLE_LABELS[targetStyle]}风格：\n\n---\n${payload.text}`,
+        content: `请将以下文本转换为${STYLE_LABELS[targetStyle]}风格：${extra}\n\n---\n${payload.text}`,
       },
     ];
   }
@@ -131,7 +146,7 @@ function buildMessages(payload) {
   throw new Error(`未知的 AI 能力类型：${capability}`);
 }
 
-/** 按输入文本长度粗估 max_tokens（1 字符 ≈ 1.6 token 的反向换算） */
+/** 按输入文本长度粗估 max_tokens（1 字符 ≈ 1.8 token） */
 function deriveMaxTokensFromText(text) {
   const chars = typeof text === 'string' ? text.length : 0;
   return Math.min(ABSOLUTE_MAX_TOKENS, Math.max(MIN_OPTIMIZE_TOKENS, Math.ceil(chars * 1.8)));

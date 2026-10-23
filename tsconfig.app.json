@@ -4,7 +4,9 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client", "vitest/globals"],
+    // 组件级测试就放在 src/**/__tests__/ 下，由本工程负责类型检查，
+    // 因此 jest-dom 的匹配器类型（toBeInTheDocument 等）必须在这里注册
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"],
     "skipLibCheck": true,
     "ignoreDeprecations": "6.0",
 

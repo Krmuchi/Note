@@ -33,8 +33,16 @@ const DEFAULT_SHORTCUTS: KeyboardShortcut[] = [
   { id: 'toggleSidebar', name: '切换侧边栏', keys: ['Ctrl', '\\'], category: '通用' },
   { id: 'toggleFavorite', name: '收藏/取消收藏', keys: ['Ctrl', 'Shift', 'F'], category: '通用' },
   { id: 'shortcutHelp', name: '快捷键帮助', keys: ['Ctrl', '/'], category: '通用' },
+  // Ctrl+P 在 Electron 里默认未绑定（应用菜单没有 print 角色），可安全占用
+  { id: 'quickOpen', name: '快速打开文档', keys: ['Ctrl', 'P'], category: '通用' },
   { id: 'undo', name: '撤销', keys: ['Ctrl', 'Z'], category: '编辑' },
   { id: 'redo', name: '重做', keys: ['Ctrl', 'Y'], category: '编辑' },
+  // 文档内查找/替换：由 Editor 的 capture 阶段监听实现（全局 useKeyboard 会拦截未识别按键）
+  { id: 'find', name: '文档内查找', keys: ['Ctrl', 'F'], category: '编辑' },
+  { id: 'replace', name: '文档内替换', keys: ['Ctrl', 'H'], category: '编辑' },
+  // 上一篇/下一篇：Alt+↑/↓ 已被"移动行"占用，改用 Ctrl+Alt+←/→
+  { id: 'prevDoc', name: '上一篇文档', keys: ['Ctrl', 'Alt', 'ArrowLeft'], category: '编辑' },
+  { id: 'nextDoc', name: '下一篇文档', keys: ['Ctrl', 'Alt', 'ArrowRight'], category: '编辑' },
   { id: 'bold', name: '粗体', keys: ['Ctrl', 'B'], category: '编辑' },
   { id: 'italic', name: '斜体', keys: ['Ctrl', 'I'], category: '编辑' },
   { id: 'underline', name: '下划线', keys: ['Ctrl', 'U'], category: '编辑' },

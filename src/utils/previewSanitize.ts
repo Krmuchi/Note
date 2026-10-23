@@ -37,6 +37,8 @@ const ALLOWED_STYLE_PROPS = new Set([
   'text-align',
   'text-decoration',
   'line-height',
+  // 图片缩放：拖拽后写入的是 style="width:320px"
+  'width',
 ])
 
 /**
@@ -122,7 +124,7 @@ const CODE_ATTRIBUTES: AttributeList = [
 ]
 
 /** 只放开编辑器确实会产出 style 的标签，其余标签的 style 一律由消毒器丢弃 */
-const STYLE_TAGS = ['span', 'div', 'mark', 'u', 'sup', 'sub'] as const
+const STYLE_TAGS = ['span', 'div', 'mark', 'u', 'sup', 'sub', 'img'] as const
 
 /** 在默认属性白名单上补出编辑器所需的 style 支持 */
 function buildAttributes(): NonNullable<Options['attributes']> {
@@ -132,6 +134,21 @@ function buildAttributes(): NonNullable<Options['attributes']> {
     attributes[tag] = existing.includes('style') ? existing : [...existing, 'style']
   }
   attributes.code = CODE_ATTRIBUTES
+  // 图片尺寸：markdownToHtml 渲染调过宽度的图片时写的是 width 属性
+  attributes.img = [...(attributes.img ?? []), 'width', 'height']
+  /*
+   * 提示块：remarkCallout 会把 blockquote 改写成
+   * `<div class="md-callout md-callout-tip">` + `<div class="md-callout-title">`。
+   * GitHub 默认白名单不允许 div/p 带 className，不放行的话预览里样式全丢、
+   * 只剩一段普通文字（编辑区却是彩色块，两边不一致）。
+   * 只放行这两个固定类名，不接受任意 class。
+   */
+  attributes.div = [
+    ...(attributes.div ?? []),
+    // 放行 md-callout / md-callout-tip / md-callout-title / md-callout-title-tip
+    ['className', /^md-callout(-[a-z]+)*$/],
+  ]
+  attributes.p = [...(attributes.p ?? []), ['className', /^md-callout(-[a-z]+)*$/]]
   return attributes
 }
 

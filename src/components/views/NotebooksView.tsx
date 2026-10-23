@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+import { useNotesStore } from '@/store'
 import { DocsSidebar } from '@/components/layout/DocsSidebar'
 import { Editor } from '@/components/editor/Editor'
 import { ResizeHandle } from '@/components/layout/ResizeHandle'
@@ -6,7 +8,6 @@ interface NotebooksViewProps {
   searchText: string
   onSearchChange: (value: string) => void
   onViewDoc: (notebookId: string, docId: string) => void
-  activeDoc: import('@/types').NoteDoc | null
   activeNotebookId: string
   activeDocId: string
   fontSize: string
@@ -18,17 +19,19 @@ interface NotebooksViewProps {
   showCommentsPanel?: boolean
   onToggleCommentsPanel?: () => void
   docsSidebarWidth?: number
-  onDocsResizeStart?: (e: React.MouseEvent) => void
+  /** 鼠标或触摸都能发起调宽（A4） */
+  onDocsResizeStart?: (e: React.MouseEvent | React.TouchEvent) => void
   onDocsResizeReset?: () => void
   docsDragging?: boolean
   isMobile?: boolean
+  /** 紧凑窗口：文档列表收起为窄条，避免三栏挤压编辑区 */
+  isCompact?: boolean
 }
 
 export default function NotebooksView({
   searchText,
   onSearchChange,
   onViewDoc,
-  activeDoc,
   activeNotebookId,
   activeDocId,
   fontSize,
@@ -44,15 +47,19 @@ export default function NotebooksView({
   onDocsResizeReset,
   docsDragging,
   isMobile = false,
-}: NotebooksViewProps) {
+  isCompact = false,
+}: NotebooksViewProps): JSX.Element {
+  // 正文由本视图自己订阅：App 外壳因此不必跟着每次击键重渲染
+  const activeDoc = useNotesStore((s) => s.activeDoc)
   return (
     <>
       <DocsSidebar
         searchText={searchText}
         onSearchChange={onSearchChange}
         onViewDoc={onViewDoc}
-        width={docsSidebarWidth}
+        width={isMobile || isCompact ? undefined : docsSidebarWidth}
         mobile={isMobile}
+        compact={isCompact}
       />
       {!isMobile && onDocsResizeStart && (
         <ResizeHandle
@@ -63,6 +70,7 @@ export default function NotebooksView({
           ariaLabel="调整文档列表与编辑器宽度"
         />
       )}
+      {/* 多标签页：有 2 个以上已打开文档时出现（单标签没有切换价值，不占高度） */}
       <Editor
         activeDoc={activeDoc}
         activeNotebookId={activeNotebookId}
@@ -75,6 +83,7 @@ export default function NotebooksView({
         onToggleOutlinePanel={onToggleOutlinePanel}
         showCommentsPanel={showCommentsPanel}
         onToggleCommentsPanel={onToggleCommentsPanel}
+        onViewDoc={onViewDoc}
       />
     </>
   )

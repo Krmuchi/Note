@@ -13,9 +13,16 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* 侧滑入场：取值 20px 是原 editor.css 版本（当时它覆盖了本文件的 100% 版本，
+   为保持视觉不回归，收敛后沿用实际生效的 20px） */
 @keyframes slideInRight {
-  from { transform: translateX(100%); opacity: 0; }
+  from { transform: translateX(20px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideOutRight {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(20px); opacity: 0; }
 }
 
 @keyframes scaleIn {
@@ -41,6 +48,12 @@
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* 保存中状态点：轻微呼吸，提示"正在写盘"但不抢注意力 */
+@keyframes save-indicator-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
 }
 
 @keyframes shake {

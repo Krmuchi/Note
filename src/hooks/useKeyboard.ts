@@ -16,6 +16,9 @@ export interface KeyboardHandlers {
   onBold?: () => void
   onItalic?: () => void
   onShortcutHelp?: () => void
+  onQuickOpen?: () => void
+  onPrevDoc?: () => void
+  onNextDoc?: () => void
 }
 
 /** 快捷键动作 id 集合（与 keyboardSlice 的 DEFAULT_SHORTCUTS 对应） */
@@ -31,6 +34,9 @@ type ActionId =
   | 'redo'
   | 'bold'
   | 'italic'
+  | 'quickOpen'
+  | 'prevDoc'
+  | 'nextDoc'
 
 export const useKeyboard = (handlers: KeyboardHandlers): void => {
   // 持有最新 handlers 引用，使 handleKeyDown 稳定（空依赖），
@@ -61,6 +67,9 @@ export const useKeyboard = (handlers: KeyboardHandlers): void => {
       onBold,
       onItalic,
       onShortcutHelp,
+      onQuickOpen,
+      onPrevDoc,
+      onNextDoc,
     } = handlersRef.current
 
     if (e.key === 'Escape') {
@@ -89,6 +98,9 @@ export const useKeyboard = (handlers: KeyboardHandlers): void => {
       redo: onRedo,
       bold: onBold,
       italic: onItalic,
+      quickOpen: onQuickOpen,
+      prevDoc: onPrevDoc,
+      nextDoc: onNextDoc,
     }
 
     for (const shortcut of shortcuts) {

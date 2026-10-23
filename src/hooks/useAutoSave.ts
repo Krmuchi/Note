@@ -12,9 +12,15 @@ function scheduleIdleCallback(callback: () => void, timeout: number = 5000): voi
 
 const MAX_RETRY = 3
 
-export const useAutoSave = (debounceMs: number = 3000) => {
-  // 仅订阅 lastMutationAt（毫秒时间戳），避免因 notebooks 引用变化触发无关重渲染
-  const lastMutationAt = useNotesStore(state => state.lastMutationAt)
+/**
+ * 自动保存。
+ *
+ * 关键点：**不在渲染期订阅 lastMutationAt**。
+ * 该值每次击键都会变，用 `useNotesStore(s => s.lastMutationAt)` 订阅会让调用方
+ * （App 外壳）在每次输入时重渲染 —— 而保存逻辑本身与渲染完全无关。
+ * 改为在 effect 里 `store.subscribe` 只做副作用，输入链路上的组件不再被拖下水。
+ */
+export const useAutoSave = (debounceMs: number = 3000): { scheduleSave: () => void } => {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveInProgressRef = useRef(false)
   const retryCountRef = useRef(0)
@@ -46,7 +52,7 @@ export const useAutoSave = (debounceMs: number = 3000) => {
       // 记录开始保存时的变更戳，用于判断保存期间是否产生了新变更
       const startMutationAt = useNotesStore.getState().lastMutationAt
 
-      const handleSave = async () => {
+      const handleSave = async (): Promise<void> => {
         // saveNotes 内部会吞掉异常并置 saveStatus（catch 分支不可达），需读取状态判断成败
         let shouldRetry = false
         try {
@@ -83,14 +89,22 @@ export const useAutoSave = (debounceMs: number = 3000) => {
     scheduleSaveRef.current = scheduleSave
   }, [scheduleSave])
 
-  // lastMutationAt 变化时触发保存（已被 debounce 保护）
+  // 变更戳变化时触发保存（已被 debounce 保护）。
+  // 走 store.subscribe 而不是 hook 订阅：保存是副作用，不该让外壳组件跟着重渲染。
   useEffect(() => {
-    if (lastMutationAt === 0) return
-    scheduleSave()
-  }, [lastMutationAt, scheduleSave])
+    let lastSeen = useNotesStore.getState().lastMutationAt
+    const unsubscribe = useNotesStore.subscribe((state) => {
+      const next = state.lastMutationAt
+      if (next === lastSeen) return
+      lastSeen = next
+      if (next === 0) return
+      scheduleSave()
+    })
+    return unsubscribe
+  }, [scheduleSave])
 
   useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
       if (saveInProgressRef.current) {
         e.preventDefault()
       }

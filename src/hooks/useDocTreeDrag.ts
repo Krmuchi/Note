@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import type { NoteDoc, Notebook } from '@/types';
+import { toast } from '@/components/common/Toast';
 
 export type DragPosition = 'before' | 'after' | 'inside';
 
@@ -30,7 +31,15 @@ export function useDocTreeDrag({
   updateDoc,
   reorderDocs,
   onExpandDoc,
-}: UseDocTreeDragOptions) {
+}: UseDocTreeDragOptions): {
+  dragOverDocId: string | null;
+  dragOverPosition: DragPosition | null;
+  handleDragStart: (e: React.DragEvent, docId: string) => void;
+  handleDragEnd: (e: React.DragEvent) => void;
+  handleDragOver: (e: React.DragEvent, docId: string) => void;
+  handleDragLeave: () => void;
+  handleDrop: (e: React.DragEvent, targetDocId: string) => void;
+} {
   const [dragOverDocId, setDragOverDocId] = useState<string | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<DragPosition | null>(null);
   const draggedDocIdRef = useRef<string | null>(null);
@@ -135,6 +144,9 @@ export function useDocTreeDrag({
         reorderDocs(activeNotebookId, fromIndex, toIndex, parentId);
       }
     }
+
+    // 拖放完成要有可见反馈：拖拽没有"确定"按钮，用户需要确认落点已生效
+    toast.info('已移动「' + (sourceDoc.title || '未命名文档') + '」', 1500);
 
     setDragOverDocId(null);
     setDragOverPosition(null);

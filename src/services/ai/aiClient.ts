@@ -64,7 +64,7 @@ function failure(error: unknown): AiFailure {
 
 function buildPayload(task: AiTaskSpec, requestId: string): AiRequestPayload {
   if (task.capability === 'generate') {
-    return {
+    const payload: AiRequestPayload = {
       requestId,
       capability: 'generate',
       topic: task.topic,
@@ -73,6 +73,8 @@ function buildPayload(task: AiTaskSpec, requestId: string): AiRequestPayload {
       includeOutline: task.includeOutline,
       includeExamples: task.includeExamples,
     }
+    if (task.instructions) payload.instructions = task.instructions
+    return payload
   }
 
   if (task.capability === 'optimize') {
@@ -211,7 +213,11 @@ function stream(task: AiTaskSpec, handlers: StreamHandlers, options?: CallOption
   // 先注册回调，再发出启动请求 —— 否则首个 chunk 可能因为前端还不知道 requestId 而丢失
   const session = openStreamSession({ capability: task.capability, handlers, requestId })
 
-  if (!api) {
+  // 流式依赖 aiStreamSubscribe + aiCancel 两个通道。
+  // 只检查 window.notesApi 存在是不够的：preload 版本不匹配时（例如升级后旧 preload 仍被加载），
+  // 这两个方法可能缺失，openStreamSession 会注册不上回调，
+  // 主进程照常开始推流，而前端 handle.done 永不 settle —— 表现为界面永久"生成中"。
+  if (!api || typeof api.aiStreamSubscribe !== 'function' || typeof api.aiCancel !== 'function') {
     session.fail(NOT_AVAILABLE.error)
     return session.handle
   }
@@ -259,7 +265,7 @@ async function batch(tasks: AiTaskSpec[], options?: BatchOptions): Promise<AiRes
 
   try {
     const payloads = tasks.map((task) => buildPayload(task, createRequestId()))
-    const result = await api.aiBatch(payloads)
+    const result = await api.aiBatch(payloads, { bypassCache: options?.bypassCache === true })
     if (isAiFailure(result)) {
       return tasks.map(() => failure(result.error))
     }

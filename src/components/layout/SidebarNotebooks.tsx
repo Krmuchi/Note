@@ -3,6 +3,9 @@ import { useShallow } from 'zustand/react/shallow';
 import { useNotesStore } from '@/store';
 import type { Notebook } from '@/types';
 import type { LeftMenuType, ViewType } from '@/hooks/useUIState';
+import { confirmAction } from '@/hooks/useConfirmAction';
+import { ContextMenu } from '@/components/common/ContextMenu';
+import { NotebookIconPicker } from './NotebookIconPicker';
 
 interface SidebarNotebooksProps {
   activeLeftMenu: LeftMenuType;
@@ -22,18 +25,20 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
   onHideTooltip,
   onExpand,
 }) => {
-  const { notebooks, activeNotebookId, createNotebook, deleteNotebook, updateNotebookTitle, setActiveNotebookId, setActiveDocId } = useNotesStore(useShallow((s) => ({
+  const { notebooks, activeNotebookId, createNotebook, deleteNotebook, updateNotebookTitle, updateNotebookIcon, setActiveNotebookId, setActiveDocId } = useNotesStore(useShallow((s) => ({
     notebooks: s.notebooks,
     activeNotebookId: s.activeNotebookId,
     createNotebook: s.createNotebook,
     deleteNotebook: s.deleteNotebook,
     updateNotebookTitle: s.updateNotebookTitle,
+    updateNotebookIcon: s.updateNotebookIcon,
     setActiveNotebookId: s.setActiveNotebookId,
     setActiveDocId: s.setActiveDocId,
   })));
 
   const [notebookContextMenu, setNotebookContextMenu] = useState<{ x: number; y: number; notebookId: string } | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  /** 图标选择面板的目标知识库（null 表示未打开） */
+  const [iconPickerNotebookId, setIconPickerNotebookId] = useState<string | null>(null);
   const [hoveredNotebook, setHoveredNotebook] = useState<string | null>(null);
   const [editingNotebookId, setEditingNotebookId] = useState<string | null>(null);
   const [editingNotebookTitle, setEditingNotebookTitle] = useState('');
@@ -63,16 +68,16 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
   }, [editingNotebookId, editingNotebookTitle, updateNotebookTitle]);
 
   const handleDeleteNotebook = useCallback((notebookId: string) => {
-    setConfirmDeleteId(notebookId);
     setNotebookContextMenu(null);
-  }, []);
-
-  const handleConfirmDelete = useCallback(() => {
-    if (confirmDeleteId) {
-      deleteNotebook(confirmDeleteId);
-      setConfirmDeleteId(null);
-    }
-  }, [confirmDeleteId, deleteNotebook]);
+    // 统一走 App 层的全局确认弹窗，避免各组件自绘 .confirm-dialog 造成交互/样式漂移
+    confirmAction({
+      title: '确认删除',
+      message: '确定要删除该知识库吗？知识库中的所有文档将被移到回收站。',
+      confirmText: '确认删除',
+      variant: 'danger',
+      onConfirm: () => deleteNotebook(notebookId),
+    });
+  }, [deleteNotebook]);
 
   useEffect(() => {
     if (editingNotebookId) {
@@ -80,13 +85,6 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
       notebookTitleInputRef.current?.select();
     }
   }, [editingNotebookId]);
-
-  useEffect(() => {
-    if (!notebookContextMenu) return;
-    const handleClick = () => setNotebookContextMenu(null);
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
-  }, [notebookContextMenu]);
 
   return (
     <>
@@ -135,10 +133,15 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
                     onHideTooltip();
                   }}
                 >
-                  <span className="notebook-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                    </svg>
+                  <span className="notebook-icon" aria-hidden="true">
+                    {notebook.icon ? (
+                      // 自定义图标用 emoji：无需图片资源与落盘路径，与"零新增依赖"一致
+                      <span className="notebook-icon-emoji">{notebook.icon}</span>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                      </svg>
+                    )}
                   </span>
                   {isEditing ? (
                     <input
@@ -176,53 +179,76 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
               </div>
             );
           })}
+
+          {notebooks.length === 0 && (
+            <div className="notebooks-empty">
+              <span className="notebooks-empty-text">还没有知识库</span>
+              <button className="notebooks-empty-btn" onClick={() => createNotebook('我的知识库')}>
+                新建知识库
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {notebookContextMenu && (
-        <div
-          className="context-menu"
-          style={{ left: notebookContextMenu.x, top: notebookContextMenu.y }}
-          onClick={() => setNotebookContextMenu(null)}
-        >
-          <button
-            className="context-menu-item"
-            onClick={() => {
-              const nb = notebooks.find((n) => n.id === notebookContextMenu.notebookId);
-              if (nb) handleStartRenameNotebook(nb);
-            }}
-          >
-            <span className="context-menu-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-            </span>
-            <span className="context-menu-text">重命名</span>
-          </button>
-          <button className="context-menu-item danger" onClick={() => handleDeleteNotebook(notebookContextMenu.notebookId)}>
-            <span className="context-menu-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-            </span>
-            <span className="context-menu-text">删除知识库</span>
-          </button>
-        </div>
+        <ContextMenu
+          x={notebookContextMenu.x}
+          y={notebookContextMenu.y}
+          ariaLabel="知识库操作"
+          onClose={() => setNotebookContextMenu(null)}
+          items={[
+            {
+              id: 'rename',
+              label: '重命名',
+              icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+              ),
+              onSelect: () => {
+                const nb = notebooks.find((n) => n.id === notebookContextMenu.notebookId);
+                if (nb) handleStartRenameNotebook(nb);
+              },
+            },
+            {
+              id: 'icon',
+              label: '设置图标',
+              icon: <span aria-hidden="true">🎨</span>,
+              onSelect: () => {
+                // 先关菜单再开面板：两个浮层同时存在会互相抢焦点
+                setIconPickerNotebookId(notebookContextMenu.notebookId);
+                setNotebookContextMenu(null);
+              },
+            },
+            {
+              id: 'delete',
+              label: '删除知识库',
+              danger: true,
+              icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2 2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              ),
+              onSelect: () => handleDeleteNotebook(notebookContextMenu.notebookId),
+            },
+          ]}
+        />
       )}
 
-      {confirmDeleteId && (
-        <div className="confirm-dialog-overlay" onClick={() => setConfirmDeleteId(null)}>
-          <div className="confirm-dialog confirm-dialog-danger" onClick={(e) => e.stopPropagation()}>
-            <h3>确认删除</h3>
-            <p>确定要删除该知识库吗？知识库中的所有文档将被移到回收站。</p>
-            <div className="confirm-dialog-actions">
-              <button onClick={() => setConfirmDeleteId(null)}>取消</button>
-              <button onClick={handleConfirmDelete} className="btn-danger">确认删除</button>
-            </div>
-          </div>
-        </div>
+      {iconPickerNotebookId && (
+        <NotebookIconPicker
+          current={
+            notebooks.find((n) => n.id === iconPickerNotebookId)?.icon ?? ''
+          }
+          onPick={(icon) => {
+            updateNotebookIcon(iconPickerNotebookId, icon);
+            setIconPickerNotebookId(null);
+          }}
+          onClose={() => setIconPickerNotebookId(null)}
+        />
       )}
     </>
   );

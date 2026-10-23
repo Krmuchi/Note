@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { NotesStore } from './types'
+import type { Notebook, NoteDoc } from '@/types'
 import { createCoreSlice } from './slices/coreSlice'
 import { createVersionSlice } from './slices/versionSlice'
 import { createShareSlice } from './slices/shareSlice'
@@ -10,6 +11,7 @@ import { createSearchSlice } from './slices/searchSlice'
 import { createUndoRedoSlice } from './slices/undoRedoSlice'
 import { createQuickNoteSlice } from './slices/quickNoteSlice'
 import { createKeyboardSlice } from './slices/keyboardSlice'
+import { createTabSlice } from './slices/tabSlice'
 
 export type { SaveStatus } from './slices/coreSlice'
 export type { NotesStore }
@@ -25,11 +27,12 @@ export const useNotesStore = create<NotesStore>()(
     ...createUndoRedoSlice(...a),
     ...createQuickNoteSlice(...a),
     ...createKeyboardSlice(...a),
+    ...createTabSlice(...a),
   }))
 )
 
-export const selectActiveNotebook = (state: NotesStore) =>
+export const selectActiveNotebook = (state: NotesStore): Notebook | null =>
   state.notebooks.find(nb => nb.id === state.activeNotebookId) ?? null
 
 /** 使用 coreSlice 中缓存的 activeDoc，避免每次渲染都执行两次 find */
-export const selectActiveDoc = (state: NotesStore) => state.activeDoc
+export const selectActiveDoc = (state: NotesStore): NoteDoc | null => state.activeDoc

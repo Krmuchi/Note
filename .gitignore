@@ -19,12 +19,31 @@ dist-ssr
 test-results
 playwright-report
 
+# 验证脚本截图 / 探针产物（scripts/*.mjs 生成，不入库）
+artifacts/
+
+# 打包产物（npm run dist）
+release
+
+# 应用图标由 scripts/build-icons.cjs 生成，不入库
+build/icon.ico
+build/icon.png
+build/tray.png
+
 # AI 工具本地目录
 .claude
 .codebuddy
 .workbuddy
+.workbuddy-ai
 .mimosa
 .zcode
+.trae
+
+# 临时探针文件
+.vt2.txt
+.vt2e.txt
+.vt3.txt
+.vt3e.txt
 
 # Editor directories and files
 .vscode/*

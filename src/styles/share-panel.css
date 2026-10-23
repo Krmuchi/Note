@@ -236,7 +236,7 @@
   background: var(--bg-tertiary);
 }
 
-.share-password-input:focus {
+.share-password-input:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--primary-500);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -262,7 +262,7 @@
   background-position: right 10px center;
 }
 
-.share-select:focus {
+.share-select:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--primary-500);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -271,7 +271,7 @@
 .share-generate-btn {
   height: 40px;
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   border: none;
   border-radius: var(--radius-lg);
   font-size: var(--font-size-md);
@@ -343,7 +343,7 @@
   min-width: 0;
 }
 
-.share-url-input:focus {
+.share-url-input:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -371,6 +371,26 @@
   background: var(--success-50);
   border-color: var(--success-500);
   color: var(--success-600);
+}
+
+/* 导出 HTML：分享面板里唯一能真正把内容发给别人的出口，比"复制"更需要被看到 */
+.share-export-btn {
+  padding: 0 var(--space-3);
+  height: 32px;
+  border: 1px solid var(--primary-500, var(--primary-color));
+  border-radius: var(--radius-md);
+  background: var(--primary-50, transparent);
+  color: var(--primary-600, var(--primary-color));
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.share-export-btn:hover {
+  background: var(--primary-500, var(--primary-color));
+  color: #fff;
 }
 
 .share-link-meta {

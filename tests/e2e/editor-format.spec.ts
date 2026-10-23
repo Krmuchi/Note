@@ -5,7 +5,7 @@ test('文字颜色插入链路', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.app-shell')).toBeVisible();
 
-  await page.getByRole('button', { name: '新建知识库' }).click();
+  await page.locator('.btn-add-notebook').click();
   await expect(page.locator('.notebook-name').first()).toBeVisible();
   await page.getByRole('button', { name: '新建文档' }).first().click();
   const editor = page.locator('.editor-textarea');
@@ -27,7 +27,6 @@ test('文字颜色插入链路', async ({ page }) => {
   await page.waitForTimeout(300);
 
   const value = await editor.inputValue();
-  console.log('TEXTAREA VALUE:', JSON.stringify(value));
 
   // 预览渲染管线已由组件测试覆盖（MarkdownPreview.pipeline.test.tsx），
   // 此处断言源码插入成功即可（新建文档默认编辑模式，无预览面板）
@@ -39,7 +38,7 @@ test('文字高亮插入链路', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.app-shell')).toBeVisible();
 
-  await page.getByRole('button', { name: '新建知识库' }).click();
+  await page.locator('.btn-add-notebook').click();
   await expect(page.locator('.notebook-name').first()).toBeVisible();
   await page.getByRole('button', { name: '新建文档' }).first().click();
   const editor = page.locator('.editor-textarea');
@@ -57,6 +56,5 @@ test('文字高亮插入链路', async ({ page }) => {
   await page.waitForTimeout(300);
 
   const value = await editor.inputValue();
-  console.log('HIGHLIGHT TEXTAREA VALUE:', JSON.stringify(value));
   expect(value).toContain('<mark');
 });

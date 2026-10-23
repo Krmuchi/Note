@@ -170,12 +170,12 @@ export function autoPairMarker(ta: HTMLTextAreaElement, key: string): boolean {
   const before = value.substring(0, pos);
   const after = value.substring(pos);
 
-  const skip = (len: number) => {
+  const skip = (len: number): boolean => {
     ta.selectionStart = ta.selectionEnd = pos + len;
     return true;
   };
 
-  const insertPair = (text: string, cursorOffset: number) => {
+  const insertPair = (text: string, cursorOffset: number): boolean => {
     const next = value.substring(0, pos) + text + after;
     ta.value = next;
     ta.selectionStart = ta.selectionEnd = pos + cursorOffset;
@@ -271,16 +271,24 @@ const RE_ULIST = /^(\s*)([-*+])(\s+)([\s\S]*)$/;
 const RE_OLIST = /^(\s*)(\d+)([.)])(\s+)([\s\S]*)$/;
 const RE_QUOTE = /^(\s*)(>\s?)([\s\S]*)$/;
 
-/** 在光标/选区处插入纯文本（用于纯文本粘贴、HTML→Markdown 粘贴等） */
-export function insertTextAtCursor(ta: HTMLTextAreaElement, text: string): string | null {
+/**
+ * 在光标/选区处插入文本（用于纯文本粘贴、HTML→Markdown 粘贴、图片/代码块插入等），
+ * 并把光标放到"插入文本内"的指定偏移处（如代码块：光标应落在围栏内首行，
+ * 而不是整段代码块之后）。offset 会被夹在 [0, text.length] 内。
+ */
+export function insertTextWithCursor(ta: HTMLTextAreaElement, text: string, cursorOffset: number): string {
   const start = ta.selectionStart;
   const end = ta.selectionEnd;
   const value = ta.value;
   const next = value.substring(0, start) + text + value.substring(end);
   ta.value = next;
-  ta.selectionStart = ta.selectionEnd = start + text.length;
+  ta.selectionStart = ta.selectionEnd = start + Math.max(0, Math.min(cursorOffset, text.length));
   ta.focus();
   return next;
+}
+
+export function insertTextAtCursor(ta: HTMLTextAreaElement, text: string): string | null {
+  return insertTextWithCursor(ta, text, text.length);
 }
 
 /** 在光标/选区处插入标记文本，并把光标移到标记之后 */

@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import {
   cancelAllStreams,
   createRequestId,
   getActiveStreamCount,
   openStreamSession,
 } from '@/services/ai/stream'
-import type { AiStreamEvent } from '@/types/ai'
+import type { AiStreamEvent, StreamHandlers } from '@/types/ai'
 
 type StreamListener = (event: AiStreamEvent) => void
 
@@ -32,7 +32,12 @@ function emit(requestId: string, event: AiStreamEvent): void {
   listeners.get(requestId)?.(event)
 }
 
-function makeHandlers() {
+function makeHandlers(): {
+  onDelta: Mock<StreamHandlers['onDelta']>
+  onDone: Mock<StreamHandlers['onDone']>
+  onError: Mock<StreamHandlers['onError']>
+  onMeta: Mock<NonNullable<StreamHandlers['onMeta']>>
+} {
   return {
     onDelta: vi.fn(),
     onDone: vi.fn(),

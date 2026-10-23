@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import { getCursorPosition } from './cursorPosition';
 
 interface EditorStatusBarProps {
   content: string;
@@ -6,10 +7,27 @@ interface EditorStatusBarProps {
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
   /** 当前挂载的 textarea DOM 节点（节点重建后监听器需重新绑定） */
   textareaNode?: HTMLTextAreaElement | null;
+  /**
+   * 富文本内核的光标位置来源。
+   *
+   * contenteditable 没有 selectionStart/End，`textareaNode` 为 null 时
+   * 原来的实现会直接 return —— 状态栏的行列号会**永久停在"行 1, 列 1"**。
+   * 传入这个函数后，改为监听文档的 selectionchange 并用它算行列号。
+   */
+  cursorInfoProvider?: () => { line: number; column: number; selectedChars: number; selectedWords: number } | null;
+  /** 富文本内核的编辑器根节点（用于判断选区是否在编辑器内） */
+  richEditorRoot?: HTMLElement | null;
 }
 
 /** 统计文本信息 */
-function countTextStats(text: string) {
+function countTextStats(text: string): {
+  characters: number;
+  charactersNoSpaces: number;
+  words: number;
+  lines: number;
+  paragraphs: number;
+  readingTime: number;
+} {
   if (!text) {
     return {
       characters: 0,
@@ -68,20 +86,8 @@ function formatNumber(num: number): string {
   return num.toLocaleString('zh-CN');
 }
 
-/** 获取光标位置信息 */
-function getCursorPosition(text: string, selectionStart: number) {
-  if (!text) return { line: 1, column: 1 };
-  
-  const beforeCursor = text.substring(0, selectionStart);
-  const lines = beforeCursor.split('\n');
-  const line = lines.length;
-  const column = lines[lines.length - 1].length + 1;
-  
-  return { line, column };
-}
-
 /** 获取选中文本信息 */
-function getSelectionInfo(text: string, selectionStart: number, selectionEnd: number) {
+function getSelectionInfo(text: string, selectionStart: number, selectionEnd: number): { selectedChars: number; selectedWords: number } {
   if (!text || selectionStart === selectionEnd) {
     return { selectedChars: 0, selectedWords: 0 };
   }
@@ -106,6 +112,8 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
   className = '',
   textareaRef,
   textareaNode,
+  cursorInfoProvider,
+  richEditorRoot,
 }) => {
   const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 });
   const [selectionInfo, setSelectionInfo] = useState({ selectedChars: 0, selectedWords: 0 });
@@ -138,7 +146,7 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
     const ta = textareaNode;
     if (!ta) return;
 
-    const handleSelectionChange = () => {
+    const handleSelectionChange = (): void => {
       updateCursorPosition();
     };
 
@@ -158,6 +166,36 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
     updateCursorPosition();
   }, [content, updateCursorPosition]);
 
+  /**
+   * 富文本内核：监听文档级 selectionchange 更新行列号。
+   *
+   * 不能用 textarea 的 click/keyup/select 那套 —— contenteditable 的选区变化
+   * 只体现在 document 的 selectionchange 事件上（键盘移动光标、鼠标拖选、
+   * 点选都会触发）。用 rAF 延后一拍：事件触发时选区有时还没完成布局。
+   */
+  useEffect(() => {
+    if (!cursorInfoProvider) return;
+
+    const handle = (): void => {
+      requestAnimationFrame(() => {
+        const info = cursorInfoProvider();
+        if (!info) return;
+        // 选区不在编辑器内（例如点了侧栏）时保持上一次的值，避免闪烁成"行1,列1"
+        if (!richEditorRoot) return;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+        if (!richEditorRoot.contains(sel.getRangeAt(0).startContainer)) return;
+
+        setCursorPosition({ line: info.line, column: info.column });
+        setSelectionInfo({ selectedChars: info.selectedChars, selectedWords: info.selectedWords });
+      });
+    };
+
+    document.addEventListener('selectionchange', handle);
+    handle();
+    return () => document.removeEventListener('selectionchange', handle);
+  }, [cursorInfoProvider, richEditorRoot]);
+
   return (
     <div className={`editor-status-bar ${className}`}>
       <div className="status-bar-left">
@@ -168,38 +206,39 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
           </svg>
           <span>{formatNumber(stats.words)} 字</span>
         </span>
-        <span className="status-divider">|</span>
-        <span className="status-item" title="字符数（不含空格）">
-          {formatNumber(stats.charactersNoSpaces)} 字符
-        </span>
-        <span className="status-divider">|</span>
-        <span className="status-item" title="行数">
-          {formatNumber(stats.lines)} 行
-        </span>
-        <span className="status-divider">|</span>
-        <span className="status-item" title="段落数">
-          {formatNumber(stats.paragraphs)} 段
+        <span className="status-bar-extra">
+          <span className="status-divider">|</span>
+          <span className="status-item" title="字符数（不含空格）">
+            {formatNumber(stats.charactersNoSpaces)} 字符
+          </span>
+          <span className="status-divider">|</span>
+          <span className="status-item" title="行数">
+            {formatNumber(stats.lines)} 行
+          </span>
+          <span className="status-divider">|</span>
+          <span className="status-item" title="段落数">
+            {formatNumber(stats.paragraphs)} 段
+          </span>
         </span>
         {selectionInfo.selectedChars > 0 && (
-          <>
-            <span className="status-divider">|</span>
-            <span className="status-item status-selection" title="选中文本">
-              已选择 {formatNumber(selectionInfo.selectedChars)} 字符
-            </span>
-          </>
+          <span className="status-item status-selection" title="选中文本">
+            已选择 {formatNumber(selectionInfo.selectedChars)} 字符
+          </span>
         )}
       </div>
       <div className="status-bar-right">
+        <span className="status-bar-extra">
+          <span className="status-item" title="预计阅读时间">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            <span>约 {stats.readingTime} 分钟阅读</span>
+          </span>
+          <span className="status-divider">|</span>
+        </span>
         <span className="status-item" title="光标位置">
           行 {cursorPosition.line}, 列 {cursorPosition.column}
-        </span>
-        <span className="status-divider">|</span>
-        <span className="status-item" title="预计阅读时间">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
-          <span>约 {stats.readingTime} 分钟阅读</span>
         </span>
       </div>
     </div>

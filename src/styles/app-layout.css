@@ -7,10 +7,28 @@
   background: var(--bg-secondary);
 }
 
+/*
+ * 外壳画布：各面板是圆角卡片，靠间隙与圆角表达边界，不再用 1px 分隔线硬拼。
+ * 画布必须比卡片（--bg-primary）深一档，否则间隙完全看不见。
+ * 桌面端的间隙由 .resize-handle 的宽度承担（手柄是 flex 子项，此处再加 gap 会算两次）；
+ * 移动端的 gap 见 responsive.css（那里手柄已 display:none）。
+ */
 .app-shell {
   height: 100vh;
   width: 100%;
   display: flex;
-  background: var(--bg-primary);
+  background: var(--bg-canvas);
+  padding: var(--space-2);
   overflow: hidden;
+}
+
+/*
+ * 收藏视图（FavoriteView）直接渲染 .docs-sidebar + 编辑器、没有 ResizeHandle，
+ * 两张卡会紧贴。相邻兄弟选择器只命中这种情况：NotebooksView 里两者之间夹着手柄。
+ * 限定桌面——移动端是纵向排列，多余的 8px 横向外边距会把卡片挤出容器。
+ */
+@media (min-width: 769px) {
+  .docs-sidebar + .editor-panel {
+    margin-left: var(--space-2);
+  }
 }

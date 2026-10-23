@@ -1,3 +1,8 @@
+/*
+ * 卡片化：外壳里最后一张卡（编辑器 / 小记 / 标签 / 回收站都复用本类）。
+ * overflow:hidden 保留 —— 它同时负责裁圆角、并阻止 .eh-header（z-index:20）
+ * 盖住调宽手柄那 2px 的命中区。
+ */
 .editor-panel {
   flex: 1;
   display: flex;
@@ -5,6 +10,8 @@
   background: var(--bg-primary);
   overflow: hidden;
   min-width: 0;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
 }
 
 .editor-header {
@@ -53,7 +60,7 @@
   color: var(--text-placeholder);
 }
 
-.editor-title-input:focus {
+.editor-title-input:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -164,7 +171,7 @@
   width: auto;
   padding: 0 var(--space-4);
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   border: none;
   font-weight: 500;
   font-size: var(--font-size-base);
@@ -471,7 +478,7 @@
   border-color: var(--text-tertiary);
 }
 
-.toolbar-select:focus {
+.toolbar-select:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--border-active);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -602,6 +609,190 @@
   min-height: 0;
 }
 
+/* ===== 文档信息面板 ===== */
+.doc-info-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+
+.doc-info-panel {
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.doc-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.doc-info-title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
+}
+
+.doc-info-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.doc-info-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.doc-info-modal-title {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-lg, 16px);
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-info-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+}
+
+.doc-info-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px dashed var(--border-secondary, var(--border-color));
+  font-size: var(--font-size-sm);
+}
+
+.doc-info-row:last-child {
+  border-bottom: none;
+}
+
+.doc-info-label {
+  flex: 0 0 84px;
+  color: var(--text-tertiary);
+}
+
+.doc-info-value {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* ===== 多标签页（对齐语雀的横向文档切换） =====
+   只在打开 2 篇以上文档时出现；单标签时组件直接返回 null，不占高度。
+   它是编辑卡片的第一行，与下方顶栏同底、仅用一条细线分隔。 */
+.doc-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px var(--space-2);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-secondary);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  flex-shrink: 0;
+}
+
+.doc-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border: none;
+  border-radius: var(--radius-md, 6px);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.doc-tab:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.doc-tab.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.doc-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.doc-tab-close {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+/* 关闭按钮默认隐藏，hover/聚焦当前标签时才露出：避免一排 × 干扰阅读 */
+.doc-tab:hover .doc-tab-close,
+.doc-tab.active .doc-tab-close,
+.doc-tab:focus-within .doc-tab-close {
+  opacity: 1;
+}
+
+.doc-tab-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* 无 hover 能力的设备（触屏）常显，否则无法关闭标签 */
+@media (hover: none) {
+  .doc-tab-close {
+    opacity: 1;
+  }
+}
+
 /* 编辑内容包装器 - 仅编辑模式 */
 .editor-content-wrapper {
   flex: 1;
@@ -609,6 +800,8 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  /* 查找命中刻度带以它为定位上下文（绝对定位在右缘） */
+  position: relative;
 }
 
 .editor-body-wrapper .editor-content {
@@ -633,13 +826,26 @@
   overflow: hidden;
 }
 
+/*
+ * 编辑区正文宽度。
+ *
+ * 之前正文贴着左边缘、宽屏下右侧留一大片空白，行长变得不可读 ——
+ * 这是与语雀/Notion 排版上最明显的差距（它们的内容栏居中限宽约 760px）。
+ *
+ * 注意实现方式：textarea 是 width:100% 的表单控件，若直接给它 max-width + margin:auto，
+ * 它的**滚动条也会跟着变窄**、背景不再铺满面板。正确做法是保持满宽，
+ * 用左右内边距把**文字**推到居中位置（padding 随视口宽度自适应，窄屏自动收回）。
+ */
 .editor-textarea {
   flex: 1;
   width: 100%;
   min-height: 200px;
   resize: none;
   border: none;
-  padding: var(--space-8) var(--space-6);
+  /* 左侧内边距 = 基础边距 + 居中偏移；右侧对称 */
+  padding: var(--space-8) max(var(--space-6), calc((100% - 760px) / 2));
+  /* 底部留白：右下角悬浮状态胶囊不遮挡最后一行 */
+  padding-bottom: var(--space-10);
   /* 跟随设置面板的字体主题（data-font），未设置时用编辑器默认栈兜底 */
   font-family: var(--font-family-base, "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
   font-size: var(--font-size-lg);
@@ -652,23 +858,13 @@
   transition: background var(--transition-fast);
 }
 
-@media (min-width: 900px) {
-  .editor-textarea {
-    /* 移除最大宽度限制，让编辑器占满整个可用宽度 */
-    max-width: none;
-    margin: 0;
-    display: block;
-    padding: var(--space-8) var(--space-6);
-  }
-}
-
 @media (max-width: 900px) {
   .editor-textarea {
     padding: var(--space-6) var(--space-4);
   }
 }
 
-.editor-textarea:focus {
+.editor-textarea:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -704,7 +900,7 @@
   margin-top: var(--space-2);
   padding: var(--space-2) var(--space-5);
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   border: none;
   border-radius: var(--radius-lg);
   font-size: var(--font-size-md);
@@ -723,11 +919,6 @@
   transform: scale(0.97);
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
-}
-
 .outline-panel {
   width: 260px;
   border-left: 1px solid var(--border-secondary);
@@ -736,11 +927,6 @@
   flex-direction: column;
   flex-shrink: 0;
   animation: slideInRight 0.2s ease;
-}
-
-@keyframes slideInRight {
-  from { transform: translateX(20px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
 }
 
 .outline-header {
@@ -812,6 +998,17 @@
   color: var(--text-primary);
 }
 
+/* 当前阅读位置所在章节（跟随滚动高亮，对齐语雀大纲的行为）。
+   选择器带 .outline-item 前缀是为了压过上面各 heading-level-* 的颜色规则 ——
+   那些规则同样是 .outline-item.heading-level-N，特异性相同，靠后定义才生效 */
+.outline-item.active {
+  background: var(--bg-active, var(--bg-tertiary));
+  color: var(--primary-color);
+  font-weight: 600;
+  /* 左侧色条：滚动时一眼能定位当前章节，不依赖背景色差 */
+  box-shadow: inset 2px 0 0 var(--primary-color);
+}
+
 .outline-item.heading-level-1 {
   font-weight: 600;
   color: var(--text-primary);
@@ -866,6 +1063,12 @@
   font-size: var(--font-size-sm);
   outline: none;
   transition: border-color var(--transition-fast);
+}
+
+.outline-search-input:focus-visible {
+  /* A3：基础规则里的 outline: none 会压掉全局键盘焦点环，这里补回一条 */
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
 }
 
 .outline-search-input:focus {
@@ -1067,6 +1270,84 @@
   margin-bottom: var(--space-2);
 }
 
+/* ===== 划词评论：被选中的原文引用 =====
+   点击可跳回正文对应位置；锚点因编辑漂移过时会用虚左边框区分 */
+.comment-quote {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: var(--space-2);
+  padding: 4px 8px;
+  border: none;
+  border-left: 3px solid var(--primary-color);
+  border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  cursor: pointer;
+  /* 引用可能很长：限制三行，避免评论列表被一段正文淹没 */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.comment-quote:hover {
+  background: var(--bg-active, var(--bg-tertiary));
+  color: var(--text-primary);
+}
+
+.comment-quote-moved {
+  border-left-style: dashed;
+  border-left-color: var(--text-tertiary);
+}
+
+/* 待评论选区提示：让用户确认这条评论挂在哪段文字上 */
+.comment-pending-quote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  padding: 6px 8px;
+  border-left: 3px solid var(--primary-color);
+  border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0;
+  background: var(--bg-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.comment-pending-label {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs, 12px);
+}
+
+.comment-pending-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.comment-pending-cancel {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.comment-pending-cancel:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
 .comment-actions {
   display: flex;
   gap: var(--space-2);
@@ -1168,7 +1449,7 @@
   box-sizing: border-box;
 }
 
-.reply-input:focus {
+.reply-input:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--primary-500);
 }
@@ -1195,7 +1476,7 @@
   border: none;
   border-radius: var(--radius-sm);
   background: var(--primary-500);
-  color: white;
+  color: var(--on-primary, #fff);
   font-size: var(--font-size-xs);
   cursor: pointer;
 }
@@ -1227,7 +1508,7 @@
   box-sizing: border-box;
 }
 
-.comment-input:focus {
+.comment-input:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--primary-500);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -1246,7 +1527,7 @@
 .comment-submit-btn {
   padding: var(--space-1) var(--space-4);
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   border: none;
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
@@ -1310,7 +1591,7 @@
   height: 48px;
   padding: 0 var(--space-4);
   background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: none;
   position: relative;
 }
 
@@ -1336,6 +1617,12 @@
   outline: none;
   transition: background var(--transition-fast);
   text-overflow: ellipsis;
+}
+
+.eh-title-input:focus-visible {
+  /* A3：基础规则里的 outline: none 会压掉全局键盘焦点环，这里补回一条 */
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
 }
 
 .eh-title-input:hover {
@@ -1483,6 +1770,7 @@
 
 /* ===== 第二层：格式工具栏 ===== */
 .eh-toolbar {
+  position: relative;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
@@ -1497,23 +1785,100 @@
   gap: var(--space-1);
 }
 
+/*
+ * 主工具栏允许换行。
+ *
+ * 旧实现是 `overflow-x: auto` + 隐藏滚动条：窄窗口下后半排按钮被裁掉，
+ * 且没有任何滚动提示 —— 「表格 / 分割线 / 清除格式」看起来像不存在。
+ * 换行保证每个按钮都可见可点；宽窗口下仍然只占一行。
+ */
 .eh-toolbar-row-primary {
   position: relative;
+  height: auto;
+  min-height: 40px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
-.eh-toolbar-row-secondary {
-  overflow: hidden;
-  max-height: 0;
-  opacity: 0;
-  transition: max-height 200ms ease-in-out, opacity 200ms ease-in-out, box-shadow 200ms ease-in-out;
-  box-shadow: none;
+/*
+ * 低频格式浮层（原"常驻第二行"）。
+ *
+ * 旧实现用 max-height 动画把第二行展开在页头里，页头高度从 88px 涨到 128px，
+ * 正文可用高度随开关跳变。改成绝对定位浮层后：
+ * - 页头高度恒定，不挤压正文；
+ * - 可以写分组标题（"文字" / "段落与插入"），图标不再是无说明的孤岛。
+ */
+.eh-format-popover-anchor {
+  position: absolute;
+  top: calc(100% - 2px);
+  right: var(--space-3);
+  z-index: 60;
 }
 
-.eh-toolbar.expanded .eh-toolbar-row-secondary {
-  max-height: 48px;
-  opacity: 1;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  background: var(--bg-primary);
+.eh-format-popover {
+  width: 264px;
+  padding: var(--space-2) var(--space-2) var(--space-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  animation: ehFadeInDown 150ms ease;
+}
+
+.eh-format-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+  letter-spacing: 0.3px;
+}
+
+.eh-format-popover-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.eh-format-popover-close:hover {
+  background: var(--bg-quaternary);
+  color: var(--text-primary);
+}
+
+.eh-format-popover-close svg {
+  width: 12px;
+  height: 12px;
+}
+
+.eh-format-section + .eh-format-section {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-secondary);
+}
+
+.eh-format-label {
+  display: block;
+  padding: 0 var(--space-1) var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+
+.eh-format-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
 }
 
 .eh-toolbar-left,
@@ -1528,24 +1893,23 @@
 
 .eh-toolbar-left {
   flex: 1;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
 
-.eh-toolbar-left::-webkit-scrollbar {
-  display: none;
-}
-
-/* ===== 添加按钮（绿色圆形） ===== */
+/* ===== 添加按钮（圆形插入入口，语雀式） =====
+   工具栏最左侧的「+」是插入面板入口。语雀把它做成绿色圆形主按钮，
+   这里用主题主色实心圆：在一排线性图标中一眼可辨，且不依赖 emoji。 */
 .eh-add-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: none;
-  border-radius: var(--radius-round);
-  background: var(--success-500);
+  border-radius: var(--radius-round, 50%);
+  background: var(--primary-500);
+  color: var(--on-primary, #fff);
   cursor: pointer;
   transition: background 150ms ease, transform 150ms ease;
   flex-shrink: 0;
@@ -1553,17 +1917,16 @@
 }
 
 .eh-add-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 
 .eh-add-btn:hover {
-  background: var(--success-600);
-  transform: scale(1.05);
+  background: var(--primary-600);
 }
 
 .eh-add-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.94);
 }
 
 /* ===== 下拉菜单 ===== */
@@ -1662,6 +2025,9 @@
 .eh-heading-h1 { font-size: var(--font-size-lg); font-weight: 700; }
 .eh-heading-h2 { font-size: var(--font-size-md); font-weight: 600; }
 .eh-heading-h3 { font-size: var(--font-size-sm); font-weight: 500; }
+.eh-heading-h4 { font-size: var(--font-size-sm); font-weight: 400; }
+.eh-heading-h5 { font-size: var(--font-size-xs); font-weight: 400; }
+.eh-heading-h6 { font-size: var(--font-size-xs); font-weight: 400; color: var(--text-secondary); }
 
 /* ===== 颜色选择器 ===== */
 .eh-color-picker {
@@ -1812,8 +2178,44 @@
 
 /* 添加按钮已使用 --success-500/600 主题变量，暗色主题自动跟随，无需单独覆盖 */
 
-[data-theme="dark"] .eh-toolbar.expanded .eh-toolbar-row-secondary {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+[data-theme="dark"] .eh-format-popover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+}
+
+/* 顶栏「分享」：唯一带文字的按钮，避免一排同形图标难以分辨 */
+.eh-share-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 15px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.eh-share-btn:hover {
+  background: var(--primary-50);
+  border-color: var(--primary-200, var(--primary-100));
+  color: var(--primary-600);
+}
+
+.eh-share-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 菜单项右侧的快捷键提示 */
+.eh-menu-hint {
+  margin-left: auto;
+  padding-left: var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
 }
 
 /* ===== 工具栏分组优化 ===== */
@@ -1960,18 +2362,46 @@
   display: none;
 }
 
-/* ===== 编辑器状态栏 ===== */
+/* ===== 编辑器状态栏 =====
+   语雀式弱化：不再是横贯底部的整条灰带，而是右下角一枚悬浮胶囊。
+   默认只显示「字数 + 行列号」，悬停时才展开字符 / 段落 / 阅读时长。
+   用负上边距浮在正文之上，不占布局高度（正文底部已预留滚动空间）。 */
 .editor-status-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 16px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
-  font-size: 12px;
+  gap: 10px;
+  align-self: flex-end;
+  width: fit-content;
+  margin: -32px 14px 8px auto;
+  padding: 3px 10px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-round, 999px);
+  background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
   color: var(--text-tertiary);
   user-select: none;
   flex-shrink: 0;
+  position: relative;
+  z-index: 5;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.editor-status-bar:hover {
+  opacity: 1;
+}
+
+/* 次要统计默认收起，悬停展开；避免底栏常态占满一行 */
+.status-bar-extra {
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-status-bar:hover .status-bar-extra {
+  display: inline-flex;
 }
 
 .status-bar-left,
@@ -2057,7 +2487,7 @@
 .markdown-preview {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 32px;
+  padding: 24px 32px 48px;
   background: var(--bg-primary);
 }
 
@@ -2083,6 +2513,7 @@
   .editor-status-bar {
     font-size: 11px;
     padding: 2px 8px;
+    margin: -30px 8px 6px auto;
   }
 }
 
@@ -2268,4 +2699,45 @@
   font-size: 13px;
   color: var(--text-tertiary);
   text-align: center;
+}
+/*
+ * 工具栏按钮紧凑化（对齐语雀的 28px 图标密度）。
+ * 主工具栏项目多，32px + 4px 间距在 1440 宽窗口下会被迫换行；
+ * 收紧后常见窗口宽度可以保持单行，窄窗口仍由 flex-wrap 兜底。
+ */
+.eh-toolbar .eh-icon-btn {
+  width: 28px;
+  height: 28px;
+}
+
+.eh-toolbar-left,
+.eh-toolbar-right {
+  gap: 2px;
+}
+
+.eh-toolbar .eh-divider {
+  margin: 0 4px;
+}
+
+/* 下拉按钮（正文 / 15 / 对齐等）不允许被 flex 压成竖排文字 */
+.eh-toolbar .eh-btn-text {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ---------- 评论锚点高亮 ---------- */
+/*
+ * CSS Custom Highlight：只影响绘制，DOM 完全不变。
+ * 用 <mark> 包裹会把标记写进 Markdown，并打乱偏移换算（见 commentHighlight.ts）。
+ */
+::highlight(note-comments) {
+  background-color: rgba(250, 173, 20, 0.26);
+  text-decoration: underline;
+  text-decoration-color: rgba(212, 107, 8, 0.85);
+  text-decoration-thickness: 2px;
+}
+
+[data-theme='dark'] ::highlight(note-comments) {
+  background-color: rgba(250, 173, 20, 0.32);
+  text-decoration-color: rgba(255, 197, 61, 0.9);
 }

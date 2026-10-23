@@ -1,3 +1,6 @@
+/* 断点数值需与 src/utils/breakpoints.ts 保持一致（TS 侧唯一来源）：
+   1200 / 992 / 768 / 576 —— CSS 无法读取 TS 常量，改动时请两处同步 */
+
 @media (max-width: 1200px) {
   .start-panel {
     padding: var(--space-6) var(--space-6);
@@ -29,6 +32,8 @@
 @media (max-width: 768px) {
   .app-shell {
     flex-direction: column;
+    /* 桌面端的间隙由 .resize-handle 的宽度承担；移动端手柄 display:none，改用 gap */
+    gap: var(--space-2);
   }
 
   .main-sidebar {
@@ -36,10 +41,9 @@
     height: auto;
     max-height: 56px;
     flex-direction: row;
+    /* 必须保留 visible：抽屉 .mobile-nav-panel 是 absolute; top:100% 挂在本元素下的 */
     overflow: visible;
     padding: var(--space-2) var(--space-3);
-    border-right: none;
-    border-bottom: 1px solid var(--border-color);
   }
 
   /* 顶部条需高于遮罩，保证抽屉开关与关闭按钮始终可点 */
@@ -121,8 +125,6 @@
   .docs-sidebar {
     width: 100%;
     max-height: 200px;
-    border-right: none;
-    border-bottom: 1px solid var(--border-color);
   }
 
   /* ---- 移动端文档列表：默认只留标题栏，点开展开 ---- */
@@ -186,6 +188,41 @@
 
   .version-history-overlay {
     width: 100%;
+  }
+}
+
+/* ============================================================
+   行内操作可达性兜底（体验优化方案 T1 / A1）
+
+   背景：文档行、标签行、便签行、侧栏"新建知识库"、模板卡片图标、侧栏调宽手柄
+   这 6 组操作按钮的基线都是 opacity: 0，只在 :hover 时才揭示。后果：
+   - 键盘用户 Tab 到这些按钮时按钮仍然不可见（焦点丢失，等于不可用）；
+   - 触屏/无 hover 设备上永远不揭示，功能直接不可达。
+
+   两条兜底（本文件在 App.css 中最后导入，可稳定覆盖前面的基线规则）：
+   1. :focus-within —— 键盘进入该行即揭示整组按钮；
+   2. @media (hover: none) —— 没有 hover 能力的设备上常显。
+   ============================================================ */
+
+.doc-item:focus-within .doc-actions,
+.tag-item:focus-within .tag-actions,
+.quick-note-item:focus-within .quick-note-item-actions,
+.resize-handle:focus-within .resize-handle-collapse-btn,
+.section-header:focus-within .btn-add-notebook,
+.template-card:focus-within .template-icon-large {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .doc-actions,
+  .tag-actions,
+  .quick-note-item-actions,
+  .resize-handle-collapse-btn,
+  .btn-add-notebook,
+  .template-icon-large {
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 

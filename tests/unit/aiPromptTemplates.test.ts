@@ -13,16 +13,22 @@ import {
   buildMessages,
   resolveParams,
 } from '../../electron/ai/prompt-templates.cjs'
+import { LIMITS } from '../../electron/ai/ai-validate.cjs'
 import {
   WRITING_STYLES,
   WRITING_LENGTHS,
   OPTIMIZE_ACTIONS,
   AI_CAPABILITIES,
+  INSTRUCTIONS_MAX_LENGTH,
 } from '@/services/ai/prompts'
 
 describe('prompt 模板与渲染端选项的 key 集合一致性（防双源漂移）', () => {
   it('风格 key 集合一致', () => {
     expect(STYLE_KEYS).toEqual(WRITING_STYLES.map((o) => o.value))
+  })
+
+  it('附加指令长度上限与主进程校验一致', () => {
+    expect(INSTRUCTIONS_MAX_LENGTH).toBe(LIMITS.INSTRUCTIONS_MAX)
   })
 
   it('长度 key 集合一致', () => {
@@ -105,6 +111,33 @@ describe('prompt 模板', () => {
 
   it('未知能力类型抛错', () => {
     expect(() => buildMessages({ capability: 'unknown' })).toThrow()
+  })
+
+  it('附加指令进入 user message 且不进入 system', () => {
+    const generate = buildMessages({ capability: 'generate', topic: 'T', instructions: '多用表格' })
+    expect(generate[1].content).toContain('附加要求：多用表格')
+    expect(generate[0].content).not.toContain('多用表格')
+
+    const optimize = buildMessages({ capability: 'optimize', text: '原文', action: 'polish', instructions: '保持术语' })
+    expect(optimize[1].content).toContain('附加要求：保持术语')
+    // 附加指令应位于原文之前，避免被模型当作待处理正文的一部分
+    expect(optimize[1].content.indexOf('附加要求')).toBeLessThan(optimize[1].content.indexOf('原文：'))
+    expect(optimize[0].content).not.toContain('保持术语')
+
+    const transform = buildMessages({ capability: 'transform', text: '原文', targetStyle: 'casual', instructions: '保留专有名词' })
+    expect(transform[1].content).toContain('附加要求：保留专有名词')
+    expect(transform[0].content).not.toContain('保留专有名词')
+  })
+
+  it('未提供附加指令时不产生多余文本', () => {
+    for (const payload of [
+      { capability: 'generate', topic: 'T' },
+      { capability: 'optimize', text: '原文', action: 'polish' },
+      { capability: 'transform', text: '原文', targetStyle: 'casual' },
+    ]) {
+      expect(buildMessages(payload)[1].content).not.toContain('附加要求')
+    }
+    expect(buildMessages({ capability: 'optimize', text: '原文', action: 'polish', instructions: '   ' })[1].content).not.toContain('附加要求')
   })
 
   it('四个优化动作都有非空指令', () => {

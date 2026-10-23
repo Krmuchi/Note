@@ -7,6 +7,8 @@ interface DocTreeNodeProps {
   doc: NoteDoc;
   depth: number;
   isActive: boolean;
+  /** 键盘导航的当前项（roving focus 的可视指示） */
+  isFocused?: boolean;
   isExpanded: boolean;
   hasChildren: boolean;
   /** 由父级（右键菜单"重命名"）驱动的行内编辑态 */
@@ -39,6 +41,7 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
   doc,
   depth,
   isActive,
+  isFocused = false,
   isExpanded,
   hasChildren,
   isEditingTitle = false,
@@ -88,7 +91,7 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
     }
   }, [editing]);
 
-  const handleSaveTitle = () => {
+  const handleSaveTitle = (): void => {
     if (editingTitle.trim()) {
       onSaveTitle({ ...doc, title: editingTitle.trim() });
     }
@@ -96,14 +99,19 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
     onTitleEditEnd?.();
   };
 
-  const handleCancelTitle = () => {
+  const handleCancelTitle = (): void => {
     setIsEditing(false);
     onTitleEditEnd?.();
   };
 
   return (
     <div
-      className={`doc-item ${isActive ? 'active' : ''} ${depth > 0 ? 'doc-item-nested' : ''} ${isDragOver && dragOverPosition === 'inside' ? 'drag-over-inside' : ''}`}
+      className={`doc-item ${isActive ? 'active' : ''} ${isFocused ? 'focused' : ''} ${depth > 0 ? 'doc-item-nested' : ''} ${isDragOver && dragOverPosition === 'inside' ? 'drag-over-inside' : ''}`}
+      data-doc-id={doc.id}
+      role="treeitem"
+      aria-selected={isActive}
+      aria-level={depth + 1}
+      aria-expanded={hasChildren ? isExpanded : undefined}
       style={{ paddingLeft: depth * 16 + 12 }}
       onClick={() => onDocClick(doc.id)}
       onContextMenu={(e) => onContextMenu(e, doc.id)}
@@ -122,6 +130,8 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
           type="checkbox"
           className="doc-select-checkbox"
           checked={isSelected}
+          // 读屏用户听到的必须不只是"复选框"，而是"选择哪一篇"
+          aria-label={`选择 ${doc.title || '未命名文档'}`}
           onChange={(e) => {
             e.stopPropagation();
             onSelect?.(doc.id);
@@ -154,6 +164,9 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
       {hasChildren && (
         <span
           className="doc-expand-icon"
+          role="button"
+          tabIndex={-1}
+          aria-label={isExpanded ? '收起' : '展开'}
           onClick={(e) => {
             e.stopPropagation();
             onToggleExpand(doc.id);

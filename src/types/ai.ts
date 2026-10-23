@@ -108,6 +108,8 @@ export interface AiConfigView {
   encryptionAvailable: boolean
   /** safeStorage 不可用时密钥仅本次运行有效，UI 需提示用户 */
   sessionOnlyKey: boolean
+  /** 磁盘上已有密文但无法解密（换账户/换机器）：必须提示重新填写，否则用户只看到反复 401 */
+  keyInvalid: boolean
   baseUrl: string
   model: string
   temperature: number
@@ -168,6 +170,8 @@ export interface GenerateInput {
   length: WritingLength
   includeOutline: boolean
   includeExamples: boolean
+  /** 附加要求（可选），作为 user message 的补充，不进入 system prompt */
+  instructions?: string
 }
 
 export interface OptimizeInput {
@@ -192,6 +196,8 @@ export interface CallOptions {
 export interface BatchOptions {
   signal?: AbortSignal
   continueOnError?: boolean
+  /** 跳过读缓存（仍会写缓存），与单次调用的 bypassCache 语义一致 */
+  bypassCache?: boolean
 }
 
 export interface StreamHandlers {

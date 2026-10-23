@@ -151,7 +151,7 @@
   border-color: var(--primary-300);
 }
 
-.favorite-select:focus {
+.favorite-select:focus:not(:focus-visible) {
   border-color: var(--primary-500);
   outline: none;
 }

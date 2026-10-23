@@ -43,7 +43,7 @@ test.describe('移动端文档列表', () => {
 
     // 窄窗口下侧栏整体收进导航抽屉，新建入口需先展开抽屉
     await page.locator('.mobile-nav-toggle').click();
-    await page.getByRole('button', { name: '新建知识库' }).click();
+    await page.locator('.btn-add-notebook').click();
     await expect(page.locator('.notebook-name').first()).toBeVisible();
 
     // 抽屉会遮住主区，进入编辑器前先收起

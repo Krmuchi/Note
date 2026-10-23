@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from "react";
+import type { JSX } from "react";
 import type { ShareLink } from "@/types";
+import { useNotesStore } from "@/store";
+import { exportHtmlDoc } from "@/services/storage";
+import { toast } from "@/components/common/Toast";
 
 /**
  * 分享面板组件属性接口
@@ -44,11 +48,13 @@ export default function SharePanel({
   isOpen,
   onClose,
   docTitle,
+  docId,
+  notebookId,
   shareLinks,
   onGenerateLink,
   onDeleteLink,
   onCopyLink,
-}: SharePanelProps) {
+}: SharePanelProps): JSX.Element | null {
   const [selectedPermission, setSelectedPermission] = useState('view');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -66,7 +72,7 @@ export default function SharePanel({
   /**
    * 处理生成分享链接
    */
-  const handleGenerate = () => {
+  const handleGenerate = (): void => {
     let expiresAt: string | null = null;
     if (expireOption) {
       const days = parseInt(expireOption.replace('d', ''));
@@ -80,9 +86,34 @@ export default function SharePanel({
   };
 
   /**
+   * 导出当前文档为自包含 HTML —— 单机应用里"分享"唯一能真正落地的形态。
+   *
+   * 为什么不直接用链接：ShareLink.url 只是本机标识，复制给别打不开。
+   * 与其让用户复制一个打不开的地址，不如给一个能直接发出去的文件。
+   * 内容从 store 现读（而不是 props）：面板打开期间用户可能在编辑器里改过。
+   */
+  const onExportShareHtml = async (): Promise<void> => {
+    const state = useNotesStore.getState()
+    const doc = state.notebooks
+      .find((nb) => nb.id === notebookId)
+      ?.docs.find((d) => d.id === docId)
+    if (!doc) {
+      toast.error('文档已不存在，无法导出')
+      return
+    }
+    try {
+      const ok = await exportHtmlDoc({ title: doc.title, content: doc.content })
+      if (ok) toast.success('已导出为 HTML，可直接发送给他人')
+    } catch (err) {
+      console.error('导出分享 HTML 失败:', err)
+      toast.error('导出失败，请重试')
+    }
+  };
+
+  /**
    * 处理复制链接（记录定时器 id，避免面板关闭后 setState）
    */
-  const handleCopy = (url: string) => {
+  const handleCopy = (url: string): void => {
     onCopyLink(url);
     setCopiedUrl(url);
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -92,7 +123,7 @@ export default function SharePanel({
   /**
    * 格式化日期显示
    */
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
     return date.toLocaleString('zh-CN', {
       year: 'numeric',
@@ -106,7 +137,7 @@ export default function SharePanel({
   /**
    * 获取有效期显示文本
    */
-  const getExpireDisplay = (expiresAt: string | null) => {
+  const getExpireDisplay = (expiresAt: string | null): string => {
     if (!expiresAt) return '永不过期';
     return `有效期至 ${formatDate(expiresAt)}`;
   };
@@ -114,17 +145,17 @@ export default function SharePanel({
   /**
    * 获取权限标签显示
    */
-  const getPermissionLabel = (permission: string) => {
+  const getPermissionLabel = (permission: string): string => {
     const option = permissionOptions.find(p => p.value === permission);
     return option?.label || permission;
   };
 
-  const isLinkExpired = (expiresAt: string | null) => {
+  const isLinkExpired = (expiresAt: string | null): boolean => {
     if (!expiresAt) return false;
     return new Date(expiresAt).getTime() < now;
   };
 
-  const getExpireStatusClass = (expiresAt: string | null) => {
+  const getExpireStatusClass = (expiresAt: string | null): string => {
     if (!expiresAt) return '';
     const remaining = new Date(expiresAt).getTime() - now;
     if (remaining <= 0) return 'expired';
@@ -156,7 +187,7 @@ export default function SharePanel({
             <h4 className="share-section-title">新建分享链接</h4>
             <div className="share-local-hint">
               <span className="hint-icon">ℹ️</span>
-              <span className="hint-text">生成的链接为本地预览标识，可用于导出分享，不支持在线访问</span>
+              <span className="hint-text">链接是本机标识，复制给别人打不开；要分享内容请用「导出 HTML」</span>
             </div>
             
             <div className="share-form">
@@ -257,6 +288,7 @@ export default function SharePanel({
                         value={link.url}
                         readOnly
                         className="share-url-input"
+                        title="本地标识，仅供本机识别；发给别人请用「导出 HTML」"
                       />
                       <button
                         className={`share-copy-btn ${copiedUrl === link.url ? 'copied' : ''}`}
@@ -264,6 +296,19 @@ export default function SharePanel({
                         disabled={isLinkExpired(link.expiresAt)}
                       >
                         {copiedUrl === link.url ? '✓ 已复制' : '复制'}
+                      </button>
+                      {/*
+                        链接是本机标识，复制出去对方打不开 —— 所以额外给一个真正能发出去的出口：
+                        导出为自包含的 HTML 文件（复用已有的 buildExportDocument，样式与打印一致）。
+                        这是"分享"在本机单机应用里唯一有意义的形态。
+                      */}
+                      <button
+                        type="button"
+                        className="share-export-btn"
+                        onClick={() => void onExportShareHtml()}
+                        title="导出为可发给别人的 HTML 文件"
+                      >
+                        导出 HTML
                       </button>
                     </div>
                     <div className="share-link-meta">

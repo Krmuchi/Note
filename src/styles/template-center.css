@@ -124,6 +124,12 @@
   outline: none;
 }
 
+.template-center-search .search-input:focus-visible {
+  /* A3：基础规则里的 outline: none 会压掉全局键盘焦点环，这里补回一条 */
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
+}
+
 .template-center-search .search-input::placeholder {
   color: var(--text-placeholder);
 }
@@ -184,7 +190,7 @@
 
 .category-btn.active {
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   border-color: var(--primary-color);
   font-weight: 500;
 }
@@ -392,7 +398,7 @@
 
 .template-preview-overlay .use-btn {
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
 }
 
 .template-preview-overlay .use-btn:hover {
@@ -699,7 +705,7 @@
   border-radius: var(--radius-lg);
   border: none;
   background: var(--primary-500);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
@@ -744,6 +750,12 @@
   outline: none;
 }
 
+.sort-select:focus-visible {
+  /* A3：基础规则里的 outline: none 会压掉全局键盘焦点环，这里补回一条 */
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
+}
+
 .sort-select:focus {
   border-color: var(--primary-400);
 }
@@ -770,6 +782,24 @@
   color: var(--warning-600);
 }
 
+/* 自定义模板删除按钮（卡片） */
+.template-delete-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  line-height: 1;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.template-delete-btn:hover {
+  color: var(--error-600);
+  transform: scale(1.2);
+}
+
 /* 预览面板中的收藏按钮 */
 .preview-fav-btn {
   padding: var(--space-2) var(--space-4);
@@ -790,6 +820,23 @@
 .preview-fav-btn.active {
   color: var(--warning-600);
   border-color: var(--warning-600);
+}
+
+/* 预览面板中的删除自定义模板按钮 */
+.btn-delete-template {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--error-600);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-delete-template:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--error-600);
 }
 
 /* 模板卡片中的信息布局调整 */
@@ -915,7 +962,7 @@
 
 .custom-template-modal .form-input:focus,
 .custom-template-modal .form-select:focus,
-.custom-template-modal .form-textarea:focus {
+.custom-template-modal .form-textarea:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--primary-500);
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
@@ -948,7 +995,7 @@
   border: none;
   border-radius: 8px;
   background: var(--primary-500);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;

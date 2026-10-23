@@ -9,6 +9,13 @@
   pointer-events: none;
 }
 
+/* 播报分级容器：error 走 role=alert（assertive），其余走 role=status（polite） */
+.toast-live-region {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 /* 注意：类名与 Toast.tsx 保持一致（.toast / .toast-message），
    此前 CSS 写的是 .toast-item / .toast-content，导致提示卡片完全没有样式 */
 .toast {
@@ -38,7 +45,8 @@
   left: 0;
   height: 2px;
   background: var(--primary-500);
-  animation: toastProgress 3s linear forwards;
+  /* 进度条时长跟随 toast 实际展示时长（ToastView 注入 --toast-duration） */
+  animation: toastProgress var(--toast-duration, 3s) linear forwards;
 }
 
 .toast.error::after {
@@ -104,6 +112,26 @@
   color: var(--text-primary);
 }
 
+/* 提示上的行动按钮（如"撤销"）：批量操作的补救入口，必须一眼可见 */
+.toast-action {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid var(--primary-color, #1677ff);
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--primary-color, #1677ff);
+  font-size: var(--font-size-sm, 13px);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.toast-action:hover {
+  background: var(--primary-color, #1677ff);
+  color: #fff;
+}
+
 .loading-container {
   display: flex;
   flex-direction: column;
@@ -143,11 +171,6 @@
 
 .loading-dots span:nth-child(3) {
   animation-delay: 0.4s;
-}
-
-@keyframes loading-dots {
-  0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
-  40% { transform: scale(1); opacity: 1; }
 }
 
 .loading-text {
@@ -241,11 +264,6 @@
   animation: skeleton-shimmer 1.4s ease infinite;
 }
 
-@keyframes skeleton-shimmer {
-  from { background-position: 100% 50%; }
-  to { background-position: 0 50%; }
-}
-
 /* 按钮内联加载态 */
 .button-loader {
   display: inline-flex;
@@ -326,7 +344,7 @@
 .error-boundary-btn.primary {
   background: var(--primary-500);
   border-color: var(--primary-500);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
 }
 
 .error-boundary-btn.primary:hover {
@@ -637,7 +655,7 @@
 
 .empty-state-btn.primary {
   background: var(--primary-500);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
 }
 
 .empty-state-btn.primary:hover {
@@ -822,4 +840,96 @@
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+/* ============================================
+   懒加载 / 面板加载态（V1 四态一致性）
+   之前 LazyLoader 用内联样式 + 硬编码 #999，既不跟随主题也和多处内联 fallback 不一致
+   ============================================ */
+
+.lazy-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
+  padding: var(--space-6);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+/* ---------- 提示块（callout） ---------- */
+/*
+ * 编辑区与预览共用：两处都渲染 <div class="md-callout">，样式必须一致，
+ * 否则编辑/预览切换时块会"变样"。颜色只借语义色变量，暗色主题自动跟随。
+ */
+.md-callout {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--callout-accent, var(--primary-500));
+  border-radius: var(--radius-md, 8px);
+  background: var(--callout-bg, var(--bg-secondary));
+  color: var(--text-primary);
+}
+
+.md-callout-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--callout-accent, var(--primary-600));
+}
+
+.md-callout-title svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+/*
+ * 默认标题用伪元素：不进入 textContent。
+ * 回写时靠"DOM 可见文本 == data-md 去标记后的文本"判断块是否被编辑过，
+ * 若把"提示"两个字写成真实节点，每块都会被判成"已编辑"而反复重新推导。
+ */
+.md-callout-title.is-default::after {
+  content: attr(data-label);
+}
+
+.md-callout p {
+  margin: 0 0 6px;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-relaxed);
+}
+
+.md-callout p:last-child {
+  margin-bottom: 0;
+}
+
+.md-callout-tip {
+  --callout-accent: var(--primary-500);
+  --callout-bg: var(--primary-50);
+}
+
+.md-callout-note {
+  --callout-accent: var(--text-tertiary);
+  --callout-bg: var(--bg-secondary);
+}
+
+.md-callout-warning {
+  --callout-accent: var(--warning-500);
+  --callout-bg: var(--warning-50);
+}
+
+.md-callout-danger {
+  --callout-accent: var(--error-500);
+  --callout-bg: var(--error-50);
+}
+
+.md-callout-success {
+  --callout-accent: var(--success-500);
+  --callout-bg: var(--success-50);
 }

@@ -10,6 +10,7 @@ import {
   clearFormatting,
   setAlignment,
   insertTextAtCursor,
+  insertTextWithCursor,
   buildTableMarkdown,
   buildCodeFence,
 } from '@/utils/editorTextOps';
@@ -26,9 +27,19 @@ export type FormatType =
   | 'indent' | 'outdent'
   | 'textColor' | 'highlight'
   | 'fontSize'
-  | 'table' | 'divider' | 'clearFormat';
+  | 'table' | 'divider' | 'clearFormat'
+  | 'math' | 'mermaid' | 'callout';
 
 interface UseEditorFormattingOptions {
+  /**
+   * 富文本内核的图片/附件插入接管。
+   *
+   * 旧路径最终调 `insertImage(textareaRef.current, src)` —— contenteditable 下
+   * textarea 为 null，`if (!ta) return` 会**静默什么都不做**（实测：粘贴图片后
+   * 编辑器内容被清空、图片没插入）。提供这个回调后，富文本内核改为
+   * "把 Markdown 图片语法追加到文档内容"，与旧内核最终效果一致。
+   */
+  onRichInsert?: (markdown: string) => void;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   /** 当前挂载的 textarea DOM 节点（预览切换会卸载/重建节点，依赖它使监听器重新绑定） */
   textareaNode: HTMLTextAreaElement | null;
@@ -41,10 +52,18 @@ interface UseEditorFormattingOptions {
 export function useEditorFormatting({
   textareaRef,
   textareaNode,
+  onRichInsert,
   activeDoc,
   updateDocContent,
   onLinkInsert,
-}: UseEditorFormattingOptions) {
+}: UseEditorFormattingOptions): {
+  activeFormats: Set<string>;
+  applyFormat: (type: FormatType, options?: { color?: string; size?: string; rows?: number; cols?: number; language?: string; callout?: string }) => void;
+  handlePaste: (ev: React.ClipboardEvent<HTMLTextAreaElement>) => void;
+  handleInsertImage: (file: File) => Promise<void>;
+  handleInsertFile: (file: File) => void;
+  handleInsertAnyFile: (file: File) => void;
+} {
   const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
 
   /**
@@ -157,7 +176,23 @@ export function useEditorFormatting({
     const ta = textareaNode;
     if (!ta) return;
 
-    const handlers = () => { setTimeout(detectFormats, 0); };
+    /*
+     * 延迟一拍再检测（让 textarea 的值先落定），但**必须可取消**：
+     * 旧写法每次 keyup/mouseup/click 都裸 setTimeout 且从不清除 ——
+     * 连续打字会堆积几十个待执行回调，每个都跑一遍 detectFormats（内部多次 substring），
+     * 而卸载后仍会执行，造成无效 setState。
+     * 现在只保留最后一个待执行任务：新事件到来时取消上一个，天然合并连击。
+     */
+    let pending: ReturnType<typeof setTimeout> | null = null;
+
+    const handlers = (): void => {
+      if (pending !== null) clearTimeout(pending);
+      pending = setTimeout(() => {
+        pending = null;
+        detectFormats();
+      }, 0);
+    };
+
     ta.addEventListener('keyup', handlers);
     ta.addEventListener('mouseup', handlers);
     ta.addEventListener('click', handlers);
@@ -166,19 +201,35 @@ export function useEditorFormatting({
       ta.removeEventListener('keyup', handlers);
       ta.removeEventListener('mouseup', handlers);
       ta.removeEventListener('click', handlers);
+      // 卸载时清掉挂起的检测，避免在已卸载的节点上跑 setState
+      if (pending !== null) {
+        clearTimeout(pending);
+        pending = null;
+      }
     };
   }, [textareaNode, detectFormats]);
 
-  /** 插入图片到 textarea */
-  const insertImage = useCallback((ta: HTMLTextAreaElement | null, src: string) => {
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const selectedText = ta.value.substring(start, end);
-    const imageMarkdown = `![${selectedText || 'image'}](${src})`;
-    ta.value = ta.value.substring(0, start) + imageMarkdown + ta.value.substring(end);
-    ta.selectionStart = ta.selectionEnd = start + imageMarkdown.length;
-  }, []);
+  /**
+   * 插入图片到 textarea。
+   * 走 editorTextOps 统一入口而非直接改 ta.value：
+   * 光标落点、焦点与返回值语义与其它插入路径一致，调用方只需照常回写 updateDocContent。
+   */
+  const insertImage = useCallback(
+    (ta: HTMLTextAreaElement | null, src: string) => {
+      /*
+       * 富文本内核：textarea 不存在，把图片语法交给 onRichInsert 追加到文档。
+       * 不这么做的话 `if (!ta) return` 会静默失败 ——
+       * 实测症状：粘贴图片后编辑器内容被清空、图片根本没插入。
+       */
+      if (!ta) {
+        onRichInsert?.(`![image](${src})`);
+        return;
+      }
+      const selectedText = ta.value.substring(ta.selectionStart, ta.selectionEnd);
+      insertTextAtCursor(ta, `![${selectedText || 'image'}](${src})`);
+    },
+    [onRichInsert],
+  );
 
   /** 读取文件为 data URL，尝试保存到本地后插入编辑器（失败则内联 data URL 兜底并提示） */
   const readAndInsertImage = useCallback((file: File) => {
@@ -187,19 +238,21 @@ export function useEditorFormatting({
       const data = (reader.result as string) || '';
       let src = data;
       try {
-        const saved = await saveImage({ name: file.name, data });
-        if (saved) {
-          src = saved;
-        } else {
-          // Electron 主进程保存失败时返回空串，回退为内联 base64 并告知用户影响
-          toast.warning('图片保存到磁盘失败，已内联插入（会增大文档体积）');
-        }
+        // 主进程落盘失败会抛出带原因的错误，回退为内联 base64 并告知用户影响
+        src = await saveImage({ name: file.name, data });
       } catch (err) {
         console.error('saveImage failed:', err);
         toast.warning('图片保存到磁盘失败，已内联插入（会增大文档体积）');
       }
       insertImage(textareaRef.current, src);
-      updateDocContent({ content: textareaRef.current?.value || '' });
+      /*
+       * 富文本内核下 textarea 为 null，不能再用 `textareaRef.current?.value` 回写
+       * （那会把文档内容写成空串 —— 实测症状是编辑器被清空）。
+       * 富文本路径由 onRichInsert 直接改文档内容，这里不再重复回写。
+       */
+      if (textareaRef.current) {
+        updateDocContent({ content: textareaRef.current.value || '' });
+      }
     };
     reader.readAsDataURL(file);
   }, [insertImage, textareaRef, updateDocContent]);
@@ -235,12 +288,19 @@ export function useEditorFormatting({
         toast.warning('附件保存到磁盘失败，已内联插入（会显著增大文档体积）');
       }
       const ta = textareaRef.current;
-      if (!ta) return;
+      /*
+       * 富文本内核：textarea 不存在，交给 onRichInsert 追加附件链接。
+       * 原来的 `if (!ta) return` 会让拖入附件**静默无效**。
+       */
+      if (!ta) {
+        onRichInsert?.(`[${file.name}](${src})`);
+        return;
+      }
       const next = insertTextAtCursor(ta, `[${file.name}](${src})`);
       if (next !== null) updateDocContent({ content: next });
     };
     reader.readAsDataURL(file);
-  }, [activeDoc, textareaRef, updateDocContent]);
+  }, [activeDoc, textareaRef, updateDocContent, onRichInsert]);
 
   /**
    * 处理粘贴事件，按优先级分支：
@@ -314,7 +374,7 @@ export function useEditorFormatting({
 
   /** 对 textarea 选中文本应用格式化 */
   const applyFormat = useCallback(
-    (type: FormatType, options?: { color?: string; size?: string; rows?: number; cols?: number; language?: string }) => {
+    (type: FormatType, options?: { color?: string; size?: string; rows?: number; cols?: number; language?: string; callout?: string }) => {
       const ta = textareaRef.current;
       if (!ta || !activeDoc) return;
 
@@ -400,6 +460,30 @@ export function useEditorFormatting({
         case 'divider':
           newContent = insertAtLine(ta, '---');
           break;
+        case 'callout': {
+          // 光标落在正文首行行首（`> ` 之后），用户可以直接打字替换占位文案
+          const kind = options?.callout || 'tip';
+          const marker = `> [!${kind}]\n> `;
+          const body = ta.value.substring(ta.selectionStart, ta.selectionEnd).trim() || '在这里输入提示内容';
+          newContent = insertTextWithCursor(ta, marker + body, marker.length);
+          break;
+        }
+        case 'math':
+          newContent = insertTextWithCursor(
+            ta,
+            `$$\n${ta.value.substring(ta.selectionStart, ta.selectionEnd).trim() || 'E = mc^2'}\n$$`,
+            3,
+          );
+          break;
+        case 'mermaid':
+          newContent = insertTextWithCursor(
+            ta,
+            '```mermaid\n' +
+              (ta.value.substring(ta.selectionStart, ta.selectionEnd).trim() || 'graph TD\n  A[开始] --> B[结束]') +
+              '\n```',
+            12,
+          );
+          break;
         case 'table':
           newContent = insertAtLine(ta, buildTableMarkdown(options?.rows ?? 3, options?.cols ?? 3));
           break;
@@ -408,16 +492,11 @@ export function useEditorFormatting({
           break;
         case 'codeblock':
           {
-            const start = ta.selectionStart;
-            const end = ta.selectionEnd;
-            const selected = ta.value.substring(start, end);
+            const selected = ta.value.substring(ta.selectionStart, ta.selectionEnd);
             const fence = buildCodeFence(options?.language);
             const content = selected ? `\n${selected}\n` : '\n\n';
-            ta.value = ta.value.substring(0, start) + fence + content + '```' + ta.value.substring(end);
-            // 光标落在围栏内首行，语言为空时正好是空行
-            ta.selectionStart = ta.selectionEnd = start + fence.length + 1;
-            ta.focus();
-            newContent = ta.value;
+            // 统一走 insertTextWithCursor：光标落在围栏内首行（语言为空时正好是空行）
+            newContent = insertTextWithCursor(ta, `${fence}${content}\`\`\``, fence.length + 1);
           }
           break;
         case 'image':

@@ -13,6 +13,7 @@ export {
 export { cancelAllStreams, createRequestId, getActiveStreamCount } from './stream'
 export {
   AI_CAPABILITIES,
+  INSTRUCTIONS_MAX_LENGTH,
   MAX_TOKENS_PARAMS,
   OPTIMIZE_ACTIONS,
   PROVIDER_PRESETS,

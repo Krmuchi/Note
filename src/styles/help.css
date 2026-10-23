@@ -1,0 +1,105 @@
+/* ============================================
+   帮助中心（O6）
+   ============================================ */
+
+.help-dialog {
+  width: min(620px, 94vw);
+  max-height: 84vh;
+  overflow-y: auto;
+  padding: var(--space-5, 20px) var(--space-6);
+}
+
+.help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.help-header h2 {
+  margin: 0;
+  font-size: var(--font-size-lg, 16px);
+}
+
+.help-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.help-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.help-section {
+  margin-bottom: var(--space-5, 20px);
+}
+
+.help-section h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
+}
+
+.help-section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.9;
+}
+
+.help-section p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.8;
+}
+
+.help-section code {
+  padding: 1px 4px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--primary-600);
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.help-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.help-btn {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.help-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.help-btn.primary {
+  border-color: transparent;
+  background: var(--primary-500);
+  color: var(--on-primary, #fff);
+}
+
+.help-btn.primary:hover {
+  background: var(--primary-600);
+}

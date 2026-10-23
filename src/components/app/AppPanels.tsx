@@ -1,6 +1,12 @@
 import { lazy, Suspense } from 'react'
+import type { JSX } from 'react'
+import { useNotesStore } from '@/store'
 import { LazyLoader } from '@/components/common/LazyLoader'
 import { Loading } from '@/components/common/Loading'
+import type { ShareLink } from '@/types'
+
+/** 无分享链接时的稳定空数组：避免每次 selector 返回新 [] 触发无用重渲染 */
+const EMPTY_SHARE_LINKS: ShareLink[] = []
 
 /** 统一的面板懒加载 fallback：弹窗打开时不再短暂空白 */
 const PanelFallback = (
@@ -25,8 +31,6 @@ interface AppPanelsProps {
   showSettings: boolean
   activeDocId: string
   activeNotebookId: string
-  activeDocTitle: string
-  shareLinks: import('@/types').ShareLink[]
   fontSize: string
   onCloseSharePanel: () => void
   onCloseTagPanel: () => void
@@ -49,8 +53,6 @@ export function AppPanels({
   showSettings,
   activeDocId,
   activeNotebookId,
-  activeDocTitle,
-  shareLinks,
   fontSize,
   onCloseSharePanel,
   onCloseTagPanel,
@@ -62,7 +64,15 @@ export function AppPanels({
   onDeleteShareLink,
   onCopyShareLink,
   onFontSizeChange,
-}: AppPanelsProps) {
+}: AppPanelsProps): JSX.Element {
+  /*
+   * 分享面板需要的标题与链接由本组件自己订阅，而不是由 App 透传：
+   * 这两个值都挂在 activeDoc 上，会随每次击键变化，透传会让 App 外壳
+   * 在输入链路上重渲染。面板本身只在打开时才渲染，订阅范围足够小。
+   */
+  const activeDocTitle = useNotesStore((s) => s.activeDoc?.title ?? '')
+  const shareLinks = useNotesStore((s) => s.activeDoc?.shareLinks) ?? EMPTY_SHARE_LINKS
+
   return (
     <>
       {showSharePanel && (

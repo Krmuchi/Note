@@ -1,8 +1,30 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, lazy, Suspense } from 'react';
+import type { JSX } from 'react';
 import type { Template } from '@/types/templates';
 import { templateCategories, searchTemplates, templates as allTemplates } from '@/data/templates';
-import { MarkdownPreview } from '@/components/editor/MarkdownPreview';
-import CustomTemplateModal, { loadCustomTemplates, saveCustomTemplates } from './CustomTemplateModal';
+import { useNotesStore } from '@/store';
+import CustomTemplateModal from './CustomTemplateModal';
+import { loadCustomTemplates, saveCustomTemplates, deleteCustomTemplate } from '@/utils/customTemplates';
+import { confirmAction } from '@/hooks/useConfirmAction';
+import { IconTemplate, IconSearch, IconLayers } from '@/components/common/Icon';
+
+/**
+ * 模板预览也要渲染 Markdown，但整条渲染链路（react-markdown + KaTeX ≈ 630KB）
+ * 只有在用户真的打开某个模板的预览时才需要。静态 import 会把它绑进模板中心
+ * 这个本就懒加载的分块，并让编辑器首屏多背一份预加载。
+ */
+const MarkdownPreview = lazy(() =>
+  import('@/components/editor/MarkdownPreview').then((m) => ({ default: m.MarkdownPreview })),
+);
+
+/**
+ * 模板使用次数 = 冷启动基线权重 + 用户真实使用累计。
+ * 旧实现直接把 templates.ts 里的硬编码数字当真实次数展示（假数据），
+ * 现改为内置模板只提供基线权重，真实次数来自 store.templateUsage。
+ */
+function usageOf(template: Template, templateUsage: Record<string, number>): number {
+  return (template.baseUsageCount ?? 0) + (templateUsage[template.id] ?? 0);
+}
 
 interface TemplateCenterProps {
   onSelectTemplate: (template: Template) => void;
@@ -14,7 +36,26 @@ type SortType = 'popular' | 'newest' | 'name';
 
 const FAVORITES_KEY = 'template-favorites';
 
-export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCenterProps) {
+/**
+ * 高亮搜索匹配文本。
+ * 必须定义在模块层：写在组件函数体内会每次渲染重建组件类型，
+ * 导致整棵高亮子树卸载重挂载（SearchPanel 曾修复过同款问题）。
+ */
+const HighlightText: React.FC<{ text: string; query: string }> = ({ text, query }) => {
+  if (!query.trim()) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase()
+          ? <mark key={i} className="search-highlight">{part}</mark>
+          : <span key={i}>{part}</span>
+      )}
+    </>
+  );
+};
+
+export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCenterProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -34,6 +75,8 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
   const [customTemplates, setCustomTemplates] = useState<Template[]>(() => loadCustomTemplates());
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
+  // 组件内自订阅真实使用计数，避免 App 顶层订阅导致无关重渲染
+  const templateUsage = useNotesStore((s) => s.templateUsage);
 
   const toggleFavorite = useCallback((templateId: string) => {
     setFavorites(prev => {
@@ -59,6 +102,34 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
       return updated;
     });
     setEditingTemplate(null);
+  }, []);
+
+  /** 自定义模板 id 集合，用于判断卡片是否展示删除入口 */
+  const customTemplateIds = useMemo(
+    () => new Set(customTemplates.map(t => t.id)),
+    [customTemplates],
+  );
+
+  // 删除自定义模板（内置模板不提供删除）：走全局 ConfirmDialog，与其余破坏性操作保持一致
+  const handleDeleteCustomTemplate = useCallback((template: Template) => {
+    confirmAction({
+      title: '删除自定义模板',
+      message: `确定删除自定义模板「${template.name}」吗？此操作无法撤销。`,
+      confirmText: '删除',
+      variant: 'danger',
+      onConfirm: () => {
+        deleteCustomTemplate(template.id);
+        setCustomTemplates(prev => prev.filter(t => t.id !== template.id));
+        // 同步清理收藏，避免收藏列表残留指向已删除模板的 id
+        setFavorites(prev => {
+          if (!prev.includes(template.id)) return prev;
+          const next = prev.filter(id => id !== template.id);
+          localStorage.setItem(FAVORITES_KEY, JSON.stringify(next));
+          return next;
+        });
+        setPreviewTemplate(current => (current && current.id === template.id ? null : current));
+      },
+    });
   }, []);
 
   const filteredTemplates = useMemo(() => {
@@ -87,7 +158,7 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
     // 排序
     switch (sortBy) {
       case 'popular':
-        result = [...result].sort((a, b) => b.usageCount - a.usageCount);
+        result = [...result].sort((a, b) => usageOf(b, templateUsage) - usageOf(a, templateUsage));
         break;
       case 'newest':
         result = [...result].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -98,7 +169,7 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
     }
 
     return result;
-  }, [searchQuery, selectedCategory, sortBy, showFavoritesOnly, favorites, customTemplates]);
+  }, [searchQuery, selectedCategory, sortBy, showFavoritesOnly, favorites, customTemplates, templateUsage]);
 
   const displayTemplates = filteredTemplates;
 
@@ -125,27 +196,12 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
     return templateCategories.find(c => c.id === categoryId)?.templates.length || 0;
   }, []);
 
-  // 高亮搜索匹配文本
-  const HighlightText: React.FC<{ text: string; query: string }> = ({ text, query }) => {
-    if (!query.trim()) return <>{text}</>;
-    const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
-    return (
-      <>
-        {parts.map((part, i) => 
-          part.toLowerCase() === query.toLowerCase() 
-            ? <mark key={i} className="search-highlight">{part}</mark> 
-            : <span key={i}>{part}</span>
-        )}
-      </>
-    );
-  };
-
   return (
     <div className="template-center" onKeyDown={handleKeyDown}>
       {/* 头部 */}
       <div className="template-center-header">
         <div className="template-center-title">
-          <span className="title-icon">🎨</span>
+          <span className="title-icon"><IconTemplate size={18} /></span>
           <div className="title-text">
             <h2>模板中心</h2>
             <p className="title-subtitle">选择模板，快速开始创作</p>
@@ -187,7 +243,7 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
 
       {/* 搜索 */}
       <div className="template-center-search">
-        <span className="search-icon">🔍</span>
+        <span className="search-icon"><IconSearch size={15} /></span>
         <input
           type="text"
           placeholder="搜索模板名称、描述或标签..."
@@ -209,7 +265,7 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
           className={`category-btn ${!selectedCategory ? 'active' : ''}`}
           onClick={() => { setSelectedCategory(null); setShowFavoritesOnly(false); }}
         >
-          <span className="category-icon">📋</span>
+          <span className="category-icon"><IconLayers size={16} /></span>
           <span className="category-name">全部</span>
           <span className="category-count">{allTemplates.length}</span>
         </button>
@@ -263,7 +319,7 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
       <div className={`templates-container ${viewMode === 'grid' ? 'templates-grid' : 'templates-list'}`}>
         {displayTemplates.length === 0 ? (
           <div className="empty-templates">
-            <span className="empty-icon">📭</span>
+            <span className="empty-icon"><IconSearch size={36} /></span>
             <span className="empty-text">
               {showFavoritesOnly ? '暂无收藏的模板' : '暂无匹配的模板'}
             </span>
@@ -304,6 +360,16 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
                   >
                     {favorites.includes(template.id) ? '★' : '☆'}
                   </button>
+                  {customTemplateIds.has(template.id) && (
+                    <button
+                      className="template-delete-btn"
+                      onClick={(e) => { e.stopPropagation(); handleDeleteCustomTemplate(template); }}
+                      title="删除自定义模板"
+                      aria-label={`删除自定义模板 ${template.name}`}
+                    >
+                      🗑
+                    </button>
+                  )}
                 </div>
                 <p className="template-desc">
                   <HighlightText text={template.description} query={searchQuery} />
@@ -317,7 +383,7 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
                     ))}
                   </span>
                   <span className="template-usage">
-                    {template.usageCount} 次使用
+                    {usageOf(template, templateUsage)} 次使用
                   </span>
                 </div>
               </div>
@@ -341,7 +407,7 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
                   {' '}
                   {templateCategories.find(c => c.id === previewTemplate.category)?.name}
                 </span>
-                <span className="preview-usage">{previewTemplate.usageCount} 次使用</span>
+                <span className="preview-usage">{usageOf(previewTemplate, templateUsage)} 次使用</span>
                 {previewTemplate.tags && (
                   <span className="preview-tags">
                     {previewTemplate.tags.map((tag, idx) => (
@@ -354,7 +420,9 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
             </div>
             <div className="preview-body">
               <div className="preview-content">
-                <MarkdownPreview content={previewTemplate.content} />
+                <Suspense fallback={<div className="preview-loading">正在加载预览…</div>}>
+                  <MarkdownPreview content={previewTemplate.content} />
+                </Suspense>
               </div>
             </div>
             <div className="preview-footer">
@@ -366,6 +434,11 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
                 >
                   {favorites.includes(previewTemplate.id) ? '★ 已收藏' : '☆ 收藏'}
                 </button>
+                {customTemplateIds.has(previewTemplate.id) && (
+                  <button className="btn-delete-template" onClick={() => handleDeleteCustomTemplate(previewTemplate)}>
+                    删除模板
+                  </button>
+                )}
                 <button className="btn-cancel" onClick={() => setPreviewTemplate(null)}>
                   取消
                 </button>

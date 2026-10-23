@@ -3,32 +3,54 @@
    参考 VS Code / 语雀 的拖拽体验
    ============================================ */
 
+/*
+ * 手柄即卡片间隙：宽度与画布外边距同值（--space-2），本身透明，
+ * 悬停 / 拖拽时才在正中出现一条强调线。
+ * 卡片化之后面板边界由「间隙 + 圆角」表达，不再需要一条常驻的实心色条。
+ * 拖拽数学（纯 clientX 差值）不变，卡片右缘始终贴着手柄左缘。
+ */
 .resize-handle {
   position: relative;
   flex-shrink: 0;
-  width: 4px;
+  width: var(--space-2);
   cursor: col-resize;
-  background: var(--border-secondary);
+  background: transparent;
   z-index: 20;
-  transition: background 0.15s ease;
 }
 
-/* 扩大可点击命中区域（视觉仍为 4px） */
+/* 命中区：只向两侧各探 2px（卡片都 overflow 裁剪，且手柄 z-index 高于面板） */
 .resize-handle::before {
   content: '';
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -3px;
-  right: -3px;
+  left: -2px;
+  right: -2px;
   z-index: 1;
 }
 
-.resize-handle:hover {
+/* 强调线：默认不可见 */
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-round);
   background: var(--gray-400);
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  z-index: 1;
 }
 
-.resize-handle.dragging {
+.resize-handle:hover::after,
+.resize-handle.dragging::after {
+  opacity: 1;
+}
+
+.resize-handle.dragging::after {
   background: var(--primary-500);
 }
 
@@ -64,7 +86,7 @@
 
 .resize-handle-collapse-btn:hover {
   background: var(--primary-500);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   border-color: var(--primary-500);
 }
 

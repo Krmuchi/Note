@@ -11,6 +11,37 @@
   z-index: 1000;
 }
 
+/* 手动存版本：位于标题栏与页签之间，是"把这一刻定住"的唯一入口 */
+.version-save-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 20px 10px;
+}
+
+.version-save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--transition-fast, 0.15s ease), border-color var(--transition-fast, 0.15s ease);
+}
+
+.version-save-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--primary-color);
+}
+
+.version-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .version-history-panel {
   background: var(--bg-elevated);
   border-radius: 12px;
@@ -88,7 +119,7 @@
 
 .version-tab.active {
   background: var(--primary-500);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
 }
 
 .version-tab:hover:not(.active) {
@@ -255,7 +286,7 @@
   border-radius: 6px;
   border: none;
   background: var(--primary-500);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   font-size: 13px;
   cursor: pointer;
 }
@@ -331,7 +362,7 @@
 .version-action-btn.primary {
   background: var(--primary-500);
   border-color: var(--border-active);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
 }
 
 .version-action-btn.primary:hover {
@@ -616,7 +647,7 @@
 .vh-tag-modal-btn.primary {
   background: var(--primary-500);
   border-color: var(--border-active);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
 }
 
 .vh-tag-modal-btn:hover {
@@ -650,7 +681,7 @@
 .footer-btn.primary {
   background: var(--primary-500);
   border-color: var(--border-active);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
 }
 
 .footer-btn.primary:hover {

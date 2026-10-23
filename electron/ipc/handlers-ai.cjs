@@ -121,12 +121,16 @@ function createAiHandlers(deps) {
       }
     });
 
-    ipcMain.handle('ai:batch', async (_event, payloads) => {
+    ipcMain.handle('ai:batch', async (_event, payloads, options) => {
       try {
         const normalized = assertBatchPayload(payloads, {
           maxInputTokens: configStore.getConfig().maxInputTokens,
         });
-        const results = await service.runBatch(normalized, { continueOnError: true });
+        const results = await service.runBatch(normalized, {
+          continueOnError: true,
+          // 与 ai:generate 一致：bypassCache 不在请求白名单里，从原始参数读取
+          bypassCache: !!(options && options.bypassCache === true),
+        });
         return { ok: true, results };
       } catch (err) {
         return envelopeError(err);

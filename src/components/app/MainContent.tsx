@@ -1,9 +1,11 @@
-import { lazy, Suspense } from 'react'
-import type { RecentView, NoteDoc } from '@/types'
+import { lazy } from 'react'
+import type { JSX } from 'react'
+import type { RecentView as RecentViewEntry } from '@/types'
 import type { ViewType, LeftMenuType } from '@/hooks/useUIState'
 import { LazyLoader } from '@/components/common/LazyLoader'
 import TrashView from '@/components/views/TrashView'
 import FavoriteView from '@/components/views/FavoriteView'
+import RecentView from '@/components/views/RecentView'
 import NotebooksView from '@/components/views/NotebooksView'
 
 const StartPage = lazy(() => import('@/components/start/StartPage'))
@@ -13,15 +15,15 @@ const QuickNotePanel = lazy(() => import('@/components/notes/QuickNotePanel'))
 interface MainContentProps {
   activeLeftMenu: LeftMenuType
   activeView: ViewType
-  recentViews: RecentView[]
-  activeDoc: NoteDoc | null
+  recentViews: RecentViewEntry[]
   activeNotebookId: string
   activeDocId: string
   searchText: string
   trash: import('@/types').TrashDoc[]
   fontSize: string
-  favoriteDocs: import('@/types').FavoriteDocItem[]
   isMobile: boolean
+  /** 紧凑窗口：文档列表收起为窄条 */
+  isCompact: boolean
   docsSidebarWidth: number | undefined
   dragging: string | null
   showOutlinePanel: boolean
@@ -39,7 +41,10 @@ interface MainContentProps {
   onShowSharePanel: () => void
   onToggleOutlinePanel: () => void
   onToggleCommentsPanel: () => void
-  onDocsResizeStart: (e: React.MouseEvent) => void
+  /** 空态引导：从收藏页跳到文档树 */
+  onGoToDocs: () => void
+  /** 鼠标或触摸都能发起调宽（A4） */
+  onDocsResizeStart: (e: React.MouseEvent | React.TouchEvent) => void
   onDocsResizeReset: () => void
 }
 
@@ -47,14 +52,13 @@ export function MainContent({
   activeLeftMenu,
   activeView,
   recentViews,
-  activeDoc,
   activeNotebookId,
   activeDocId,
   searchText,
   trash,
   fontSize,
-  favoriteDocs,
   isMobile,
+  isCompact,
   docsSidebarWidth,
   dragging,
   showOutlinePanel,
@@ -72,9 +76,10 @@ export function MainContent({
   onShowSharePanel,
   onToggleOutlinePanel,
   onToggleCommentsPanel,
+  onGoToDocs,
   onDocsResizeStart,
   onDocsResizeReset,
-}: MainContentProps) {
+}: MainContentProps): JSX.Element {
   if (activeLeftMenu === 'start') {
     return (
       <main className="start-panel">
@@ -103,10 +108,9 @@ export function MainContent({
   if (activeLeftMenu === 'tags') {
     return (
       <main className="editor-panel">
+        {/* LazyLoader 自带 Suspense 与统一加载态，不要再套一层内联 fallback（V1 四态一致性） */}
         <LazyLoader>
-          <Suspense fallback={<div style={{ padding: 20, textAlign: 'center', color: '#999' }}>加载中...</div>}>
-            <TagPanel key="tags-panel" isOpen={true} onClose={() => onSetActiveLeftMenu('notebooks')} />
-          </Suspense>
+          <TagPanel key="tags-panel" isOpen={true} onClose={() => onSetActiveLeftMenu('notebooks')} />
         </LazyLoader>
       </main>
     )
@@ -123,16 +127,25 @@ export function MainContent({
     )
   }
 
+  if (activeView === 'recent') {
+    return (
+      <RecentView
+        recentViews={recentViews}
+        onViewDoc={onViewDoc}
+        onGoToDocs={onGoToDocs}
+      />
+    )
+  }
+
   if (activeView === 'favorite') {
     return (
       <FavoriteView
-        favoriteDocs={favoriteDocs}
         activeDocId={activeDocId}
         fontSize={fontSize}
         onFontSizeChange={onFontSizeChange}
         onViewDoc={onViewDoc}
-        activeDoc={activeDoc}
         activeNotebookId={activeNotebookId}
+        onGoToDocs={onGoToDocs}
         onShowVersionHistory={onShowVersionHistory}
         onShowSharePanel={onShowSharePanel}
         showOutlinePanel={showOutlinePanel}
@@ -148,7 +161,6 @@ export function MainContent({
       searchText={searchText}
       onSearchChange={onSearchChange}
       onViewDoc={onViewDoc}
-      activeDoc={activeDoc}
       activeNotebookId={activeNotebookId}
       activeDocId={activeDocId}
       fontSize={fontSize}
@@ -164,6 +176,7 @@ export function MainContent({
       onDocsResizeReset={onDocsResizeReset}
       docsDragging={dragging === 'docs'}
       isMobile={isMobile}
+      isCompact={isCompact}
     />
   )
 }

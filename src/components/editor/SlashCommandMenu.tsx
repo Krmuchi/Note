@@ -1,17 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-/** 斜杠命令项定义 */
-export interface SlashCommandItem {
-  id: string;
-  title: string;
-  /** 模糊搜索关键词（含英文别名，如 table / code / date） */
-  keywords: string[];
-  group: 'block' | 'media' | 'advanced';
-  /** 图标：复用工具栏的字符/符号方案，避免引入图标库 */
-  icon: string;
-  /** 右侧键位提示（可选） */
-  hint?: string;
-}
+import type { SlashCommandItem } from './slashItems';
 
 export interface SlashCaretPosition {
   top: number;
@@ -84,7 +72,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
+    const handleKey = (e: KeyboardEvent): void => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         e.stopPropagation();

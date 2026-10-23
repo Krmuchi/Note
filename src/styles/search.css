@@ -51,7 +51,10 @@
 .search-input-wrapper:focus-within {
   background: var(--bg-primary);
   border-color: var(--border-active);
-  box-shadow: 0 0 0 2px var(--primary-50);
+  /* 焦点环只由这一处提供：鼠标点入与键盘聚焦都会点亮，且框住图标、输入框与清除按钮。
+     halo 用 --primary-100 而非 --primary-50 —— 后者的浅色主题取值（如 warm 的 #fff5e6）
+     与白色面板几乎同色，压不出可见的环，焦点态会只剩 1px 边框。 */
+  box-shadow: 0 0 0 3px var(--primary-100);
 }
 
 .search-panel .search-input-wrapper .search-icon {
@@ -70,6 +73,11 @@
   outline: none;
   min-width: 0;
 }
+
+/* 此处曾有一条 .search-input:focus-visible 自绘的 outline（A3 的键盘焦点环）。
+   它与外层 wrapper 的 :focus-within 环叠加成两层：各自偏移 2px、且颜色取自不同变量
+   （外层 --border-active 的蓝 / 内层 --primary-400 的主题色），看起来就是"框里套框"。
+   键盘焦点环现由上面的 wrapper 统一提供，不再单独绘制。 */
 
 .search-panel .search-input-wrapper .search-input::placeholder {
   color: var(--text-placeholder);
@@ -105,10 +113,6 @@
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .search-filter-btn {
@@ -188,7 +192,7 @@
   font-size: var(--font-size-sm);
 }
 
-.filter-row select:focus {
+.filter-row select:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--border-active);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -211,7 +215,7 @@
   font-size: var(--font-size-sm);
 }
 
-.date-range input[type="date"]:focus {
+.date-range input[type="date"]:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--border-active);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -258,6 +262,19 @@
   flex: 1;
   overflow-y: auto;
   padding: var(--space-2) 0;
+}
+
+/* 建议分组标题：视觉分隔"最近搜索 / 文档 / 标签"，不参与键盘索引 */
+.suggestion-group + .suggestion-group {
+  margin-top: var(--space-1, 4px);
+  border-top: 1px solid var(--border-secondary, var(--border-color));
+}
+
+.suggestion-group-label {
+  padding: var(--space-2) var(--space-5) var(--space-1, 4px);
+  font-size: var(--font-size-xs, 12px);
+  color: var(--text-tertiary);
+  user-select: none;
 }
 
 .suggestion-item {
@@ -632,4 +649,90 @@
   font-family: inherit;
   color: var(--text-secondary);
   box-shadow: 0 1px 0 var(--border-color);
+}
+
+/* ============================================
+   搜索增强：S3 快捷时间 / S4 排序 / S5 语法说明
+   ============================================ */
+
+.quick-ranges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.quick-range-btn {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.quick-range-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.quick-range-btn.active {
+  border-color: var(--primary-400);
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.search-syntax-btn.active {
+  border-color: var(--primary-400);
+  color: var(--primary-600);
+}
+
+.search-syntax-help {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.syntax-help-title {
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.syntax-help-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.syntax-help-list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.syntax-help-list code {
+  flex-shrink: 0;
+  min-width: 110px;
+  padding: 1px var(--space-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  color: var(--primary-600);
+}
+
+.syntax-help-list span {
+  color: var(--text-tertiary);
+}
+
+.syntax-help-tip {
+  font-size: 12px;
+  color: var(--text-tertiary);
 }

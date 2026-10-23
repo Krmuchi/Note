@@ -1,3 +1,8 @@
+/*
+ * 卡片化：边界由画布间隙与圆角表达，不再用 1px 分隔线去和邻栏对齐。
+ * 注意不要把它改成 overflow:hidden —— 移动端抽屉（.mobile-nav-panel）是
+ * position:absolute; top:100% 挂在本元素下的，会被裁掉。
+ */
 .main-sidebar {
   width: 240px;
   background: var(--bg-primary);
@@ -8,15 +13,16 @@
   flex-shrink: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  border-right: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
   transition: width 0.1s linear, padding 0.2s ease-in-out;
   position: relative;
 }
 
+/* 折叠态不再需要方向性投影：卡片阴影已表达层级 */
 .main-sidebar.collapsed {
   width: 48px;
   padding: var(--space-3) 0;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
 }
 
 .main-sidebar.collapsed .brand-text,
@@ -186,8 +192,11 @@
 }
 
 .brand-icon {
-  font-size: 18px;
-  line-height: 1;
+  /* 品牌标记是单色线性 SVG（IconBook），用 color 控制而非 font-size */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-500);
 }
 
 .brand-text {
@@ -271,6 +280,12 @@
   min-width: 0;
 }
 
+.search-input:focus-visible {
+  /* A3：基础规则里的 outline: none 会压掉全局键盘焦点环，这里补回一条 */
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
+}
+
 .search-input::placeholder {
   color: var(--text-placeholder);
 }
@@ -292,7 +307,7 @@
   border-radius: 50%;
   border: none;
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -522,6 +537,133 @@
   height: 18px;
 }
 
+/* 自定义 emoji 图标：与 svg 图标占位一致，避免两种形态下标题基线跳动 */
+.notebook-icon-emoji {
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* ===== 知识库图标选择器 ===== */
+.notebook-icon-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+
+.notebook-icon-picker {
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.notebook-icon-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.notebook-icon-title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
+}
+
+.notebook-icon-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.notebook-icon-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.notebook-icon-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.notebook-icon-group-label {
+  font-size: var(--font-size-xs, 12px);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+}
+
+.notebook-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: var(--space-1, 4px);
+}
+
+.notebook-icon-option {
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.notebook-icon-option:hover {
+  background: var(--bg-tertiary);
+}
+
+.notebook-icon-option.active {
+  border-color: var(--primary-color);
+  background: var(--bg-active, var(--bg-tertiary));
+}
+
+.notebook-icon-footer {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.notebook-icon-reset {
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.notebook-icon-reset:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.notebook-icon-reset:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .notebook-name {
   flex: 1;
   min-width: 0;
@@ -579,12 +721,78 @@
   box-shadow: 0 0 0 2px var(--primary-50);
 }
 
+.notebook-title-input:focus-visible {
+  /* A3：基础规则里的 outline: none 会压掉全局键盘焦点环，这里补回一条 */
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
+}
+
 .sidebar-footer {
   border-top: 1px solid var(--border-secondary);
   padding: var(--space-3) var(--space-3) var(--space-2);
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* ===== 全局保存状态指示器 =====
+   停留在无编辑器的页面（开始/标签/回收站）时，用户仍然需要知道数据有没有落盘 */
+.save-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: var(--font-size-xs, 12px);
+  text-align: left;
+  width: 100%;
+  border-radius: var(--radius-sm, 4px);
+  cursor: default;
+}
+
+.save-indicator-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary, #9ca3af);
+  margin-left: 6px;
+}
+
+.save-indicator-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.save-indicator-saving .save-indicator-dot {
+  background: var(--primary-color, #1677ff);
+  animation: save-indicator-pulse 1s ease-in-out infinite;
+}
+
+.save-indicator-saved .save-indicator-dot {
+  background: var(--success-color, #52c41a);
+}
+
+.save-indicator-error {
+  color: var(--error-color, #ff4d4f);
+  cursor: pointer;
+}
+
+.save-indicator-error .save-indicator-dot {
+  background: var(--error-color, #ff4d4f);
+}
+
+.save-indicator-error:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+}
+
+.save-indicator-collapsed {
+  justify-content: center;
+  padding: 0;
 }
 
 .footer-item {
@@ -705,68 +913,128 @@
   text-align: center;
 }
 
-.context-menu {
+/* 菜单项右侧的次要说明（如"上次 10:30"） */
+.more-menu-hint {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+/* ===== 从备份恢复面板 ===== */
+.backup-panel-overlay {
   position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 压过确认弹窗之外的常规浮层，低于全局 ConfirmDialog(10002) 与 Toast(100000) */
+  z-index: 9000;
+}
+
+.backup-panel {
+  width: min(460px, 90vw);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
-  padding: var(--space-1) 0;
-  min-width: 190px;
-  z-index: 1000;
-  border: 1px solid var(--border-color);
-  animation: scaleIn var(--transition-fast);
   overflow: hidden;
 }
 
-.context-menu-item {
+.backup-panel-header {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  padding: var(--space-1) var(--space-3);
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.backup-panel-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.backup-panel-close {
   border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xl);
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.backup-panel-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.backup-panel-desc {
+  margin: 0;
+  padding: var(--space-3) var(--space-4) 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.backup-panel-list {
+  padding: var(--space-3) var(--space-2) var(--space-4);
+  overflow-y: auto;
+}
+
+.backup-panel-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.backup-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-primary);
   font-size: var(--font-size-base);
   cursor: pointer;
-  transition: background var(--transition-fast);
   text-align: left;
+  transition: background var(--transition-fast);
 }
 
-.context-menu-item:hover {
+.backup-item:hover {
   background: var(--bg-tertiary);
 }
 
-.context-menu-item.danger {
-  color: var(--error-500);
-}
-
-.context-menu-item.danger:hover {
-  background: var(--error-50);
-  color: var(--error-600);
-}
-
-.context-menu-icon {
-  width: 20px;
-  height: 20px;
+.backup-item-time {
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  gap: var(--space-2);
 }
 
-.context-menu-icon svg {
-  width: 18px;
-  height: 18px;
+.backup-item-tag {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
 }
 
-.context-menu-text {
-  flex: 1;
-  text-align: left;
+.backup-item-size {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
 }
 
-.context-menu-divider {
-  height: 1px;
-  background: var(--border-secondary);
-  margin: var(--space-1) 0;
-}
+/* .context-menu 系列样式已收敛至 context-menu.css（唯一样式源） */

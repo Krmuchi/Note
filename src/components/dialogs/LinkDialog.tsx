@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface LinkDialogProps {
   /** 打开弹窗时编辑器选中的文本，作为链接文本初始值 */
@@ -15,11 +16,13 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({ initialText, onConfirm, 
   const [text, setText] = useState(initialText);
   const [url, setUrl] = useState('');
   const urlRef = useRef<HTMLInputElement>(null);
+  // Tab 在弹窗内循环，关闭后焦点归还编辑器（A2）
+  const trapRef = useFocusTrap<HTMLDivElement>();
 
   useEffect(() => {
     urlRef.current?.focus();
 
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
       // capture 阶段拦截并阻断全局 useKeyboard 的 Escape（避免一次 Esc 同时关掉背后的面板）
       e.stopImmediatePropagation();
@@ -31,7 +34,7 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({ initialText, onConfirm, 
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [onCancel]);
 
-  const submit = () => {
+  const submit = (): void => {
     const trimmedUrl = url.trim();
     if (!trimmedUrl) return;
     onConfirm(text.trim() || trimmedUrl, trimmedUrl);
@@ -45,7 +48,7 @@ export const LinkDialog: React.FC<LinkDialogProps> = ({ initialText, onConfirm, 
       aria-modal="true"
       aria-label="插入链接"
     >
-      <div className="confirm-dialog link-dialog" onClick={(e) => e.stopPropagation()}>
+      <div ref={trapRef} className="confirm-dialog link-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="confirm-dialog-header">
           <h3>插入链接</h3>
         </div>

@@ -3,7 +3,7 @@
 
 const path = require("node:path");
 const fs = require("node:fs/promises");
-const { assertStorePayload, safeName, MAX_IMAGE_BYTES } = require("./shared.cjs");
+const { assertStorePayload, safeName, MAX_IMAGE_BYTES } = require("./shared.mjs");
 
 /**
  * @param {object} deps
@@ -68,49 +68,205 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
 
   let lastBackupAt = 0;
   const BACKUP_INTERVAL_MS = 60_000; // 备份节流：最多每分钟一次，避免频繁保存时反复全量复制大库
+  const MAX_BACKUPS = 10;
+
+  const getBackupDir = () => path.join(app.getPath("userData"), "backups");
+
+  /**
+   * 列出备份目录中的文件（按修改时间倒序）。
+   * 时间取文件 mtime 而非文件名反解：备份一律由本进程写出，mtime 更简单可靠。
+   */
+  async function listBackupFiles() {
+    const backupDir = getBackupDir();
+    await fs.mkdir(backupDir, { recursive: true });
+    const files = (await fs.readdir(backupDir)).filter((f) => f.toLowerCase().endsWith(".json"));
+    const entries = [];
+    for (const name of files) {
+      try {
+        const stat = await fs.stat(path.join(backupDir, name));
+        entries.push({
+          name,
+          size: stat.size,
+          createdAt: stat.mtime.toISOString(),
+          mtimeMs: stat.mtimeMs,
+          // prerestore-* 是"恢复前自动留存的快照"，不属于常规自动备份
+          auto: name.startsWith("backup-"),
+        });
+      } catch {
+        // 单个文件读取失败不影响整体列表
+      }
+    }
+    entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return entries;
+  }
+
+  /** 复制当前数据文件到备份目录（自定义前缀，用于"恢复前先备份"） */
+  async function writeBackupCopy(prefix) {
+    const backupDir = getBackupDir();
+    await fs.mkdir(backupDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = path.join(backupDir, `${prefix}-${timestamp}.json`);
+    const raw = await fs.readFile(getDataPath(), "utf-8");
+    await fs.writeFile(backupPath, raw, "utf-8");
+    return backupPath;
+  }
+
+  /** 只保留最近 MAX_BACKUPS 份（两类备份合并计数，按时间淘汰最旧的） */
+  async function pruneBackups() {
+    try {
+      const stale = (await listBackupFiles()).slice(MAX_BACKUPS);
+      await Promise.all(stale.map((e) => fs.unlink(path.join(getBackupDir(), e.name))));
+    } catch (err) {
+      console.warn("Backup prune failed:", err);
+    }
+  }
 
   async function createBackup() {
     const now = Date.now();
-    if (now - lastBackupAt < BACKUP_INTERVAL_MS) return;
+    if (now - lastBackupAt < BACKUP_INTERVAL_MS) return null;
     lastBackupAt = now;
     try {
-      const backupDir = path.join(app.getPath("userData"), "backups");
-      await fs.mkdir(backupDir, { recursive: true });
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const backupPath = path.join(backupDir, `backup-${timestamp}.json`);
-
-      const raw = await fs.readFile(getDataPath(), "utf-8");
-      await fs.writeFile(backupPath, raw, "utf-8");
-
-      const files = await fs.readdir(backupDir);
-      if (files.length > 10) {
-        const sorted = files.sort();
-        const toDelete = sorted.slice(0, files.length - 10);
-        await Promise.all(toDelete.map(f => fs.unlink(path.join(backupDir, f))));
-      }
+      const backupPath = await writeBackupCopy("backup");
+      await pruneBackups();
+      return { at: new Date().toISOString(), name: path.basename(backupPath) };
     } catch (err) {
       console.warn("Backup creation failed:", err);
+      return null;
     }
   }
 
   function register() {
+    // 加载通道永不抛错，改为返回信封。
+    // 旧实现直接 throw：渲染层 coreSlice 内部 catch 后只置 loadFailed，
+    // 用户既看不到任何提示，也不知道可以从备份恢复（数据保护做了，体验出口没做）。
     ipcMain.handle("notes:load", async () => {
-      return readStore();
+      try {
+        const data = await readStore();
+        return { ok: true, data };
+      } catch (err) {
+        console.error("notes:load failed", err);
+        const message = err && err.message ? String(err.message) : "读取数据文件失败";
+        return { ok: false, error: message };
+      }
     });
 
-    ipcMain.handle("notes:save", async (_event, payload) => {
+    // 应用信息（版本 / 数据目录 / 备份目录）：失败恢复引导与关于页都要用
+    ipcMain.handle("notes:app-info", async () => {
+      try {
+        const dataPath = getDataPath();
+        return {
+          ok: true,
+          info: {
+            version: typeof app.getVersion === "function" ? app.getVersion() : "",
+            dataPath,
+            dataDir: path.dirname(dataPath),
+            backupDir: getBackupDir(),
+          },
+        };
+      } catch (err) {
+        return { ok: false, error: err && err.message ? String(err.message) : "读取应用信息失败" };
+      }
+    });
+
+    // 打开数据目录：路径完全由主进程给出，渲染进程无法传入任意路径
+    ipcMain.handle("notes:open-data-dir", async () => {
+      try {
+        const { shell } = require("electron");
+        const message = await shell.openPath(path.dirname(getDataPath()));
+        if (message) return { ok: false, error: message };
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err && err.message ? String(err.message) : "打开数据目录失败" };
+      }
+    });
+
+    // 用系统浏览器打开链接（D3 的"打开下载页"）。
+    // 只放行 https：渲染进程若能传任意协议，file:// 之类就成了本地文件探针。
+    ipcMain.handle("notes:open-external", async (_event, payload) => {
+      const url = payload && typeof payload.url === "string" ? payload.url : "";
+      if (!/^https:\/\/[^\s]+$/i.test(url)) {
+        return { ok: false, error: "只能打开 https 链接" };
+      }
+      try {
+        const { shell } = require("electron");
+        await shell.openExternal(url);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err && err.message ? String(err.message) : "打开链接失败" };
+      }
+    });
+
+    ipcMain.handle("notes:save", async (event, payload) => {
       // 校验并序列化一次，写盘复用同一份 json
       const json = assertStorePayload(payload);
       const result = await enqueueWrite(payload, json);
-      createBackup().catch(err => console.warn('Backup failed:', err));
+      // 备份是节流的（每分钟最多一次），成功后主动告知渲染端"上次备份时间"，
+      // 失败只记日志不打扰用户（备份失败不影响保存本身）
+      createBackup()
+        .then((info) => {
+          if (info && event && event.sender && !event.sender.isDestroyed()) {
+            event.sender.send("backup:created", info);
+          }
+        })
+        .catch(err => console.warn('Backup failed:', err));
       return result;
     });
 
+    // 列出本地自动备份（供"一键恢复"入口使用）
+    ipcMain.handle("backup:list", async () => {
+      try {
+        const backups = (await listBackupFiles()).map(({ name, size, createdAt, auto }) => ({
+          name,
+          size,
+          createdAt,
+          auto,
+        }));
+        return { ok: true, backups };
+      } catch (err) {
+        console.error("backup:list failed", err);
+        return { ok: false, error: err && err.message ? String(err.message) : "读取备份列表失败" };
+      }
+    });
+
+    // 从本地备份恢复（覆盖式）：数据安全优先——覆盖前先把当前数据另存一份
+    ipcMain.handle("notes:restore-backup", async (_event, payload) => {
+      const name = payload && payload.name;
+      // 文件名白名单校验 + 路径穿越二次校验（绝不信任渲染进程传来的路径）
+      if (typeof name !== "string" || !/^[A-Za-z0-9._-]+\.json$/.test(name) || name.includes("..")) {
+        return { ok: false, error: "备份文件名无效" };
+      }
+      try {
+        const backupDir = path.resolve(getBackupDir());
+        const target = path.resolve(backupDir, name);
+        if (!target.startsWith(backupDir + path.sep)) {
+          return { ok: false, error: "备份文件路径无效" };
+        }
+
+        const raw = await fs.readFile(target, "utf-8");
+        const parsed = JSON.parse(raw);
+        // 复用保存通道的同一套结构/体积校验，避免用损坏备份覆盖有效数据
+        const json = assertStorePayload(parsed);
+
+        // 覆盖前留存当前数据：恢复错了还能回头
+        lastBackupAt = 0; // 绕过 60s 节流，确保这份快照一定落盘
+        await writeBackupCopy("prerestore");
+        await pruneBackups();
+
+        await enqueueWrite(parsed, json);
+        return { ok: true, restoredAt: new Date().toISOString() };
+      } catch (err) {
+        console.error("notes:restore-backup failed", err);
+        return { ok: false, error: err && err.message ? String(err.message) : "恢复备份失败" };
+      }
+    });
+
     ipcMain.handle("notes:save-image", async (_event, payload) => {
+      // 统一返回信封 { ok, path } / { ok:false, error }：
+      // 旧实现失败时返回空串，调用方无法区分"空文件名"与"落盘失败"
       const imagesDir = path.join(app.getPath("userData"), "images");
       await fs.mkdir(imagesDir, { recursive: true });
 
-      const { name, data } = payload;
+      const { name, data } = payload || {};
       let ext = path.extname(name || "");
 
       try {
@@ -160,10 +316,11 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
 
         await fs.writeFile(dest, buffer);
         // 返回 file:// URL 供渲染进程引用
-        return `file://${dest.replace(/\\/g, "/")}`;
+        return { ok: true, path: `file://${dest.replace(/\\/g, "/")}` };
       } catch (err) {
         console.error("save-image failed", err);
-        return "";
+        const message = err && err.message ? String(err.message) : "图片保存失败";
+        return { ok: false, error: message };
       }
     });
 
@@ -219,7 +376,7 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
     });
   }
 
-  return { register, readStore, writeStore, createBackup };
+  return { register, readStore, writeStore, createBackup, getBackupDir, listBackupFiles, pruneBackups };
 }
 
 module.exports = { createStorageHandlers, safeName };

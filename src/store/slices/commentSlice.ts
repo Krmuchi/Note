@@ -1,10 +1,14 @@
 import type { StateCreator } from 'zustand'
-import type { Comment } from '@/types'
+import type { Comment, CommentAnchor } from '@/types'
 import type { NotesStore } from '@/store/types'
 import { newId } from '@/store/storeUtils'
 
 export interface CommentSlice {
-  addComment: (notebookId: string, docId: string, content: string) => void
+  /**
+   * 添加评论。
+   * @param anchor 可选的划词锚点；不传则为文档级评论（与改造前行为一致）
+   */
+  addComment: (notebookId: string, docId: string, content: string, anchor?: CommentAnchor) => void
   deleteComment: (notebookId: string, docId: string, commentId: string) => void
   addReply: (notebookId: string, docId: string, commentId: string, content: string) => void
 }
@@ -17,7 +21,7 @@ type CommentSliceCreator = StateCreator<
 >
 
 export const createCommentSlice: CommentSliceCreator = (set, _get) => ({
-  addComment: (notebookId, docId, content) => {
+  addComment: (notebookId, docId, content, anchor) => {
     const newComment: Comment = {
       id: newId(),
       docId,
@@ -25,6 +29,8 @@ export const createCommentSlice: CommentSliceCreator = (set, _get) => ({
       content,
       createdAt: new Date().toISOString(),
       replies: [],
+      // 只挂有效锚点：空选区（start === end）没有可指向的内容，按文档级评论处理
+      ...(anchor && anchor.quote && anchor.start !== anchor.end ? { anchor } : {}),
     }
 
     set((state) => {

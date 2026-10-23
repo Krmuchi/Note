@@ -183,7 +183,7 @@
   min-width: 80px;
 }
 
-.settings-select:focus {
+.settings-select:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--border-active);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -192,7 +192,21 @@
 .settings-shortcuts-list {
   display: flex;
   flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* 按 keyboardSlice 的 category 分组展示 */
+.settings-shortcut-group {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
+}
+
+.settings-shortcut-group-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .settings-shortcut-item {
@@ -457,7 +471,7 @@
 }
 
 .ai-input:focus,
-.ai-select:focus {
+.ai-select:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--border-active);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -543,12 +557,12 @@
 .ai-btn.primary {
   border-color: var(--primary-500);
   background: var(--primary-500);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
 }
 
 .ai-btn.primary:hover:not(:disabled) {
   background: var(--primary-600);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
 }
 
 .ai-btn.danger:hover:not(:disabled) {

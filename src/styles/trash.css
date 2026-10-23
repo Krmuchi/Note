@@ -5,6 +5,71 @@
   max-width: 800px;
 }
 
+/* ===== 最近编辑视图（复用回收站面板的外壳布局） ===== */
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast, 0.15s ease);
+}
+
+.recent-item:hover {
+  background: var(--bg-hover);
+}
+
+.recent-item.active {
+  background: var(--bg-active, var(--bg-hover));
+}
+
+.recent-item-icon {
+  flex: 0 0 auto;
+  font-size: 16px;
+  opacity: 0.7;
+}
+
+.recent-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recent-item-title {
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-item-meta {
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: var(--font-size-xs, 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-item-time {
+  flex: 0 0 auto;
+  color: var(--text-tertiary, var(--text-secondary));
+  font-size: var(--font-size-xs, 12px);
+}
+
 .trash-header {
   display: flex;
   align-items: center;
@@ -38,6 +103,12 @@
   color: var(--text-primary);
   outline: none;
   transition: border-color var(--transition-fast);
+}
+
+.trash-search-input:focus-visible {
+  /* A3：基础规则里的 outline: none 会压掉全局键盘焦点环，这里补回一条 */
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
 }
 
 .trash-search-input:focus {
@@ -225,27 +296,4 @@
 .btn-back:hover {
   background: var(--bg-quaternary);
   color: var(--text-primary);
-}
-
-.trash-document-view {
-  padding: var(--space-6);
-  height: 100%;
-  overflow-y: auto;
-}
-
-.trash-doc-title {
-  font-size: var(--font-size-3xl);
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: var(--space-4);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--border-secondary);
-}
-
-.trash-doc-content {
-  font-size: var(--font-size-lg);
-  line-height: var(--line-height-relaxed);
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-  word-break: break-all;
 }

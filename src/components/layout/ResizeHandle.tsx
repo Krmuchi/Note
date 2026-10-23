@@ -1,7 +1,8 @@
 import React from 'react';
 
 interface ResizeHandleProps {
-  onResizeStart: (e: React.MouseEvent) => void;
+  /** 鼠标或触摸都能发起调宽（A4 触屏） */
+  onResizeStart: (e: React.MouseEvent | React.TouchEvent) => void;
   onDoubleClick?: () => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -30,6 +31,8 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
       aria-orientation="vertical"
       aria-label={ariaLabel}
       onMouseDown={onResizeStart}
+      // 触屏：touchstart 也要能发起调宽；折叠按钮上的 touchstart 不能冒泡到这里
+      onTouchStart={(e) => onResizeStart(e)}
       onDoubleClick={onDoubleClick}
     >
       <span className="resize-handle-bar" />
@@ -40,6 +43,7 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
           title={collapsed ? '展开侧栏' : '折叠侧栏'}
           aria-label={collapsed ? '展开侧栏' : '折叠侧栏'}
           onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             onToggleCollapse?.();

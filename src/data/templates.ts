@@ -26,7 +26,7 @@ export const templates: Template[] = [
 ## 💡 心得与建议
 `,
     tags: ['工作', '周报'],
-    usageCount: 156,
+    baseUsageCount: 156,
     createdAt: '2024-01-15',
   },
   {
@@ -69,7 +69,7 @@ export const templates: Template[] = [
 ## 💡 反思与调整
 `,
     tags: ['OKR', '目标管理'],
-    usageCount: 98,
+    baseUsageCount: 98,
     createdAt: '2024-02-01',
   },
   {
@@ -96,7 +96,7 @@ export const templates: Template[] = [
 ## 💬 备注
 `,
     tags: ['工作', '日报'],
-    usageCount: 203,
+    baseUsageCount: 203,
     createdAt: '2024-01-20',
   },
   {
@@ -156,7 +156,7 @@ export const templates: Template[] = [
 ## ⚠️ 风险与依赖
 `,
     tags: ['产品', '需求文档', 'PRD'],
-    usageCount: 72,
+    baseUsageCount: 72,
     createdAt: '2024-02-05',
   },
 
@@ -194,7 +194,7 @@ export const templates: Template[] = [
 **地点**: 
 `,
     tags: ['会议', '记录'],
-    usageCount: 89,
+    baseUsageCount: 89,
     createdAt: '2024-01-10',
   },
   {
@@ -225,7 +225,7 @@ export const templates: Template[] = [
 ## 📌 备注
 `,
     tags: ['站会', '敏捷'],
-    usageCount: 134,
+    baseUsageCount: 134,
     createdAt: '2024-01-12',
   },
   {
@@ -268,7 +268,7 @@ export const templates: Template[] = [
 ## 💭 总结与感悟
 `,
     tags: ['复盘', '改进'],
-    usageCount: 67,
+    baseUsageCount: 67,
     createdAt: '2024-01-18',
   },
 
@@ -306,7 +306,7 @@ export const templates: Template[] = [
 |------|------|------|----------|
 `,
     tags: ['项目', '计划'],
-    usageCount: 67,
+    baseUsageCount: 67,
     createdAt: '2024-01-08',
   },
   {
@@ -334,7 +334,7 @@ export const templates: Template[] = [
 - [ ] 行动二
 `,
     tags: ['创意', '协作'],
-    usageCount: 78,
+    baseUsageCount: 78,
     createdAt: '2024-01-02',
   },
   {
@@ -388,7 +388,7 @@ export const templates: Template[] = [
 ## ⚠️ 风险与依赖
 `,
     tags: ['技术', '架构'],
-    usageCount: 45,
+    baseUsageCount: 45,
     createdAt: '2024-02-10',
   },
 
@@ -423,7 +423,7 @@ export const templates: Template[] = [
 - 学习内容二
 `,
     tags: ['个人', '日记'],
-    usageCount: 234,
+    baseUsageCount: 234,
     createdAt: '2024-01-05',
   },
   {
@@ -467,7 +467,7 @@ export const templates: Template[] = [
 - 注意事项二
 `,
     tags: ['旅行', '计划'],
-    usageCount: 56,
+    baseUsageCount: 56,
     createdAt: '2024-01-01',
   },
   {
@@ -505,7 +505,7 @@ export const templates: Template[] = [
 ## 💭 心得体会
 `,
     tags: ['习惯', '打卡', '自律'],
-    usageCount: 89,
+    baseUsageCount: 89,
     createdAt: '2024-02-08',
   },
 
@@ -542,7 +542,7 @@ export const templates: Template[] = [
 - [ ] 行动二
 `,
     tags: ['阅读', '学习'],
-    usageCount: 145,
+    baseUsageCount: 145,
     createdAt: '2024-01-03',
   },
   {
@@ -579,7 +579,7 @@ export const templates: Template[] = [
 - [资料链接二]()
 `,
     tags: ['面试', '职业'],
-    usageCount: 92,
+    baseUsageCount: 92,
     createdAt: '2023-12-28',
   },
   {
@@ -639,7 +639,7 @@ export const templates: Template[] = [
 ## 💭 总结与反思
 `,
     tags: ['学习', '笔记'],
-    usageCount: 112,
+    baseUsageCount: 112,
     createdAt: '2024-02-12',
   },
 ];

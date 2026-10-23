@@ -1,0 +1,134 @@
+/* ============================================
+   文档内查找 / 替换（.find-bar）
+   在编辑器工具栏下方以一条横向工具条出现，不遮挡正文
+   ============================================ */
+
+/* ===== 查找命中刻度带 =====
+   textarea 无法内联高亮全部命中，用右侧一条与文档等长的刻度带回答
+   "一共几处、分别在哪、当前在第几处"。绝对定位在编辑区右缘，不占布局宽度 */
+.find-match-gutter {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  right: 2px;
+  width: 12px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.find-match-viewport {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
+  border-radius: 2px;
+}
+
+.find-match-mark {
+  position: absolute;
+  right: 1px;
+  width: 10px;
+  height: 3px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: var(--text-tertiary, #b0b7c3);
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translateY(-50%);
+  transition: background var(--transition-fast, 0.15s ease), width var(--transition-fast, 0.15s ease);
+}
+
+.find-match-mark:hover {
+  background: var(--primary-color, #1677ff);
+  width: 12px;
+}
+
+.find-match-mark.current {
+  background: var(--primary-color, #1677ff);
+  width: 12px;
+  height: 5px;
+}
+
+.find-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.find-bar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.find-bar-input {
+  flex: 1;
+  min-width: 0;
+  max-width: 320px;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm, 6px);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm, 13px);
+}
+
+.find-bar-input:focus:not(:focus-visible) {
+  outline: none;
+  border-color: var(--primary-400);
+}
+
+.find-bar-count {
+  min-width: 56px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.find-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 var(--space-1, 4px);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-sm, 6px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.find-bar-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.find-bar-btn.active {
+  background: var(--primary-100);
+  color: var(--primary-600);
+}
+
+.find-bar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.find-bar-text-btn {
+  padding: 0 var(--space-3);
+  border-color: var(--border-color);
+  background: var(--bg-primary);
+  min-width: 56px;
+}
+
+.find-bar-close {
+  color: var(--text-tertiary);
+  font-size: 16px;
+}

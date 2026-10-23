@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { NoteDoc } from '@/types';
 import { MarkdownPreview } from '@/components/editor/MarkdownPreview';
+import { PresentationTimer } from './PresentationTimer';
 
 interface PresentationModeProps {
   doc: NoteDoc;
@@ -10,7 +11,6 @@ interface PresentationModeProps {
 export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [isSpeakerMode, setIsSpeakerMode] = useState(false);
-  const [timer, setTimer] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(true);
   const [laserPosition, setLaserPosition] = useState({ x: 0, y: 0 });
   const [showLaser, setShowLaser] = useState(false);
@@ -25,17 +25,7 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
   }, [doc.content]);
 
   useEffect(() => {
-    let interval: number;
-    if (isTimerRunning) {
-      interval = window.setInterval(() => {
-        setTimer(t => t + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isTimerRunning]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         onClose();
       } else if (e.key === 'ArrowRight' || e.key === ' ') {
@@ -64,25 +54,22 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
   }, [pages.length, onClose]);
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (showLaser && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setLaserPosition({
-          x: e.clientX - rect.left,
-          y: e.clientY - rect.top,
-        });
-      }
+    // 激光笔关闭时**根本不挂监听**：演示中鼠标一直在动，
+    // 常驻的 mousemove 回调每次都空转一遍（旧写法在回调里才判断 showLaser）
+    if (!showLaser) return;
+
+    const handleMouseMove = (e: MouseEvent): void => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      setLaserPosition({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      });
     };
 
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [showLaser]);
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
 
   const progress = pages.length > 1 ? ((currentPage + 1) / pages.length) * 100 : 0;
 
@@ -119,9 +106,13 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
             <div className="speaker-controls">
               <div className="timer-display">
                 <span className="timer-label">演示时长</span>
-                <span className={`timer-value ${isTimerRunning ? 'running' : 'paused'}`}>
-                  {formatTime(timer)}
-                </span>
+                <PresentationTimer key={doc.id} running={isTimerRunning}>
+                  {(time) => (
+                    <span className={`timer-value ${isTimerRunning ? 'running' : 'paused'}`}>
+                      {time}
+                    </span>
+                  )}
+                </PresentationTimer>
               </div>
               <div className="progress-info">
                 {currentPage + 1} / {pages.length}
@@ -155,7 +146,9 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
             onClick={() => setIsTimerRunning(!isTimerRunning)}
             title="计时器 (T)"
           >
-            {formatTime(timer)}
+            <PresentationTimer key={doc.id} running={isTimerRunning}>
+              {(time) => <span>{time}</span>}
+            </PresentationTimer>
           </button>
         </div>
 

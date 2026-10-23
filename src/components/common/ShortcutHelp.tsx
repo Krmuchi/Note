@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
+import type { JSX } from 'react';
 import { useNotesStore } from '@/store';
+import { formatKeyLabel } from '@/utils/shortcuts';
 
 interface ShortcutHelpProps {
   isOpen: boolean;
@@ -14,23 +16,6 @@ interface HelpItem {
 interface HelpGroup {
   category: string;
   items: HelpItem[];
-}
-
-/** 键名展示映射：方向键等按键需要更友好的显示 */
-const KEY_LABELS: Record<string, string> = {
-  arrowup: '↑',
-  arrowdown: '↓',
-  arrowleft: '←',
-  arrowright: '→',
-  enter: 'Enter',
-  escape: 'Esc',
-  ' ': 'Space',
-};
-
-function formatKeyLabel(key: string): string {
-  const lower = key.toLowerCase();
-  if (KEY_LABELS[lower]) return KEY_LABELS[lower];
-  return key.length === 1 ? key.toUpperCase() : key;
 }
 
 /** 面板内的导航键位不涉及可配置快捷键，单独维护 */
@@ -49,7 +34,7 @@ const PANEL_NAV_GROUPS: HelpGroup[] = [
   ]},
 ];
 
-export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps) {
+export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps): JSX.Element | null {
   const overlayRef = useRef<HTMLDivElement>(null);
   // 键位单一数据源：来自 keyboardSlice（含用户自定义覆盖），避免与编辑器实现漂移
   const shortcuts = useNotesStore((s) => s.shortcuts);
@@ -66,7 +51,7 @@ export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps) {
 
   useEffect(() => {
     if (!isOpen) return;
-    const handleKey = (e: KeyboardEvent) => {
+    const handleKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', handleKey);

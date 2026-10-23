@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import type { JSX } from 'react';
 import type { Template } from '@/types/templates';
 
 interface CustomTemplateModalProps {
@@ -8,35 +9,7 @@ interface CustomTemplateModalProps {
   editTemplate?: Template | null;
 }
 
-const CUSTOM_TEMPLATES_KEY = 'notes-custom-templates';
-
-/** 加载自定义模板 */
-export function loadCustomTemplates(): Template[] {
-  try {
-    const saved = localStorage.getItem(CUSTOM_TEMPLATES_KEY);
-    return saved ? JSON.parse(saved) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** 保存自定义模板 */
-export function saveCustomTemplates(templates: Template[]): void {
-  try {
-    localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(templates));
-  } catch {
-    // ignore
-  }
-}
-
-/** 删除自定义模板 */
-export function deleteCustomTemplate(id: string): void {
-  const templates = loadCustomTemplates();
-  const filtered = templates.filter(t => t.id !== id);
-  saveCustomTemplates(filtered);
-}
-
-export default function CustomTemplateModal({ isOpen, onClose, onSave, editTemplate }: CustomTemplateModalProps) {
+export default function CustomTemplateModal({ isOpen, onClose, onSave, editTemplate }: CustomTemplateModalProps): JSX.Element | null {
   const [name, setName] = useState(editTemplate?.name || '');
   const [description, setDescription] = useState(editTemplate?.description || '');
   const [content, setContent] = useState(editTemplate?.content || '');
@@ -55,7 +28,7 @@ export default function CustomTemplateModal({ isOpen, onClose, onSave, editTempl
       category: category || 'custom',
       icon: icon || '📝',
       tags: tags.split(',').map(t => t.trim()).filter(t => t),
-      usageCount: editTemplate?.usageCount || 0,
+      baseUsageCount: editTemplate?.baseUsageCount,
       createdAt: editTemplate?.createdAt || new Date().toISOString().split('T')[0],
     };
 

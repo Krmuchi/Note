@@ -7,5 +7,6 @@ import type { SearchSlice } from './slices/searchSlice'
 import type { UndoRedoSlice } from './slices/undoRedoSlice'
 import type { QuickNoteSlice } from './slices/quickNoteSlice'
 import type { KeyboardSlice } from './slices/keyboardSlice'
+import type { TabSlice } from './slices/tabSlice'
 
-export type NotesStore = CoreSlice & VersionSlice & ShareSlice & CommentSlice & TagSlice & SearchSlice & UndoRedoSlice & QuickNoteSlice & KeyboardSlice
+export type NotesStore = CoreSlice & VersionSlice & ShareSlice & CommentSlice & TagSlice & SearchSlice & UndoRedoSlice & QuickNoteSlice & KeyboardSlice & TabSlice

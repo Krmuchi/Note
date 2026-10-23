@@ -1,0 +1,55 @@
+diff --git a/out/binDownload.js b/out/binDownload.js
+index 287e8735e53970c9787253e85b5980988719a668..314dd4fd75b87b088dc396c4b2e0dcf2969a323b 100644
+--- a/out/binDownload.js
++++ b/out/binDownload.js
+@@ -19,7 +19,9 @@ async function download(url, output, checksum) {
+         // Callers should supply a checksum whenever possible.
+         builder_util_1.log.warn({ url }, "downloading without an integrity checksum — the download is not verified against a known-good hash");
+     }
+-    const { downloadArtifact, ElectronDownloadCacheMode } = await (0, dynamicImport_1.dynamicImport)("@electron/get");
++    const { downloadArtifact, ElectronDownloadCacheMode: _CacheMode } = await (0, dynamicImport_1.dynamicImport)("@electron/get");
++    // PATCH(笔记): 同上，@electron/get@3 不导出该枚举，缺失时退回内联定义
++    const ElectronDownloadCacheMode = _CacheMode ?? { ReadWrite: 0, ReadOnly: 1, WriteOnly: 2 };
+     const downloadedFile = await downloadArtifact({
+         version: "9.9.9",
+         artifactName: filenameWithExt,
+diff --git a/out/util/electronGet.js b/out/util/electronGet.js
+index a941f9d20c10ca58a84b9a600b0df468631aae01..2ab7df0ad4a45274bb255e9e77cf5ca04126f973 100644
+--- a/out/util/electronGet.js
++++ b/out/util/electronGet.js
+@@ -8,6 +8,11 @@ exports.downloadElectronArtifact = downloadElectronArtifact;
+ exports.getBinariesMirrorUrl = getBinariesMirrorUrl;
+ const get = require("@electron/get");
+ const get_1 = require("@electron/get");
++// PATCH(笔记): electron-builder 26.15.3 引用了 @electron/get 的 ElectronDownloadCacheMode，
++// 但该枚举在 @electron/get@3 中并不存在（上游依赖区间写错），导致任何"需要下载"的路径
++// （Electron 本体、NSIS/winCodeSign 工具链）都会抛 TypeError: Cannot read properties of undefined。
++// 这里内联等价枚举，取值沿用 @electron/get v2 的历史语义；@electron/get@3 已不再消费该选项。
++const ElectronDownloadCacheMode = { ReadWrite: 0, ReadOnly: 1, WriteOnly: 2 };
+ const builder_util_1 = require("builder-util");
+ const _7zip_1 = require("../toolsets/7zip");
+ const multiProgress_1 = require("electron-publish/out/multiProgress");
+@@ -61,12 +66,12 @@ function resolveCacheMode() {
+     var _a;
+     const varName = "ELECTRON_DOWNLOAD_CACHE_MODE";
+     const cacheOverride = (_a = process.env[varName]) === null || _a === void 0 ? void 0 : _a.trim();
+-    if (cacheOverride && Number(cacheOverride) in get_1.ElectronDownloadCacheMode) {
++    if (cacheOverride && Number(cacheOverride) in ElectronDownloadCacheMode) {
+         const mode = Number(cacheOverride);
+         builder_util_1.log.debug({ mode }, `cache mode overridden via env var ${varName}`);
+         return mode;
+     }
+-    return get_1.ElectronDownloadCacheMode.ReadWrite;
++    return ElectronDownloadCacheMode.ReadWrite;
+ }
+ async function extractZipStreaming(file, dir) {
+     var _a;
+@@ -271,7 +276,7 @@ async function downloadArtifactToFile(config, label) {
+         }
+         if (!(await (0, builder_util_1.exists)(filePath))) {
+             builder_util_1.log.warn({ filePath, label }, "cached artifact missing from disk; retrying with cache write");
+-            filePath = await get.downloadArtifact({ ...configWithProgress, cacheMode: get_1.ElectronDownloadCacheMode.WriteOnly });
++            filePath = await get.downloadArtifact({ ...configWithProgress, cacheMode: ElectronDownloadCacheMode.WriteOnly });
+         }
+         if (!state.bar && lastLoggedMilestone === -1) {
+             builder_util_1.log.info({ label }, "using cached artifact");

@@ -1,0 +1,81 @@
+/* ---- 共享右键菜单 / 下拉菜单（ContextMenu.tsx）----
+   唯一样式源：此前 docs-sidebar.css / sidebar.css 各有一份重复定义，navigation.css 另有禁用态补丁，
+   三处并存容易漂移，现统一收敛到本文件 */
+
+.context-menu {
+  position: fixed;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-1) 0;
+  min-width: 190px;
+  z-index: 1000;
+  border: 1px solid var(--border-color);
+  animation: scaleIn var(--transition-fast);
+  overflow: hidden;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  text-align: left;
+}
+
+.context-menu-item:hover {
+  background: var(--bg-tertiary);
+}
+
+/* 键盘导航焦点环：菜单项用方向键移动焦点时必须可见 */
+.context-menu-item:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: -2px;
+  background: var(--bg-tertiary);
+}
+
+.context-menu-item.danger {
+  color: var(--error-500);
+}
+
+.context-menu-item.danger:hover {
+  background: var(--error-50);
+  color: var(--error-600);
+}
+
+.context-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.context-menu-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.context-menu-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.context-menu-text {
+  flex: 1;
+  text-align: left;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: var(--border-secondary);
+  margin: var(--space-1) 0;
+}

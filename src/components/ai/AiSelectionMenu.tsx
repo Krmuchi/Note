@@ -6,11 +6,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { JSX } from 'react'
 
 import type { OptimizeAction, WritingStyle } from '@/types/ai'
-import { OPTIMIZE_ACTIONS, WRITING_STYLES, shouldOfferRetry } from '@/services/ai'
+import { INSTRUCTIONS_MAX_LENGTH, OPTIMIZE_ACTIONS, WRITING_STYLES, shouldOfferRetry } from '@/services/ai'
 import { useAiTaskStream } from '@/hooks/useAiTaskStream'
 import type { AiTaskSpec } from '@/services/ai/aiClient'
+import { IconSparkle } from '@/components/common/Icon'
 
 interface AiSelectionMenuProps {
   selection: { start: number; end: number; text: string }
@@ -23,15 +25,24 @@ function formatSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-export default function AiSelectionMenu({ selection, position, onApply, onClose }: AiSelectionMenuProps) {
+export default function AiSelectionMenu({ selection, position, onApply, onClose }: AiSelectionMenuProps): JSX.Element {
   const [showStyles, setShowStyles] = useState(false)
   const [lastTask, setLastTask] = useState<AiTaskSpec | null>(null)
+  /** 附加要求：折叠态默认收起，避免浮层默认过高遮挡正文 */
+  const [showInstructions, setShowInstructions] = useState(false)
+  const [instructions, setInstructions] = useState('')
   const panelRef = useRef<HTMLDivElement>(null)
+  const instructionsRef = useRef<HTMLTextAreaElement>(null)
 
   const { status, text, error, model, cached, elapsedMs, isStreaming, run, stop, reset } = useAiTaskStream()
 
   // 浮层关闭（卸载）即放弃结果，必须中断在途流，避免后台继续消耗配额
   useEffect(() => () => stop(), [stop])
+
+  // 展开后直接聚焦，省去一次点击（用户点开就是为了输入）
+  useEffect(() => {
+    if (showInstructions) instructionsRef.current?.focus()
+  }, [showInstructions])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -64,6 +75,8 @@ export default function AiSelectionMenu({ selection, position, onApply, onClose 
 
   const canRetry = lastTask !== null && (status === 'done' || (status === 'error' && !!error && shouldOfferRetry(error)))
   const showResult = status !== 'idle'
+  /** 空串视为未填写：不下发该字段，避免污染请求与去重 key */
+  const trimmedInstructions = instructions.trim() || undefined
 
   return (
     <div
@@ -74,13 +87,49 @@ export default function AiSelectionMenu({ selection, position, onApply, onClose 
       aria-label="AI 文本处理"
     >
       <div className="ai-selection-header">
-        <span className="ai-selection-title">🤖 AI 处理选中文本</span>
+        <span className="ai-selection-title"><IconSparkle size={15} /> AI 处理选中文本</span>
         <button className="ai-selection-close" onClick={onClose} title="关闭" type="button">
           ✕
         </button>
       </div>
 
       <div className="ai-selection-origin">已选中 {selection.text.length} 字符</div>
+
+      {!showResult && (
+        <div className="ai-selection-instructions">
+          <button
+            type="button"
+            className="ai-selection-instructions-toggle"
+            onClick={() => setShowInstructions((prev) => !prev)}
+            aria-expanded={showInstructions}
+          >
+            <span>附加要求</span>
+            <span className="ai-selection-instructions-state">
+              {trimmedInstructions ? '已填写' : '可选'}
+            </span>
+            <span className="ai-selection-instructions-arrow" aria-hidden="true">
+              {showInstructions ? '▲' : '▼'}
+            </span>
+          </button>
+          {showInstructions && (
+            <>
+              <textarea
+                ref={instructionsRef}
+                className="ai-selection-instructions-input"
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                placeholder={'补充要求，例如：\n- 保留专业术语不要替换\n- 控制在 200 字以内'}
+                rows={3}
+                maxLength={INSTRUCTIONS_MAX_LENGTH}
+                aria-label="附加要求"
+              />
+              <div className="ai-selection-instructions-counter">
+                {instructions.length} / {INSTRUCTIONS_MAX_LENGTH}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {!showResult && !showStyles && (
         <div className="ai-selection-actions">
@@ -90,7 +139,14 @@ export default function AiSelectionMenu({ selection, position, onApply, onClose 
               className="ai-selection-action"
               title={option.description}
               type="button"
-              onClick={() => start({ capability: 'optimize', action: option.value as OptimizeAction, text: selection.text })}
+              onClick={() =>
+                start({
+                  capability: 'optimize',
+                  action: option.value as OptimizeAction,
+                  text: selection.text,
+                  instructions: trimmedInstructions,
+                })
+              }
             >
               <span className="ai-selection-action-icon">{option.icon}</span>
               <span className="ai-selection-action-label">{option.label}</span>
@@ -102,7 +158,7 @@ export default function AiSelectionMenu({ selection, position, onApply, onClose 
             type="button"
             onClick={() => setShowStyles(true)}
           >
-            <span className="ai-selection-action-icon">🎨</span>
+            <span className="ai-selection-action-icon"><IconSparkle size={15} /></span>
             <span className="ai-selection-action-label">风格转换</span>
           </button>
         </div>
@@ -116,7 +172,14 @@ export default function AiSelectionMenu({ selection, position, onApply, onClose 
               className="ai-selection-action"
               title={option.description}
               type="button"
-              onClick={() => start({ capability: 'transform', text: selection.text, targetStyle: option.value as WritingStyle })}
+              onClick={() =>
+                start({
+                  capability: 'transform',
+                  text: selection.text,
+                  targetStyle: option.value as WritingStyle,
+                  instructions: trimmedInstructions,
+                })
+              }
             >
               <span className="ai-selection-action-icon">{option.icon}</span>
               <span className="ai-selection-action-label">{option.label}</span>

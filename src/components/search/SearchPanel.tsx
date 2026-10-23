@@ -1,11 +1,19 @@
-import { useState, useRef, useCallback, useMemo, useEffect, memo } from "react";
+/**
+ * 搜索面板：搜索输入、筛选、建议 / 历史 / 结果三种列表的编排与键盘导航。
+ * 列表与筛选区域已拆到同目录子组件（SearchFilters / SearchSuggestions / SearchHistory / SearchResults）。
+ */
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useNotesStore } from "@/store";
-import { tokenizeChinese } from "@/store/slices/searchSlice";
 import type { SearchFilter, SearchResult, SearchSuggestion } from "@/types";
-import { escapeRegExp } from "@/utils/sanitize";
 import { debounce } from "@/utils/debounce";
-import { formatDateTime } from "@/utils/formatters";
+import { getPrimarySearchTerm } from "@/store/slices/searchSlice";
+import { requestSearchJump } from "@/utils/searchJump";
+import SearchFilters from "./SearchFilters";
+import SearchSuggestions from "./SearchSuggestions";
+import SearchHistory from "./SearchHistory";
+import SearchResults from "./SearchResults";
+import { IconSearch } from "@/components/common/Icon";
 
 /**
  * 搜索面板属性接口
@@ -16,43 +24,9 @@ interface SearchPanelProps {
 }
 
 /**
- * 高亮匹配文本（组件定义在模块层，避免每次渲染重建组件类型导致子树无法复用）
- * 分词逻辑与 searchSlice 的 tokenizeChinese 保持一致，保证中文搜索结果的高亮与命中匹配
- */
-const HighlightMatch = memo(function HighlightMatch({ text, query }: { text: string; query: string }) {
-  const highlightTerms = useMemo(() => {
-    if (!query.trim()) return [];
-    // 与搜索逻辑一致：先按空格拆词，再对每个词做中文分词
-    return query.split(/\s+/).filter(Boolean).flatMap(term => {
-      const tokens = tokenizeChinese(term);
-      return tokens.length > 0 ? tokens : [term];
-    });
-  }, [query]);
-
-  const parts = useMemo(() => {
-    if (highlightTerms.length === 0) return null;
-    const pattern = Array.from(new Set(highlightTerms.map(t => t.toLowerCase())))
-      .map(escapeRegExp)
-      .join('|');
-    return text.split(new RegExp(`(${pattern})`, 'gi'));
-  }, [text, highlightTerms]);
-
-  if (!parts) return <>{text}</>;
-
-  const lowerTerms = new Set(highlightTerms.map(t => t.toLowerCase()));
-  return (
-    <>
-      {parts.map((part, i) =>
-        lowerTerms.has(part.toLowerCase()) ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>
-      )}
-    </>
-  );
-});
-
-/**
  * 搜索面板组件
  */
-export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
+export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): React.JSX.Element | null {
   const {
     search,
     getSearchSuggestions,
@@ -60,7 +34,6 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     clearSearchHistory,
     removeSearchHistoryItem,
     togglePinSearchHistory,
-    notebooks,
     tags,
     searchHistory,
     setActiveNotebookId,
@@ -72,7 +45,6 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     clearSearchHistory: s.clearSearchHistory,
     removeSearchHistoryItem: s.removeSearchHistoryItem,
     togglePinSearchHistory: s.togglePinSearchHistory,
-    notebooks: s.notebooks,
     tags: s.tags,
     searchHistory: s.searchHistory,
     setActiveNotebookId: s.setActiveNotebookId,
@@ -87,6 +59,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
   const [filters, setFilters] = useState<SearchFilter>({
     type: 'all',
   });
+  const [showSyntaxHelp, setShowSyntaxHelp] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -134,15 +107,36 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     [performSearch]
   )
 
+  /**
+   * 关键词或筛选变化后启动防抖搜索。
+   * 防抖等待期也计入"搜索中"，否则 400ms 内 spinner 不出现，用户看不到任何加载反馈。
+   *
+   * 这里放在事件处理器里而不是 useEffect 里：effect 的唯一触发源就是
+   * handleQueryChange / handleFilterChange 两个处理器，在 effect 体内同步
+   * setState 会触发级联渲染（react-hooks/set-state-in-effect）。
+   *
+   * 不再有"至少两个字"的门槛：中文单字（"税"、"库"）本身就是常见查询，
+   * 旧实现在输入第一个字时既不搜索也不给任何提示，界面看起来像卡住了。
+   * 单字搜索的成本已经由 searchSlice 的文本缓存与分词前置承担。
+   */
+  const scheduleSearch = useCallback((nextQuery: string, nextFilters: SearchFilter) => {
+    if (nextQuery.trim().length === 0) return
+    setIsSearching(true)
+    debouncedSearch(nextQuery, nextFilters)
+  }, [debouncedSearch])
+
   const handleQueryChange = useCallback((value: string, options?: { skipSearch?: boolean }) => {
     setQuery(value);
     setActiveIndex(-1);
     debouncedUpdateSuggestions(value);
     if (options?.skipSearch) {
       debouncedSearch.cancel?.();
+      setIsSearching(false);
       return;
     }
     if (value.trim().length === 0) {
+      // 取消挂起的防抖搜索，否则清空输入后旧关键词的结果仍会弹出来
+      debouncedSearch.cancel?.();
       setResults([]);
       setShowResults(false);
       setIsSearching(false);
@@ -150,14 +144,9 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     } else {
       setShowSuggestions(true);
       setShowResults(false);
+      scheduleSearch(value, filters);
     }
-  }, [debouncedUpdateSuggestions, debouncedSearch])
-
-  useEffect(() => {
-    if (query.trim().length >= 2) {
-      debouncedSearch(query, filters);
-    }
-  }, [query, filters, debouncedSearch])
+  }, [debouncedUpdateSuggestions, debouncedSearch, scheduleSearch, filters])
 
   // 打开面板时聚焦输入框：Ctrl+K 唤起后应可直接键盘输入，无需先用鼠标点击
   useEffect(() => {
@@ -173,7 +162,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
    * 搜索计算延后一帧执行：大库遍历为同步主线程操作，延帧可让 spinner
    * 先渲染、输入不卡顿，计算结果再一次性提交
    */
-  const handleSearch = (explicitQuery?: string) => {
+  const handleSearch = (explicitQuery?: string): void => {
     const q = (explicitQuery ?? query).trim();
     if (!q) return;
 
@@ -202,7 +191,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
     }
   }, []);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       const next = activeIndex < totalItems - 1 ? activeIndex + 1 : 0;
@@ -237,7 +226,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
    * 点击搜索建议：只更新输入框并立即执行一次搜索。
    * handleQueryChange 内部有防抖搜索 effect，此处再手动调 handleSearch 是同一关键词搜两遍，结果会闪烁
    */
-  const handleSuggestionClick = (suggestion: SearchSuggestion) => {
+  const handleSuggestionClick = (suggestion: SearchSuggestion): void => {
     handleQueryChange(suggestion.text, { skipSearch: true });
     handleSearch(suggestion.text);
   };
@@ -245,10 +234,12 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
   /**
    * 点击搜索结果
    */
-  const handleResultClick = (result: SearchResult) => {
+  const handleResultClick = (result: SearchResult): void => {
     if (result.type === 'notebook') {
       setActiveNotebookId(result.id);
-      const notebook = notebooks.find(nb => nb.id === result.id);
+      // 按需读取而不是订阅：notebooks 的引用每次击键都会变，
+      // 订阅它会让整个搜索面板跟着编辑重渲染（面板里还有建议/结果列表要维护）
+      const notebook = useNotesStore.getState().notebooks.find(nb => nb.id === result.id);
       if (notebook && notebook.docs.length > 0) {
         setActiveDocId(notebook.docs[0].id);
       }
@@ -257,6 +248,12 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
         setActiveNotebookId(result.notebookId);
       }
       setActiveDocId(result.id);
+      // S1：跳转后由编辑器打开查找栏并定位到首个命中 —— 否则"搜得到、打开后找不到"，
+      // 用户还得自己再想一遍刚才搜的是什么词
+      const term = getPrimarySearchTerm(query);
+      if (term) {
+        requestSearchJump({ docId: result.id, notebookId: result.notebookId, query: term });
+      }
     }
     onClose();
   };
@@ -264,15 +261,21 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
   /**
    * 更新筛选条件
    */
-  const handleFilterChange = (key: keyof SearchFilter, value: string | string[] | { start?: string; end?: string } | undefined) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
+  const handleFilterChange = (key: keyof SearchFilter, value: string | string[] | { start?: string; end?: string } | undefined): void => {
+    const nextFilters = { ...filters, [key]: value };
+    setFilters(nextFilters);
+    // 筛选变化同样要重新搜索（原先靠 effect 的 filters 依赖触发）
+    scheduleSearch(query, nextFilters);
   };
 
   /**
-   * 格式化日期显示（统一使用 utils/formatters）
+   * 从搜索结果返回建议列表并重新聚焦输入框
    */
-  const formatDate = (dateStr: string) =>
-    formatDateTime(dateStr, { prefixToday: true, prefixYesterday: true });
+  const handleBackToSuggestions = (): void => {
+    setShowResults(false);
+    setShowSuggestions(true);
+    inputRef.current?.focus();
+  };
 
   // 如果面板未打开，返回 null
   if (!isOpen) return null;
@@ -283,7 +286,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
         {/* 搜索框区域 */}
         <div className="search-panel-header">
           <div className="search-input-wrapper">
-            <span className="search-icon">🔍</span>
+            <span className="search-icon"><IconSearch size={16} /></span>
             <input
               ref={inputRef}
               type="text"
@@ -307,6 +310,15 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
             )}
           </div>
           
+          <button
+            className={`search-filter-btn search-syntax-btn ${showSyntaxHelp ? 'active' : ''}`}
+            onClick={() => setShowSyntaxHelp(!showSyntaxHelp)}
+            title="搜索语法说明"
+            aria-expanded={showSyntaxHelp}
+          >
+            ？语法
+          </button>
+
           <button 
             className="search-filter-btn"
             onClick={() => setShowFilters(!showFilters)}
@@ -317,226 +329,73 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps) {
           <button className="search-close" onClick={onClose}>×</button>
         </div>
 
-        {/* 筛选面板 */}
-        {showFilters && (
-          <div className="search-filter-panel">
-            <div className="filter-row">
-              <label>类型</label>
-              <select 
-                value={filters.type || 'all'}
-                onChange={(e) => handleFilterChange('type', e.target.value)}
-              >
-                <option value="all">全部</option>
-                <option value="document">文档</option>
-                <option value="notebook">知识库</option>
-              </select>
-            </div>
-            
-            <div className="filter-row">
-              <label>日期范围</label>
-              <div className="date-range">
-                <input 
-                  type="date" 
-                  value={filters.dateRange?.start || ''}
-                  onChange={(e) => handleFilterChange('dateRange', {
-                    ...filters.dateRange,
-                    start: e.target.value
-                  })}
-                />
-                <span>至</span>
-                <input 
-                  type="date" 
-                  value={filters.dateRange?.end || ''}
-                  onChange={(e) => handleFilterChange('dateRange', {
-                    ...filters.dateRange,
-                    end: e.target.value
-                  })}
-                />
-              </div>
-            </div>
-            
-            <div className="filter-row">
-              <label>标签</label>
-              <div className="tag-filter">
-                {tags.slice(0, 5).map(tag => (
-                  <button
-                    key={tag.id}
-                    className={`filter-tag ${filters.tags?.includes(tag.id) ? 'selected' : ''}`}
-                    onClick={() => {
-                      const currentTags = filters.tags || [];
-                      const newTags = currentTags.includes(tag.id)
-                        ? currentTags.filter(id => id !== tag.id)
-                        : [...currentTags, tag.id];
-                      handleFilterChange('tags', newTags);
-                    }}
-                    style={{ backgroundColor: tag.color + '30', borderColor: tag.color }}
-                  >
-                    {tag.icon} {tag.name}
-                  </button>
-                ))}
-              </div>
+        {/* 搜索语法说明（S5）：语法早就实现（-排除 / "精确" / 多词与），但此前界面零提示，
+            等于只有读过源码的人会用 */}
+        {showSyntaxHelp && (
+          <div className="search-syntax-help">
+            <div className="syntax-help-title">搜索语法</div>
+            <ul className="syntax-help-list">
+              <li>
+                <code>关键词 关键词</code>
+                <span>空格分隔＝需同时包含（中文按单字匹配）</span>
+              </li>
+              <li>
+                <code>-排除词</code>
+                <span>排除包含该词的文档</span>
+              </li>
+              <li>
+                <code>"精确短语"</code>
+                <span>整段匹配，不做中文分词</span>
+              </li>
+            </ul>
+            <div className="syntax-help-tip">
+              标题命中的结果会排在前面；可在「筛选 → 排序」切换为最近更新。
             </div>
           </div>
+        )}
+
+        {/* 筛选面板 */}
+        {showFilters && (
+          <SearchFilters
+            filters={filters}
+            tags={tags}
+            onFilterChange={handleFilterChange}
+          />
         )}
 
         {/* 搜索建议 */}
         {showSuggestions && suggestions.length > 0 && !showResults && (
-          <div className="search-suggestions">
-            {suggestions.map((suggestion, index) => (
-              <div
-                key={`${suggestion.text}-${index}`}
-                className={`suggestion-item ${activeIndex === index ? 'active' : ''}`}
-                data-search-item
-                onClick={() => handleSuggestionClick(suggestion)}
-              >
-                <span className="suggestion-icon">
-                  {suggestion.type === 'tag' && '🏷️'}
-                  {suggestion.type === 'title' && '📄'}
-                  {suggestion.type === 'history' && '🕐'}
-                </span>
-                <span className="suggestion-text">
-                  <HighlightMatch text={suggestion.text} query={query} />
-                </span>
-                <span className="suggestion-type">
-                  {suggestion.type === 'tag' && '标签'}
-                  {suggestion.type === 'title' && '文档'}
-                  {suggestion.type === 'history' && '历史'}
-                </span>
-              </div>
-            ))}
-          </div>
+          <SearchSuggestions
+            suggestions={suggestions}
+            query={query}
+            activeIndex={activeIndex}
+            onSuggestionClick={handleSuggestionClick}
+          />
         )}
 
         {/* 搜索历史 */}
         {showSuggestions && query.length === 0 && !showResults && searchHistory.length > 0 && (
-          <div className="search-history">
-            <div className="history-header">
-              <span>搜索历史</span>
-              <button className="clear-history" onClick={clearSearchHistory}>
-                清空
-              </button>
-            </div>
-            {[...searchHistory]
-              .sort((a, b) => {
-                if (a.pinned && !b.pinned) return -1
-                if (!a.pinned && b.pinned) return 1
-                return 0
-              })
-              .map((history, index) => (
-              <div key={history.id} className={`history-item ${activeIndex === index ? 'active' : ''} ${history.pinned ? 'pinned' : ''}`} data-search-item>
-                <button 
-                  className="history-pin"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    togglePinSearchHistory(history.id);
-                  }}
-                  title={history.pinned ? '取消置顶' : '置顶'}
-                >
-                  {history.pinned ? '📌' : '📍'}
-                </button>
-                <button 
-                  className="history-text"
-                  onClick={() => {
-                    handleQueryChange(history.query);
-                    handleSearch();
-                  }}
-                >
-                  {history.query}
-                </button>
-                <span className="history-count">{history.resultCount} 条结果</span>
-                <button 
-                  className="history-remove"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeSearchHistoryItem(history.id);
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
+          <SearchHistory
+            searchHistory={searchHistory}
+            activeIndex={activeIndex}
+            onQueryChange={handleQueryChange}
+            onSearch={handleSearch}
+            onClearHistory={clearSearchHistory}
+            onRemoveHistory={removeSearchHistoryItem}
+            onTogglePin={togglePinSearchHistory}
+          />
         )}
 
         {/* 搜索结果 */}
         {showResults && (
-          <div className="search-results">
-            <div className="results-header">
-              <span aria-live="polite">找到 {results.length} 条结果</span>
-              <button 
-                className="back-btn"
-                onClick={() => {
-                  setShowResults(false);
-                  setShowSuggestions(true);
-                  inputRef.current?.focus();
-                }}
-              >
-                ← 返回
-              </button>
-            </div>
-            
-            {results.length === 0 ? (
-              <div className="no-results">
-                <span className="no-results-icon">🔍</span>
-                <p>没有找到相关结果</p>
-                <p className="no-results-hint">试试其他关键词或调整筛选条件</p>
-              </div>
-            ) : (
-              <div className="results-list">
-                {results.map((result, index) => (
-                  <div
-                    key={`${result.type}-${result.id}`}
-                    className={`result-item ${activeIndex === index ? 'active' : ''}`}
-                    data-search-item
-                    onClick={() => handleResultClick(result)}
-                  >
-                    <div className="result-icon">
-                      {result.type === 'notebook' ? '📚' : '📄'}
-                    </div>
-                    <div className="result-content">
-                      <div className="result-title">
-                        <HighlightMatch text={result.title} query={query} />
-                      </div>
-                      {result.highlights && result.highlights.length > 0 && (
-                        <div className="result-preview">
-                          <HighlightMatch 
-                            text={
-                              result.highlights[0].text.length > 100 
-                                ? result.highlights[0].text.slice(0, 100) + '...'
-                                : result.highlights[0].text
-                            } 
-                            query={query} 
-                          />
-                        </div>
-                      )}
-                      <div className="result-meta">
-                        {result.tags.length > 0 && (
-                          <div className="result-tags">
-                            {result.tags.slice(0, 3).map(tagId => {
-                              const tag = tags.find(t => t.id === tagId);
-                              return tag ? (
-                                <span 
-                                  key={tag.id} 
-                                  className="result-tag"
-                                  style={{ backgroundColor: tag.color + '30', color: tag.color }}
-                                >
-                                  {tag.icon} {tag.name}
-                                </span>
-                              ) : null;
-                            })}
-                            {result.tags.length > 3 && (
-                              <span className="result-tag-more">+{result.tags.length - 3}</span>
-                            )}
-                          </div>
-                        )}
-                        <span className="result-date">{formatDate(result.updatedAt)}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <SearchResults
+            results={results}
+            query={query}
+            tags={tags}
+            activeIndex={activeIndex}
+            onResultClick={handleResultClick}
+            onBack={handleBackToSuggestions}
+          />
         )}
 
         <div className="search-keyboard-hints">

@@ -6,22 +6,12 @@ interface LazyLoaderProps {
   fallback?: React.ReactNode;
 }
 
-export function LazyLoader({ children, fallback }: LazyLoaderProps) {
+export function LazyLoader({ children, fallback }: LazyLoaderProps): React.JSX.Element {
   return (
     <Suspense
       fallback={
         fallback || (
-          <div
-            style={{
-              padding: '20px',
-              textAlign: 'center',
-              color: '#999',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-            }}
-          >
+          <div className="lazy-loading">
             <Loading type="spinner" size="medium" text="加载中..." />
           </div>
         )

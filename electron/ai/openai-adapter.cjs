@@ -188,8 +188,79 @@ function parseModelsResponse(json) {
   return unique.sort((a, b) => a.localeCompare(b));
 }
 
-/** 整体被三反引号包裹时剥掉外层围栏（模型偶尔无视指令） */
-const OVERALL_FENCE_RE = /^```[A-Za-z0-9_+.-]*[ \t]*\n([\s\S]*?)\n?```$/;
+/** 行首（允许最多 3 空格缩进）的三反引号围栏 */
+const FENCE_LINE_RE = /^ {0,3}```/;
+/** 围栏开行：可带 info string（```js） */
+const FENCE_OPEN_RE = /^ {0,3}(`{3,})(.*)$/;
+/**
+ * 闭合围栏行：必须与开行同字符且不短于开行，且后面不能再有 info string。
+ * 因此 ```py 不是 ```markdown 的闭合行（它属于内层代码块）。
+ */
+const FENCE_CLOSE_RE = /^ {0,3}(`{3,})\s*$/;
+
+/**
+ * 整体被单个三反引号块包裹时剥掉外层围栏（模型偶尔无视指令）。
+ *
+ * 判定必须"先找开行的闭合行落在哪一行"，不能用 /^```([\s\S]*?)```$/：
+ * 那个非贪婪 + $ 锚点组合会一路吃到最末行，于是
+ * 「代码块 + 说明文字 + 代码块」会被剥掉首尾围栏、把说明文字并进代码块。
+ * 这里按 Markdown 语义扫描：若开行在最后一行才闭合 → 确属整体包裹；
+ * 若中途就闭合（后面还有内容）→ 不是整体包裹，原样保留。
+ * @returns {string|null} 无法整体剥离时返回 null
+ */
+function stripOverallFence(text) {
+  const trimmed = text.trim();
+  const lines = trimmed.split('\n');
+  if (lines.length < 2) return null;
+
+  const open = FENCE_OPEN_RE.exec(lines[0]);
+  if (!open) return null;
+  const openFence = open[1];
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const close = FENCE_CLOSE_RE.exec(lines[i]);
+    if (!close || close[1].length < openFence.length) continue;
+    // 只有"最后一行才闭合"才算整体包裹
+    return i === lines.length - 1 ? lines.slice(1, -1).join('\n') : null;
+  }
+  return null;
+}
+
+/**
+ * 折叠连续空行（3 个以上换行 → 2 个），但跳过代码围栏内部。
+ *
+ * 之前的 `text.replace(/\n{3,}/g, '\n\n')` 是全局无差别的：代码块里的连续空行
+ * 会被压掉，Python/YAML 这类靠空行表达结构的代码会因此失真。
+ */
+function collapseBlankLinesOutsideFences(text) {
+  const lines = text.split('\n');
+  const out = [];
+  let inFence = false;
+  let blankRun = 0;
+
+  for (const line of lines) {
+    const isFence = FENCE_LINE_RE.test(line);
+    if (isFence) {
+      inFence = !inFence;
+      blankRun = 0;
+      out.push(line);
+      continue;
+    }
+    if (inFence) {
+      out.push(line);
+      continue;
+    }
+    if (line.trim() === '') {
+      blankRun += 1;
+      // 最多保留 1 个空行，等价于把 3+ 个连续换行压成 2 个
+      if (blankRun <= 1) out.push(line);
+      continue;
+    }
+    blankRun = 0;
+    out.push(line);
+  }
+  return out.join('\n');
+}
 
 /**
  * 归一化模型输出的 Markdown。
@@ -199,17 +270,39 @@ function normalizeMarkdown(raw) {
   if (typeof raw !== 'string') return '';
   let text = raw.replace(/\r\n?/g, '\n');
 
-  const fenced = text.trim().match(OVERALL_FENCE_RE);
-  if (fenced) text = fenced[1];
+  const stripped = stripOverallFence(text);
+  if (stripped !== null) text = stripped;
 
-  text = text.replace(/\n{3,}/g, '\n\n');
+  text = collapseBlankLinesOutsideFences(text);
   return text.trim();
 }
 
-/** 抽取首个一级标题作为文档标题；取不到则回退 */
+/**
+ * 抽取首个一级标题作为文档标题；取不到则回退。
+ *
+ * 必须跳过代码围栏内部：`/^#\s+(.+)$/m` 会把代码里的注释（如 `# 这是注释`）
+ * 当成标题，导致生成的笔记用一句代码注释命名。同时需要剥掉 ATX 收尾的井号。
+ */
 function extractTitle(markdown, fallback = '') {
-  const match = /^#\s+(.+)$/m.exec(markdown || '');
-  if (match) return match[1].trim();
+  if (typeof markdown !== 'string' || !markdown) return fallback;
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+  let inFence = false;
+
+  for (const line of lines) {
+    if (FENCE_LINE_RE.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    // 最多 3 个前导空格（4 个及以上是缩进代码块）。
+    // 收尾井号必须前置空格才剥（CommonMark ATX 规则）：`# 标题 ###` → "标题"，
+    // 而 `# 标题#` 的井号属于标题本身。
+    const match = /^ {0,3}#\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
+    if (match) {
+      const title = match[1].trim();
+      if (title) return title;
+    }
+  }
   return fallback;
 }
 

@@ -124,6 +124,52 @@ describe('normalizeMarkdown - 输出归一化', () => {
     const md = '# 标题\n\n```js\nconst a = 1\n```'
     expect(normalizeMarkdown(md)).toBe(md)
   })
+
+  // 回归：旧实现用 /^```([\s\S]*?)```$/ 剥离"整体围栏"，
+  // 非贪婪 + $ 锚点会一路吃到最后一行的收尾围栏，
+  // 于是"代码块 + 正文 + 代码块"会被剥掉首尾、把正文并进代码块。
+  it('两个代码块之间的正文不会被吞进代码块', () => {
+    const md = '```python\nprint(1)\n```\n\n中间说明文字\n\n```js\nconsole.log(1)\n```'
+    expect(normalizeMarkdown(md)).toBe(md)
+  })
+
+  it('整体围栏剥离仍生效，且不会误伤多块输出', () => {
+    // 真正"整体包裹"的仍要剥
+    expect(normalizeMarkdown('```markdown\n# 标题\n正文\n```')).toBe('# 标题\n正文')
+    // 内部还有围栏 → 不属于"整体包裹"，保持原样
+    const twoBlocks = '```js\na()\n```\n\n```js\nb()\n```'
+    expect(normalizeMarkdown(twoBlocks)).toBe(twoBlocks)
+  })
+
+  it('代码块内部的连续空行不被折叠', () => {
+    // 单个围栏块属于"整体包裹"，会被剥壳后检查；这里用前后有正文的形式，
+    // 让围栏保留下来，才能验证内部空行未被折叠
+    const code = '开头\n\n```\na\n\n\n\nb\n```'
+    expect(normalizeMarkdown(code)).toBe('开头\n\n```\na\n\n\n\nb\n```')
+
+    const python = '开头\n\n```python\ndef f():\n    x = 1\n\n\n    return x\n```'
+    expect(normalizeMarkdown(python)).toBe('开头\n\n```python\ndef f():\n    x = 1\n\n\n    return x\n```')
+  })
+
+  it('整体被剥壳后，内容按正文处理（空行照常折叠）', () => {
+    // 剥掉外层围栏后，包裹的内容就是文档正文本身，属于"围栏外"，
+    // 因此连续空行应当被折叠 —— 这是预期语义，不是缺陷
+    expect(normalizeMarkdown('```\na\n\n\n\nb\n```')).toBe('a\n\nb')
+    expect(normalizeMarkdown('```markdown\n开头\n\n\n\n结尾\n```')).toBe('开头\n\n结尾')
+  })
+
+  it('开行带 info string 且内部另有代码块时不被误剥', () => {
+    // ```py 不是 ```markdown 的合法闭合行（闭合行不能带 info string），
+    // 因此外层围栏在第 3 行闭合，后面还有内容 → 不属于"整体包裹"
+    const md = '```markdown\n开头\n```py\nx\ny\n```\n结尾'
+    expect(normalizeMarkdown(md)).toBe(md)
+  })
+
+  it('围栏外的连续空行仍然折叠', () => {
+    expect(normalizeMarkdown('普通文字\n\n\n\n后面')).toBe('普通文字\n\n后面')
+    const mixed = '```js\na\n\n\nb\n```\n\n\n\n正文'
+    expect(normalizeMarkdown(mixed)).toBe('```js\na\n\n\nb\n```\n\n正文')
+  })
 })
 
 describe('extractTitle - 标题抽取', () => {
@@ -134,6 +180,29 @@ describe('extractTitle - 标题抽取', () => {
   it('无一级标题时回退', () => {
     expect(extractTitle('## 二级标题', '主题')).toBe('主题')
     expect(extractTitle('', '兜底')).toBe('兜底')
+  })
+
+  // 回归：旧实现 /^#\s+(.+)$/m 不看围栏，把代码里的注释当成文档标题
+  it('不把代码块里的井号注释当标题', () => {
+    const md = '```bash\n# 这是代码里的注释\nls\n```\n正文内容'
+    expect(extractTitle(md, '兜底')).toBe('兜底')
+  })
+
+  it('跳过代码块后取围栏外的真实标题', () => {
+    const md = '```bash\n# 注释\n```\n\n# 真正的标题\n\n正文'
+    expect(extractTitle(md, '兜底')).toBe('真正的标题')
+  })
+
+  it('剥掉 ATX 收尾的井号', () => {
+    expect(extractTitle('# 标题 ###')).toBe('标题')
+    expect(extractTitle('# 标题#')).toBe('标题#')
+    expect(extractTitle('## 不是一级')).toBe('')
+  })
+
+  it('按 3 空格缩进上限区分标题与缩进代码块', () => {
+    expect(extractTitle('   # 缩进三格的标题')).toBe('缩进三格的标题')
+    // 4 空格是缩进代码块，不是标题
+    expect(extractTitle('    # 缩进代码', '兜底')).toBe('兜底')
   })
 })
 

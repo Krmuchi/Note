@@ -1,0 +1,277 @@
+/* ============================================
+   新手引导（.onboarding-*）与空状态行动按钮
+   复用 .confirm-dialog 外壳，保持与确认弹窗一致的视觉语言
+   ============================================ */
+
+.onboarding-dialog {
+  max-width: min(560px, 94vw);
+}
+
+.onboarding-steps {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.onboarding-step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
+.onboarding-step-dot.active {
+  background: var(--primary-500);
+  color: var(--on-primary, #fff);
+}
+
+.onboarding-step-dot.done {
+  background: var(--primary-100);
+  color: var(--primary-600);
+}
+
+.onboarding-body h3 {
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-lg, 16px);
+}
+
+.onboarding-lead {
+  margin-bottom: var(--space-3);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.onboarding-points {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-points li {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.onboarding-points strong {
+  flex-shrink: 0;
+  min-width: 72px;
+  color: var(--text-primary);
+}
+
+.onboarding-points span {
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.onboarding-points-compact strong {
+  min-width: 56px;
+  font-family: var(--font-family-mono);
+  color: var(--primary-600);
+}
+
+.onboarding-hint {
+  margin-top: var(--space-3);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-tertiary);
+}
+
+.onboarding-title-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md, 8px);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--font-size-md, 14px);
+}
+
+.onboarding-title-input:focus:not(:focus-visible) {
+  outline: none;
+  border-color: var(--primary-400);
+}
+
+.onboarding-link-btn,
+.onboarding-primary-btn {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--border-radius-md, 8px);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.onboarding-primary-btn {
+  width: 100%;
+  border-color: transparent;
+  background: var(--primary-500);
+  color: var(--on-primary, #fff);
+}
+
+.onboarding-link-btn:hover:not(:disabled),
+.onboarding-primary-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.onboarding-primary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.onboarding-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-5, 20px);
+}
+
+.onboarding-actions-spacer {
+  flex: 1;
+}
+
+.onboarding-actions button {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--border-radius-md, 8px);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.onboarding-actions .btn-primary {
+  border-color: transparent;
+  background: var(--primary-500);
+  color: var(--on-primary, #fff);
+}
+
+.onboarding-actions .btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.onboarding-actions .onboarding-skip {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-tertiary);
+}
+
+/* ---- 空状态行动按钮（开始页文档列表为空时） ---- */
+
+.empty-docs-action {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--border-radius-md, 8px);
+  background: var(--primary-500);
+  color: var(--on-primary, #fff);
+  font-size: var(--font-size-sm, 13px);
+  cursor: pointer;
+}
+
+.empty-docs-action:hover {
+  background: var(--primary-600);
+}
+
+/* ---- 侧栏：一个知识库都没有时的引导 ---- */
+
+.notebooks-empty {
+  padding: var(--space-3) var(--space-2);
+  text-align: center;
+}
+
+.notebooks-empty-text {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--font-size-sm, 13px);
+  color: var(--text-tertiary);
+}
+
+.notebooks-empty-btn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md, 8px);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm, 13px);
+  cursor: pointer;
+}
+
+.notebooks-empty-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+/* ---- 设置 → 通用 → 关于 ---- */
+
+.settings-about-title {
+  margin-top: var(--space-6);
+}
+
+.settings-about {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-about-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm, 13px);
+}
+
+.settings-about-label {
+  flex-shrink: 0;
+  min-width: 64px;
+  color: var(--text-tertiary);
+}
+
+.settings-about-value {
+  color: var(--text-primary);
+}
+
+.settings-about-path {
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.settings-about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.settings-about-btn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md, 8px);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm, 13px);
+  cursor: pointer;
+}
+
+.settings-about-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+}
+
+.settings-about-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

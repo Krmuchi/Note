@@ -1,9 +1,36 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useSyncExternalStore } from 'react'
+import { readableTextColor } from '@/utils/color'
 
-export type ThemeType = 'light' | 'dark' | 'green' | 'warm' | 'deep-blue' | 'purple-dark' | 'green-dark'
+/* ============================================================
+   主题 / 字体：模块级外部 store（单例）
+
+   旧实现的缺陷：data-theme / data-font 只在"组件挂载后"的 useEffect 里设置，
+   而唯一调用方是 EditorHeader 与 SettingsPanel。于是：
+   - 重启后默认停在「开始」页 → 主题与字体根本不生效，必须打开文档/设置才恢复；
+   - 深色用户每次启动都被白闪一下（首帧必然是亮色）。
+
+   现在的约定：
+   - main.tsx 在首次渲染前调用一次 initTheme()，把持久化值写到 <html> 上；
+   - 任何组件都通过 useTheme()/useFont() 读写同一份状态，切换即时全局一致；
+   - 主题支持 'system'：跟随系统深浅色，并在系统变化时实时跟随。
+   ============================================================ */
+
+export type ThemeType = 'light' | 'dark' | 'system' | 'green' | 'warm' | 'deep-blue' | 'purple-dark' | 'green-dark'
+/** 解析后的实际主题（'system' 会被解析为 light / dark） */
+export type ResolvedTheme = Exclude<ThemeType, 'system'>
+
+export type FontType = 'sans' | 'serif' | 'mono' | 'chinese' | 'noto-sans' | 'noto-serif' | 'lxgw-wenkai'
 
 const THEME_STORAGE_KEY = 'notes-theme'
-const THEME_VALUES: ThemeType[] = ['light', 'dark', 'green', 'warm', 'deep-blue', 'purple-dark', 'green-dark']
+const FONT_STORAGE_KEY = 'notes-font'
+const CUSTOM_COLOR_STORAGE_KEY = 'notes-custom-primary-color'
+const CUSTOM_COLOR_STYLE_ID = 'custom-primary-palette'
+
+const THEME_VALUES: ThemeType[] = ['light', 'dark', 'system', 'green', 'warm', 'deep-blue', 'purple-dark', 'green-dark']
+const FONT_VALUES: FontType[] = ['sans', 'serif', 'mono', 'chinese', 'noto-sans', 'noto-serif', 'lxgw-wenkai']
+const DARK_THEME_VALUES: ResolvedTheme[] = ['dark', 'purple-dark', 'green-dark']
+
+/* ---------------- 存储与系统偏好 ---------------- */
 
 /** 安全读取 localStorage（隐私模式/禁用存储时返回 null 而不是抛异常） */
 function safeGetItem(key: string): string | null {
@@ -23,40 +50,31 @@ function safeSetItem(key: string, value: string): void {
   }
 }
 
-export const useTheme = () => {
-  const [theme, setTheme] = useState<ThemeType>(() => {
-    const saved = safeGetItem(THEME_STORAGE_KEY)
-    if (saved && THEME_VALUES.includes(saved as ThemeType)) {
-      return saved as ThemeType
-    }
-    return 'light'
-  })
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    safeSetItem(THEME_STORAGE_KEY, theme)
-  }, [theme])
-
-  // 应用启动时恢复持久化的自定义主题色（跟随主题重新计算色阶）
-  useEffect(() => {
-    restoreCustomPrimaryColor()
-  }, [])
-
-  const toggleTheme = useCallback(() => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light')
-  }, [])
-
-  const setCustomTheme = useCallback((newTheme: ThemeType) => {
-    setTheme(newTheme)
-  }, [])
-
-  return { theme, toggleTheme, setCustomTheme, setTheme: setCustomTheme }
+function safeRemoveItem(key: string): void {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    /* storage unavailable */
+  }
 }
 
-/* ================= 自定义主题色 ================= */
+function systemPrefersDark(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
 
-const CUSTOM_COLOR_STORAGE_KEY = 'notes-custom-primary-color'
-const CUSTOM_COLOR_STYLE_ID = 'custom-primary-palette'
+/** 把用户选择的主题解析为实际渲染的主题 */
+export function resolveTheme(theme: ThemeType): ResolvedTheme {
+  if (theme === 'system') return systemPrefersDark() ? 'dark' : 'light'
+  return theme
+}
+
+/** 是否为暗色系主题（含暗夜紫 / 暗夜绿） */
+export function isDarkTheme(theme: ResolvedTheme): boolean {
+  return DARK_THEME_VALUES.includes(theme)
+}
+
+/* ---------------- 自定义主题色 ---------------- */
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const value = hex.replace('#', '')
@@ -84,7 +102,12 @@ function mixColor(hex: string, target: 'white' | 'black', factor: number): strin
  * 通过 <style> 注入而非内联 style，使自定义色随主题切换自动应用对应色阶。
  */
 function buildCustomPaletteCss(hex: string): string {
+  // 浅色主色（金/青等）上白字看不清，按 WCAG 反算该配深色字
+  const onPrimaryLight = readableTextColor(hex)
+  const onPrimaryDark = readableTextColor(mixColor(hex, 'white', 0.35))
+
   const lightScale = [
+    `--on-primary: ${onPrimaryLight}`,
     `--primary-50: ${mixColor(hex, 'white', 0.92)}`,
     `--primary-100: ${mixColor(hex, 'white', 0.8)}`,
     `--primary-200: ${mixColor(hex, 'white', 0.6)}`,
@@ -97,6 +120,7 @@ function buildCustomPaletteCss(hex: string): string {
   ].join('; ')
 
   const darkScale = [
+    `--on-primary: ${onPrimaryDark}`,
     `--primary-50: ${mixColor(hex, 'black', 0.85)}`,
     `--primary-100: ${mixColor(hex, 'black', 0.7)}`,
     `--primary-200: ${mixColor(hex, 'black', 0.5)}`,
@@ -134,11 +158,7 @@ export const applyCustomPrimaryColor = (color: string | null): void => {
     document.head.appendChild(style)
     safeSetItem(CUSTOM_COLOR_STORAGE_KEY, color)
   } else {
-    try {
-      localStorage.removeItem(CUSTOM_COLOR_STORAGE_KEY)
-    } catch {
-      /* ignore */
-    }
+    safeRemoveItem(CUSTOM_COLOR_STORAGE_KEY)
   }
 }
 
@@ -150,7 +170,141 @@ export const restoreCustomPrimaryColor = (): void => {
   }
 }
 
+/* ---------------- 外部 store ---------------- */
+
+const listeners = new Set<() => void>()
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+function emit(): void {
+  listeners.forEach((listener) => listener())
+}
+
+function readStoredTheme(): ThemeType {
+  const saved = safeGetItem(THEME_STORAGE_KEY)
+  return saved && (THEME_VALUES as string[]).includes(saved) ? (saved as ThemeType) : 'light'
+}
+
+function readStoredFont(): FontType {
+  const saved = safeGetItem(FONT_STORAGE_KEY)
+  return saved && (FONT_VALUES as string[]).includes(saved) ? (saved as FontType) : 'sans'
+}
+
+let currentTheme: ThemeType = readStoredTheme()
+let currentFont: FontType = readStoredFont()
+
+function applyThemeAttribute(): void {
+  if (typeof document === 'undefined') return
+  document.documentElement.setAttribute('data-theme', resolveTheme(currentTheme))
+}
+
+function applyFontAttribute(): void {
+  if (typeof document === 'undefined') return
+  document.documentElement.setAttribute('data-font', currentFont)
+}
+
+export function setTheme(theme: ThemeType): void {
+  if (theme === currentTheme) return
+  currentTheme = theme
+  safeSetItem(THEME_STORAGE_KEY, theme)
+  applyThemeAttribute()
+  emit()
+}
+
+export function setFont(font: FontType): void {
+  if (font === currentFont) return
+  currentFont = font
+  safeSetItem(FONT_STORAGE_KEY, font)
+  applyFontAttribute()
+  emit()
+}
+
+export function getTheme(): ThemeType {
+  return currentTheme
+}
+
+export function getResolvedTheme(): ResolvedTheme {
+  return resolveTheme(currentTheme)
+}
+
+export function getFont(): FontType {
+  return currentFont
+}
+
+/** 日间/夜间切换：从当前实际渲染的主题出发，避免"跟随系统"时切错方向 */
+export function toggleTheme(): void {
+  setTheme(isDarkTheme(resolveTheme(currentTheme)) ? 'light' : 'dark')
+}
+
+/** 系统深浅色变化时实时跟随（仅当用户选择「跟随系统」） */
+function bindSystemThemeChange(): void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+  const query = window.matchMedia('(prefers-color-scheme: dark)')
+  const onChange = (): void => {
+    if (currentTheme !== 'system') return
+    applyThemeAttribute()
+    emit()
+  }
+  if (typeof query.addEventListener === 'function') query.addEventListener('change', onChange)
+  else if (typeof query.addListener === 'function') query.addListener(onChange)
+}
+
+let initialized = false
+
+/**
+ * 首次渲染前调用一次：把持久化的主题 / 字体 / 自定义主色应用到文档。
+ * 必须由 main.tsx 直接调用（而不是等某个组件挂载），否则重启后主题不生效。
+ */
+export function initTheme(): void {
+  if (initialized) return
+  initialized = true
+  applyThemeAttribute()
+  applyFontAttribute()
+  restoreCustomPrimaryColor()
+  bindSystemThemeChange()
+}
+
+/* ---------------- React 绑定 ---------------- */
+
+export const useTheme = (): {
+  theme: ThemeType
+  resolvedTheme: ResolvedTheme
+  isDark: boolean
+  setTheme: (theme: ThemeType) => void
+  setCustomTheme: (theme: ThemeType) => void
+  toggleTheme: () => void
+} => {
+  const theme = useSyncExternalStore(subscribe, getTheme, getTheme)
+  const resolvedTheme = useSyncExternalStore(subscribe, getResolvedTheme, getResolvedTheme)
+
+  return {
+    theme,
+    resolvedTheme,
+    isDark: isDarkTheme(resolvedTheme),
+    setTheme,
+    setCustomTheme: setTheme,
+    toggleTheme,
+  }
+}
+
+export const useFont = (): {
+  font: FontType
+  setFont: (font: FontType) => void
+  setCustomFont: (font: FontType) => void
+} => {
+  const font = useSyncExternalStore(subscribe, getFont, getFont)
+  return { font, setFont, setCustomFont: setFont }
+}
+
+/* ---------------- 选项表 ---------------- */
+
 export const THEME_OPTIONS: { id: ThemeType; name: string; icon: string; description: string }[] = [
+  { id: 'system', name: '跟随系统', icon: '🖥️', description: '随系统深浅色自动切换' },
   { id: 'light', name: '亮色', icon: '☀️', description: '清新明亮的默认主题' },
   { id: 'dark', name: '暗色', icon: '🌙', description: '护眼暗色主题' },
   { id: 'green', name: '护眼绿', icon: '🌿', description: '柔和的绿色主题' },
@@ -159,32 +313,6 @@ export const THEME_OPTIONS: { id: ThemeType; name: string; icon: string; descrip
   { id: 'purple-dark', name: '暗夜紫', icon: '🔮', description: '神秘的紫色暗色主题' },
   { id: 'green-dark', name: '暗夜绿', icon: '🌲', description: '自然的绿色暗色主题' },
 ]
-
-export type FontType = 'sans' | 'serif' | 'mono' | 'chinese' | 'noto-sans' | 'noto-serif' | 'lxgw-wenkai'
-
-const FONT_STORAGE_KEY = 'notes-font'
-const FONT_VALUES: FontType[] = ['sans', 'serif', 'mono', 'chinese', 'noto-sans', 'noto-serif', 'lxgw-wenkai']
-
-export const useFont = () => {
-  const [font, setFont] = useState<FontType>(() => {
-    const saved = safeGetItem(FONT_STORAGE_KEY)
-    if (saved && FONT_VALUES.includes(saved as FontType)) {
-      return saved as FontType
-    }
-    return 'sans'
-  })
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-font', font)
-    safeSetItem(FONT_STORAGE_KEY, font)
-  }, [font])
-
-  const setCustomFont = useCallback((newFont: FontType) => {
-    setFont(newFont)
-  }, [])
-
-  return { font, setCustomFont, setFont: setCustomFont }
-}
 
 export const FONT_OPTIONS: { id: FontType; name: string; description: string; preview: string }[] = [
   { id: 'sans', name: '默认无衬线', description: '系统默认字体，清晰易读', preview: 'Aa 你好' },

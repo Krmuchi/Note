@@ -18,7 +18,8 @@ interface SidebarProps {
   tags: { id: string; name: string }[];
   trash: TrashDoc[];
   onOpenSettings?: () => void;
-  onOpenShortcutHelp?: () => void;
+  /** 打开帮助中心（O6）；快捷键帮助由 Ctrl+/ 与帮助中心进入 */
+  onOpenHelp?: () => void;
   /** 新建文档后打开该文档（切换到编辑器视图） */
   onOpenDoc?: (notebookId: string, docId: string) => void;
   width?: number;
@@ -39,7 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   tags,
   trash,
   onOpenSettings,
-  onOpenShortcutHelp,
+  onOpenHelp,
   onOpenDoc,
   width,
   collapsed = false,
@@ -83,7 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Esc 关闭移动端抽屉（与全局 Escape 处理互补：抽屉打开时优先关闭抽屉）
   useEffect(() => {
     if (!mobile || !mobileNavOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.stopPropagation();
         closeMobileNav();
@@ -202,7 +203,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onViewChange={handleViewChange}
                   trash={trash}
                   onOpenSettings={onOpenSettings}
-                  onOpenShortcutHelp={onOpenShortcutHelp}
+                  onOpenHelp={onOpenHelp}
                   collapsed={false}
                   onShowTooltip={showTooltip}
                   onHideTooltip={hideTooltip}
@@ -238,7 +239,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onViewChange={handleViewChange}
               trash={trash}
               onOpenSettings={onOpenSettings}
-              onOpenShortcutHelp={onOpenShortcutHelp}
+              onOpenHelp={onOpenHelp}
               collapsed={collapsed}
               onShowTooltip={showTooltip}
               onHideTooltip={hideTooltip}

@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react'
+import type { JSX } from 'react'
 import type { TrashDoc } from '@/types'
 import { TRASH_RETENTION_DAYS } from '@/shared/constants'
 import { EmptyState } from '@/components/common/EmptyState'
+import { IconSearch } from '@/components/common/Icon'
 
 interface TrashViewProps {
   trash: TrashDoc[]
@@ -18,7 +20,7 @@ const getRemainingDays = (deletedAt: string): number => {
   return Math.max(0, TRASH_RETENTION_DAYS - diffDays)
 }
 
-export default function TrashView({ trash, onRestore, onDelete, onClearTrash }: TrashViewProps) {
+export default function TrashView({ trash, onRestore, onDelete, onClearTrash }: TrashViewProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
 
   const filteredTrash = useMemo(() => {
@@ -66,7 +68,7 @@ export default function TrashView({ trash, onRestore, onDelete, onClearTrash }: 
           />
         ) : filteredTrash.length === 0 ? (
           <EmptyState
-            icon="🔍"
+            icon={<IconSearch size={32} />}
             title="未找到匹配的文档"
             description="试试其他关键词"
           />

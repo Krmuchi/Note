@@ -135,7 +135,7 @@
   transition: border-color var(--transition-fast);
 }
 
-.tag-search-input:focus {
+.tag-search-input:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--primary-500);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -568,7 +568,7 @@
 
 .tag-form-input:focus,
 .tag-form-select:focus,
-.tag-form-textarea:focus {
+.tag-form-textarea:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--primary-500);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -657,7 +657,7 @@
 
 .tag-modal-btn.confirm {
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   border-color: var(--primary-color);
 }
 

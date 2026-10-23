@@ -1,0 +1,80 @@
+name: CI
+
+# 四道门禁（typecheck / lint / 单测 / build）+ E2E。
+# 目标很朴素：让"已经做完的体验优化"不会在后续改动里悄悄退化。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 这一层不需要 Electron 运行时二进制（约 120MB），装依赖时跳过下载
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+jobs:
+  verify:
+    name: 门禁（typecheck / lint / 单测 / build）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # --frozen-lockfile：锁文件与 package.json 不一致时直接失败，
+      # 避免"本地能跑、CI 装出另一套依赖"。pnpm patch 会在这里自动应用。
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 四道门禁
+        run: pnpm run verify
+
+  e2e:
+    name: E2E（Web 模式）
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 安装 Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # playwright.config.ts 自带 webServer（build + vite preview），无需手工起服务
+      - name: 运行 E2E
+        run: pnpm run test:e2e
+
+      - name: 失败时上传报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

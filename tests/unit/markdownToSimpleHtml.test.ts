@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-// 直接加载 CJS 模块（Electron 主进程导出逻辑与渲染端共用同一实现路径）
-import { markdownToSimpleHtml, escapeHtml } from '../../electron/ipc/shared.cjs'
+// 直接加载共用模块（Electron 主进程导出逻辑与渲染端共用同一实现路径）
+import { markdownToSimpleHtml, escapeHtml, buildExportDocument } from '../../electron/ipc/shared.mjs'
 
 describe('markdownToSimpleHtml - 导出 HTML/PDF 共用转换', () => {
   it('标题 h1-h6', () => {
@@ -119,5 +119,40 @@ describe('markdownToSimpleHtml - 导出 HTML/PDF 共用转换', () => {
     expect(escapeHtml('<img src=x onerror=y>')).toBe(
       '&lt;img src=x onerror=y&gt;',
     )
+  })
+})
+
+describe('buildExportDocument - HTML 导出 / PDF 打印 / Web 导出共用模板', () => {
+  it('输出完整 HTML 文档并把 markdown 转成正文', () => {
+    const html = buildExportDocument({ title: '我的文档', content: '# 标题\n\n正文' })
+    expect(html).toContain('<!DOCTYPE html>')
+    expect(html).toContain('<html lang="zh-CN">')
+    expect(html).toContain('<title>我的文档</title>')
+    expect(html).toContain('<h1>我的文档</h1>')
+    expect(html).toContain('<h1>标题</h1>')
+    expect(html).toContain('导出时间')
+  })
+
+  it('标题中的 HTML 被转义（防注入）', () => {
+    const html = buildExportDocument({ title: '<script>alert(1)</script>', content: '' })
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).toContain('&lt;script&gt;')
+  })
+
+  it('非打印模式带 viewport，打印模式不带且使用中文字体栈', () => {
+    const screen = buildExportDocument({ title: 't', content: '', forPrint: false })
+    const print = buildExportDocument({ title: 't', content: '', forPrint: true })
+    expect(screen).toContain('name="viewport"')
+    expect(screen).toContain("-apple-system")
+    expect(print).not.toContain('name="viewport"')
+    expect(print).toContain("'PingFang SC'")
+  })
+
+  it('缺少标题时回落为默认文案，doc-meta 与外层容器始终存在', () => {
+    const html = buildExportDocument({ content: '内容' })
+    expect(html).toContain('<title>文档</title>')
+    expect(html).toContain('<h1>未命名文档</h1>')
+    expect(html).toContain('class="doc-meta"')
+    expect(html).toContain('class="doc-content"')
   })
 })

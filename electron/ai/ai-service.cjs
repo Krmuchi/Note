@@ -428,6 +428,46 @@ function createAiService(deps) {
     const config = ctx.config;
     applyRuntimeConfig(config);
 
+    // 用户关闭了「流式输出」：改走非流式请求，拿到全文后一次性下发。
+    // 仍复用 chunk + done 事件协议，渲染侧无需区分两种模式；meta 事件保证 UI 的
+    // 模型/耗时/缓存展示与非流式路径一致。
+    if (config.stream === false) {
+      const controller = new AbortController();
+      const flags = { timedOut: false, userCancelled: false };
+      entry.abortCurrent = () => {
+        flags.userCancelled = true;
+        controller.abort();
+      };
+      if (entry.userCancelled) {
+        flags.userCancelled = true;
+        controller.abort();
+      }
+
+      try {
+        emit({ requestId, type: 'meta', model: config.model, cached: false });
+        const result = await runNonStream(normalized, { userSignal: controller.signal });
+        if (!result.ok) {
+          emit({ requestId, type: 'error', error: result.error });
+          return;
+        }
+        emit({ requestId, type: 'chunk', delta: result.text });
+        const doneEvent = {
+          requestId,
+          type: 'done',
+          text: result.text,
+          model: result.model || config.model,
+          latencyMs: result.latencyMs,
+          cached: result.cached,
+        };
+        if (result.title) doneEvent.title = result.title;
+        if (result.usage) doneEvent.usage = result.usage;
+        emit(doneEvent);
+      } finally {
+        entry.abortCurrent = null;
+      }
+      return;
+    }
+
     let buffered = '';
     let flushTimer = null;
     let emittedChunk = false;

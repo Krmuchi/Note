@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface ConfirmDialogProps {
   title: string;
@@ -27,13 +28,15 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onCancel,
 }) => {
   const cancelBtnRef = useRef<HTMLButtonElement>(null);
+  // Tab 在弹窗内循环，关闭后焦点归还（A2）
+  const trapRef = useFocusTrap<HTMLDivElement>();
   const isDanger = variant === 'danger';
 
   useEffect(() => {
     // 默认聚焦"取消"：危险操作的键盘路径应落在安全侧
     cancelBtnRef.current?.focus();
 
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
       // capture 阶段拦截并阻断全局 useKeyboard 的 Escape（避免一次 Esc 同时关掉背后的面板）
       e.stopImmediatePropagation();
@@ -54,6 +57,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       aria-label={title}
     >
       <div
+        ref={trapRef}
         className={`confirm-dialog ${isDanger ? 'confirm-dialog-danger' : ''}`}
         onClick={(e) => e.stopPropagation()}
       >

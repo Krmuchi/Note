@@ -50,6 +50,13 @@ export const OPTIMIZE_ACTIONS: OptimizeActionOption[] = [
 
 export const AI_CAPABILITIES: AiCapability[] = ['generate', 'optimize', 'transform']
 
+/**
+ * 附加指令（instructions）的最大长度。
+ * 必须与主进程 electron/ai/ai-validate.cjs 的 LIMITS.INSTRUCTIONS_MAX 保持一致，
+ * 由 tests/unit/aiPromptTemplates.test.ts 交叉断言，防止 UI 允许输入但主进程拒收。
+ */
+export const INSTRUCTIONS_MAX_LENGTH = 500
+
 export const MAX_TOKENS_PARAMS: MaxTokensParam[] = ['max_tokens', 'max_completion_tokens']
 
 export interface ProviderPreset {

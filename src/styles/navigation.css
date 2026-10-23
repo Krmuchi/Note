@@ -1,0 +1,357 @@
+/* ============================================
+   导航增强（N1 快速打开 / N2 面包屑 / N3 相邻文档）
+   ============================================ */
+
+/* ---- 快速打开（Ctrl+P） ---- */
+
+.quick-open-overlay {
+  position: fixed;
+  inset: 0;
+  /* 高于编辑器工具栏与侧栏，低于确认弹窗（10002） */
+  z-index: 10001;
+  display: flex;
+  justify-content: center;
+  padding-top: 12vh;
+  background: var(--bg-overlay);
+  animation: fadeIn var(--transition-fast);
+}
+
+.quick-open-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(600px, 92vw);
+  max-height: 60vh;
+  border-radius: var(--border-radius-xl);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  animation: scaleIn var(--transition-base);
+}
+
+.quick-open-input {
+  width: 100%;
+  padding: var(--space-4);
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg, 16px);
+}
+
+.quick-open-input:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.quick-open-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+}
+
+.quick-open-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.quick-open-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.quick-open-item.active {
+  background: var(--primary-50);
+}
+
+.quick-open-title {
+  flex-shrink: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-md);
+}
+
+.quick-open-context {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.quick-open-time {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.quick-open-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.quick-open-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---- 编辑器面包屑 ---- */
+
+.doc-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: var(--space-1, 4px);
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+}
+
+.doc-breadcrumb-item {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-breadcrumb-item.root {
+  color: var(--text-tertiary);
+}
+
+.doc-breadcrumb-item.current {
+  color: var(--text-secondary);
+}
+
+.doc-breadcrumb-item.link {
+  padding: 0 2px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.doc-breadcrumb-item.link:hover {
+  background: var(--bg-tertiary);
+  color: var(--primary-600);
+}
+
+.doc-breadcrumb-sep {
+  color: var(--text-tertiary);
+  opacity: 0.7;
+}
+
+/* 面包屑与保存状态同处一行：标题栏保持 48px 单行高度（语雀式） */
+.eh-title-left {
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 768px) {
+  .doc-breadcrumb-item {
+    max-width: 120px;
+  }
+
+  .quick-open-panel {
+    max-height: 70vh;
+  }
+}
+
+/* ---- 文档树：键盘焦点态与排序下拉（T2 / T6） ---- */
+
+/* 树只有一个 tab 停靠点，焦点在容器上；用高亮项表示"当前项" */
+.docs-list:focus-visible {
+  outline: 2px solid var(--primary-400);
+  outline-offset: -2px;
+}
+
+.doc-item.focused {
+  background: var(--bg-tertiary);
+  box-shadow: inset 2px 0 0 var(--primary-400);
+}
+
+.doc-item.focused.active {
+  background: var(--primary-50);
+}
+
+.docs-sort-select {
+  height: 24px;
+  /* 72px：标题行还要放图标+标题+计数+新建按钮，96px 会把知识库标题挤成"我的…"截断。
+     "按修改时间"这类较长文案在 select 里会由浏览器按可用宽度截断显示，
+     完整选项仍可通过下拉展开看到，title 属性也提供了悬停提示。 */
+  max-width: 72px;
+  padding: 0 var(--space-1, 4px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.docs-sort-select:focus-visible {
+  outline: 2px solid var(--primary-400);
+  outline-offset: 1px;
+}
+
+/* ---- 便签行内按钮：改用 SVG 后需要统一尺寸与描边色（V2） ---- */
+
+.quick-note-action-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.quick-note-action-btn.danger {
+  color: var(--error-500);
+}
+
+/* ---- 文档树：批量工具条里的标签下拉（T3） ---- */
+
+.batch-toolbar-select {
+  padding: 2px var(--space-1, 4px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.batch-toolbar-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- 文档树：标签过滤行（K2） ---- */
+
+.docs-tag-filter {
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.docs-tag-filter .docs-sort-select {
+  width: 100%;
+  max-width: none;
+}
+
+/* ---- 双链与反向链接（K1） ---- */
+
+.wiki-link {
+  padding: 0 2px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--primary-50);
+  color: var(--primary-600);
+  font-size: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.wiki-link:hover {
+  background: var(--primary-100);
+  text-decoration: underline;
+}
+
+.backlinks-bar {
+  padding: var(--space-1, 4px) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.backlinks-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.backlinks-toggle:hover {
+  color: var(--primary-600);
+}
+
+.backlinks-caret {
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.backlinks-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1, 4px);
+  margin: var(--space-1, 4px) 0 2px;
+  padding: 0;
+  list-style: none;
+}
+
+.backlinks-item {
+  padding: 1px var(--space-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.backlinks-item:hover {
+  border-color: var(--primary-400);
+  color: var(--primary-600);
+}
+
+/* ---- 文档树：新建文档下拉（T4） ----
+   下拉本体已由共享 ContextMenu 渲染（样式在 context-menu.css），这里只保留触发按钮的定位容器 */
+
+.docs-add-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+/* ---- 拖文件到窗口导入（P6） ----
+   pointer-events: none 很关键：遮罩不能吞掉 drop 事件，否则拖放会落在遮罩上而不是底层元素 */
+
+.file-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-overlay);
+  pointer-events: none;
+}
+
+.file-drop-hint {
+  padding: var(--space-4) var(--space-6);
+  border: 2px dashed var(--primary-400);
+  border-radius: var(--border-radius-xl);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: var(--font-size-lg, 16px);
+  box-shadow: var(--shadow-xl);
+}

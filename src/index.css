@@ -12,6 +12,8 @@
   --primary-300: #69b1ff;
   --primary-400: #4096ff;
   --primary-500: #1677ff;
+  /* 主色底上的文字色（V3）：浅色主色会自动改成深色字，判定逻辑见 utils/color.ts */
+  --on-primary: #ffffff;
   --primary-600: #0958d9;
   --primary-700: #003eb3;
 
@@ -60,6 +62,10 @@
   --bg-elevated: #ffffff;
   --bg-overlay: rgba(0, 0, 0, 0.45);
   --bg-mask: rgba(0, 0, 0, 0.04);
+  /* 画布底色：供外壳（.app-shell）使用，比卡片（--bg-primary）深一档，
+     让圆角面板"浮"在画布上。每个主题都必须显式声明——暗色主题没有比
+     --bg-primary 更深的 token，靠继承会失配。 */
+  --bg-canvas: #f0f0f0;
 
   /* 语义化别名 - 边框 */
   --border-color: #e8e8e8;
@@ -146,6 +152,8 @@
   --primary-300: #1677ff;
   --primary-400: #4096ff;
   --primary-500: #69b1ff;
+  /* 亮蓝主色上白字只有 2.25:1，必须换深色字 */
+  --on-primary: #111827;
   --primary-600: #91caff;
   --primary-700: #bae0ff;
 
@@ -190,6 +198,7 @@
   --bg-elevated: #2c2c2c;
   --bg-overlay: rgba(0, 0, 0, 0.65);
   --bg-mask: rgba(255, 255, 255, 0.06);
+  --bg-canvas: #101010;
 
   --border-color: #434343;
   --border-secondary: #303030;
@@ -249,7 +258,7 @@ select {
   font-size: var(--font-size-md);
 }
 
-select:focus {
+select:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--border-active);
   box-shadow: 0 0 0 2px var(--primary-50);
@@ -309,6 +318,63 @@ a:hover {
 }
 
 /* ============================================
+   高对比度与缩放（A7）
+
+   Windows「高对比度」下系统会用自己的调色板覆盖颜色，
+   依赖颜色区分的状态（选中态、焦点、危险操作）必须改用系统色关键字，
+   否则会退化成"全都一样"。
+   ============================================ */
+
+@media (forced-colors: active) {
+  /* 键盘焦点在高对比度下最容易被吞掉，用系统高亮色强制描边 */
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  /* 选中态不能只靠背景色：加系统高亮描边 */
+  .doc-item.active,
+  .doc-item.selected,
+  .notebook-item.active,
+  .sidebar-nav-item.active,
+  .view-tab.active {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  /* 危险操作必须有非颜色的提示 */
+  .btn-danger,
+  .context-menu-item.danger,
+  .batch-toolbar-btn.danger {
+    border: 1px solid CanvasText;
+  }
+
+  /* 主色按钮在高对比度下会被系统改成纯色块，加边框保证边界可见 */
+  .btn-primary {
+    border: 1px solid ButtonText;
+  }
+
+  /* 禁用态用系统灰，而不是低透明度（透明度在高对比度下常常看不出来） */
+  button:disabled,
+  .context-menu-item:disabled {
+    color: GrayText;
+    opacity: 1;
+  }
+}
+
+/* 系统要求"更高对比度"时，把弱化的边框与文字提一档 */
+@media (prefers-contrast: more) {
+  :root {
+    --border-color: rgba(0, 0, 0, 0.34);
+    --text-tertiary: #4b5563;
+  }
+
+  :focus-visible {
+    outline-width: 3px;
+  }
+}
+
+/* ============================================
    滚动条样式 (飞书风格 - 细、半透明)
    ============================================ */
 
@@ -350,77 +416,10 @@ a:hover {
 
 /* ============================================
    通用动画
+   所有 @keyframes 统一收敛到 styles/animations.css 单一来源。
+   同名 keyframes 在 CSS 中是"文档内后者覆盖前者"，多处定义会导致
+   实际生效版本取决于打包顺序（曾出现 slideInRight 的 20px / 100% 两版互相覆盖）。
    ============================================ */
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes slideInRight {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes slideOutRight {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
 
 /* ============================================
    Confirm Dialog (移至通用层)
@@ -436,7 +435,9 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  /* 高于各浮层面板（settings/tag-panel 为 10000~10001），低于 Toast（100000）：
+     确认弹窗是全局模态，必须压在被确认的面板之上 */
+  z-index: 10002;
   animation: fadeIn var(--transition-fast);
 }
 
@@ -562,7 +563,7 @@ a:hover {
 
 .confirm-dialog-actions .btn-primary {
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   border-color: var(--primary-color);
 }
 
@@ -608,7 +609,7 @@ a:hover {
   transition: border-color var(--transition-fast);
 }
 
-.link-dialog-field input:focus {
+.link-dialog-field input:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--primary-400);
 }
@@ -617,6 +618,119 @@ a:hover {
 .confirm-dialog-actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ============================================
+   数据加载失败恢复引导（.load-failure-*）
+   复用 .confirm-dialog 外壳，内部为多动作 + 备份列表布局
+   ============================================ */
+
+.load-failure-dialog {
+  max-width: min(520px, 94vw);
+}
+
+.load-failure-message {
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  border-radius: var(--border-radius-md, 8px);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.load-failure-note {
+  margin-bottom: var(--space-4);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.load-failure-backups {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md, 8px);
+}
+
+.load-failure-backups-empty {
+  padding: var(--space-3);
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+.load-failure-backup-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.load-failure-backup-item:hover:not(:disabled) {
+  background: var(--bg-secondary);
+}
+
+.load-failure-backup-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.load-failure-backup-time em {
+  font-style: normal;
+  color: var(--text-tertiary);
+}
+
+.load-failure-backup-size {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.load-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.load-failure-actions button {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md, 8px);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.load-failure-actions button:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+}
+
+.load-failure-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.load-failure-actions .btn-primary {
+  border-color: transparent;
+  background: var(--primary-500);
+  color: var(--on-primary, #fff);
+}
+
+.load-failure-actions .btn-primary:hover:not(:disabled) {
+  background: var(--primary-600);
 }
 
 /* ===== 无障碍：晕动症豁免 =====

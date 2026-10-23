@@ -10,9 +10,11 @@
  */
 
 import { useCallback, useState } from 'react'
+import type { JSX } from 'react'
 
 import type { AiConfigPatch, AiConfigView, AiError, AiFailure, MaxTokensParam } from '@/types/ai'
 import { aiClient, isAiFailure, PROVIDER_PRESETS, presetToFormPatch } from '@/services/ai'
+import { confirmAction } from '@/hooks/useConfirmAction'
 
 interface AiFormState {
   baseUrl: string
@@ -101,7 +103,7 @@ function modelsErrorHint(error: AiError): string {
   return error.message
 }
 
-export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabProps) {
+export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabProps): JSX.Element {
   const [override, setOverride] = useState<AiConfigView | null>(null)
   const [draft, setDraft] = useState<AiFormState | null>(null)
   const [apiKeyInput, setApiKeyInput] = useState('')
@@ -234,16 +236,27 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
     }
   }, [applyView])
 
-  const handleReset = useCallback(async (): Promise<void> => {
-    if (!window.confirm('确定要清空全部 AI 配置吗？此操作不可撤销。')) return
-    const result = await aiClient.config.clear()
-    if (isAiFailure(result)) {
-      setStatus({ kind: 'error', text: result.error.message })
-    } else {
-      applyView(result)
-      setApiKeyInput('')
-      setStatus({ kind: 'success', text: 'AI 配置已重置' })
-    }
+  const handleReset = useCallback((): void => {
+    // 破坏性操作走全局 ConfirmDialog，与其余确认交互保持同一套样式与键盘行为
+    confirmAction({
+      title: '重置 AI 配置',
+      message: '确定要清空全部 AI 配置吗？此操作不可撤销。',
+      confirmText: '清空配置',
+      variant: 'danger',
+      onConfirm: () => {
+        // 返回 Promise 供调用方/测试等待完成（ConfirmConfig 签名为 () => void，返回值被忽略）
+        return (async () => {
+          const result = await aiClient.config.clear()
+          if (isAiFailure(result)) {
+            setStatus({ kind: 'error', text: result.error.message })
+          } else {
+            applyView(result)
+            setApiKeyInput('')
+            setStatus({ kind: 'success', text: 'AI 配置已重置' })
+          }
+        })()
+      },
+    })
   }, [applyView])
 
   if (!view) {
@@ -266,6 +279,13 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
       {!view.configured && (
         <div className="ai-warn">
           {view.hasKey ? '配置尚未完成' : '尚未配置 API Key'}：AI 写作与编辑器 AI 操作在完成配置前不可用。
+        </div>
+      )}
+
+      {view.keyInvalid && (
+        <div className="ai-warn">
+          本机保存的 API Key 已无法解密（通常是更换了系统账户或把配置复制到了别的机器），
+          请在下方重新填写。原密文会保留，直到你填入新密钥或点「清除密钥」。
         </div>
       )}
 

@@ -54,7 +54,7 @@
   box-sizing: border-box;
 }
 
-.quick-note-input:focus {
+.quick-note-input:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -100,7 +100,7 @@
 .quick-note-add-btn {
   padding: var(--space-2) var(--space-5);
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   border: none;
   border-radius: var(--radius-lg);
   font-size: var(--font-size-base);
@@ -246,7 +246,7 @@
   box-sizing: border-box;
 }
 
-.quick-note-edit-input:focus {
+.quick-note-edit-input:focus:not(:focus-visible) {
   outline: none;
   box-shadow: 0 0 0 2px var(--primary-50);
 }
@@ -260,7 +260,7 @@
 .quick-note-edit-save {
   padding: var(--space-1) var(--space-4);
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   border: none;
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);

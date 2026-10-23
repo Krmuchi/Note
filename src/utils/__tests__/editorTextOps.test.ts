@@ -6,6 +6,7 @@ import {
   continueBlockOnEnter,
   detectSlashToken,
   insertTextAtCursor,
+  insertTextWithCursor,
   changeIndent,
 } from '@/utils/editorTextOps'
 
@@ -128,6 +129,33 @@ describe('insertTextAtCursor', () => {
     const ta = makeTa('前选中后', 1, 3)
     const next = insertTextAtCursor(ta, '新')
     expect(next).toBe('前新后')
+  })
+})
+
+describe('insertTextWithCursor - 自定义光标落点（代码块等）', () => {
+  it('光标落在插入文本内的指定偏移处', () => {
+    const ta = makeTa('前后', 1)
+    const next = insertTextWithCursor(ta, '```\n\n```', 4)
+    expect(next).toBe('前```\n\n```后')
+    expect(ta.selectionStart).toBe(1 + 4)
+    expect(ta.selectionEnd).toBe(1 + 4)
+  })
+
+  it('偏移越界时被夹到插入文本长度内', () => {
+    const over = makeTa('', 0)
+    insertTextWithCursor(over, 'abc', 99)
+    expect(over.selectionStart).toBe(3)
+
+    const under = makeTa('', 0)
+    insertTextWithCursor(under, 'abc', -5)
+    expect(under.selectionStart).toBe(0)
+  })
+
+  it('包裹选区：插入内容替换选区后光标按偏移定位', () => {
+    const ta = makeTa('前选中后', 1, 3)
+    const next = insertTextWithCursor(ta, '```js\n选中\n```', 6)
+    expect(next).toBe('前```js\n选中\n```后')
+    expect(ta.selectionStart).toBe(1 + 6)
   })
 })
 

@@ -45,3 +45,21 @@ export function findShortcutId(
   }
   return null;
 }
+
+/** 键名展示映射：方向键等按键需要更友好的显示 */
+const KEY_LABELS: Record<string, string> = {
+  arrowup: '↑',
+  arrowdown: '↓',
+  arrowleft: '←',
+  arrowright: '→',
+  enter: 'Enter',
+  escape: 'Esc',
+  ' ': 'Space',
+};
+
+/** 把规范化后的键名转成展示文案（如 'escape' → 'Esc'、'k' → 'K'） */
+export function formatKeyLabel(key: string): string {
+  const lower = key.toLowerCase();
+  if (KEY_LABELS[lower]) return KEY_LABELS[lower];
+  return key.length === 1 ? key.toUpperCase() : key;
+}

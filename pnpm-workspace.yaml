@@ -1,4 +1,13 @@
+# 构建脚本白名单（pnpm 11 要求显式决策，未决策会让 pnpm install 以非 0 退出，
+# 进而把 pnpm 的"运行脚本前校验依赖"搞失败 —— 例如 pnpm dist）。
 allowBuilds:
-  '@parcel/watcher': set this to true or false
+  # sass 的可选原生监视器；项目用纯 CSS，不需要编译原生模块
+  '@parcel/watcher': false
+  # Electron 需要下载运行时二进制
   electron: true
+  # esbuild 需要落地平台二进制
   esbuild: true
+  # 仅 electron-builder 的 Squirrel 目标使用，本项目用 NSIS，不需要
+  electron-winstaller: false
+patchedDependencies:
+  app-builder-lib@26.15.3: patches/app-builder-lib@26.15.3.patch

@@ -189,6 +189,39 @@ describe('runNonStream - 非流式请求', () => {
     expect(result.error.code).toBe('AI_ERR_NOT_CONFIGURED')
   })
 
+  it('附加指令进入上游请求的 user message，且不进入 system', async () => {
+    const bodies: string[] = []
+    const fetchImpl = vi.fn(async (_url: string, init: { body: string }) => {
+      bodies.push(init.body)
+      return jsonResponse({ choices: [{ message: { content: '生成结果' } }] })
+    })
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
+    const result = await service.runNonStream({
+      ...makeRequest(),
+      instructions: '面向零基础读者',
+    })
+    expect(result.ok).toBe(true)
+
+    const messages = JSON.parse(bodies[0]).messages as { role: string; content: string }[]
+    const system = messages.find((m) => m.role === 'system')
+    const user = messages.find((m) => m.role === 'user')
+    expect(user?.content).toContain('附加要求：面向零基础读者')
+    expect(system?.content).not.toContain('面向零基础读者')
+  })
+
+  it('未提供附加指令时上游请求体不含附加要求', async () => {
+    const bodies: string[] = []
+    const fetchImpl = vi.fn(async (_url: string, init: { body: string }) => {
+      bodies.push(init.body)
+      return jsonResponse({ choices: [{ message: { content: '生成结果' } }] })
+    })
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
+    await service.runNonStream(makeRequest())
+
+    const messages = JSON.parse(bodies[0]).messages as { role: string; content: string }[]
+    expect(messages.every((m) => !m.content.includes('附加要求'))).toBe(true)
+  })
+
   it('成功时返回归一化正文、标题与 usage', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -485,6 +518,44 @@ describe('流式请求', () => {
     expect(events.filter((event) => event.type === 'chunk').map((event) => event.delta).join('')).toBe('非流式兜底内容')
   })
 
+  it('配置 stream:false 时不请求 SSE，改用非流式并一次性下发全文', async () => {
+    const bodies: string[] = []
+    const fetchImpl = vi.fn(async (_url: string, init: { body: string }) => {
+      bodies.push(init.body)
+      return jsonResponse({ choices: [{ message: { content: '一次性全文' } }] })
+    })
+    const service = createAiService({
+      configStore: makeConfigStore({ stream: false }),
+      fetchImpl,
+    })
+    const events: CapturedEvent[] = []
+    service.startStream(makeRequest(), (event: CapturedEvent) => events.push(event))
+    await waitFor(() => events.some((event) => event.type === 'done'))
+
+    // 上游请求体 stream 必须为 false，且不带 stream_options
+    expect(JSON.parse(bodies[0]).stream).toBe(false)
+    expect(JSON.parse(bodies[0]).stream_options).toBeUndefined()
+
+    expect(events[0].type).toBe('meta')
+    expect(events.filter((event) => event.type === 'chunk')).toHaveLength(1)
+    const done = events.find((event) => event.type === 'done')
+    expect(done?.text).toBe('一次性全文')
+  })
+
+  it('配置 stream:true（默认）仍走 SSE 流式', async () => {
+    const bodies: string[] = []
+    const fetchImpl = vi.fn(async (_url: string, init: { body: string }) => {
+      bodies.push(init.body)
+      return sseResponse([sseDelta('流式内容'), 'data: [DONE]\n\n'])
+    })
+    const service = createAiService({ configStore: makeConfigStore({ stream: true }), fetchImpl })
+    const events: CapturedEvent[] = []
+    service.startStream(makeRequest(), (event: CapturedEvent) => events.push(event))
+    await waitFor(() => events.some((event) => event.type === 'done'))
+
+    expect(JSON.parse(bodies[0]).stream).toBe(true)
+  })
+
   it('400 因 stream_options 被拒时自动去掉该字段重试一次', async () => {
     const bodies: string[] = []
     const fetchImpl = vi.fn(async (_url: string, init: { body: string }) => {
@@ -606,8 +677,16 @@ describe('流式请求', () => {
 describe('listModels - 拉取服务商模型列表', () => {
   const MODELS_BODY = { object: 'list', data: [{ id: 'm-b' }, { id: 'm-a' }] }
 
+  /**
+   * fetch mock 需显式声明参数，否则 vi.fn 会推断成零参签名，
+   * mock.calls[0] 变成空元组，读取 url/init 时类型报错。
+   */
+  type FetchInit = { method: string; headers: Record<string, string> }
+  const fetchReturning = (body: unknown, init?: { status?: number }): ReturnType<typeof vi.fn> =>
+    vi.fn(async (_url: string, _init: FetchInit) => jsonResponse(body, init))
+
   it('成功返回去重排序后的模型 id 与查询地址', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(MODELS_BODY))
+    const fetchImpl = fetchReturning(MODELS_BODY)
     const service = createAiService({ configStore: makeConfigStore(), fetchImpl })
 
     const result = await service.listModels()
@@ -621,7 +700,7 @@ describe('listModels - 拉取服务商模型列表', () => {
   })
 
   it('可携带未保存的 baseUrl 与 apiKey（先看列表再保存）', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(MODELS_BODY))
+    const fetchImpl = fetchReturning(MODELS_BODY)
     const configStore = makeConfigStore({ baseUrl: '' }, '')
     const service = createAiService({ configStore, fetchImpl })
 
@@ -639,7 +718,7 @@ describe('listModels - 拉取服务商模型列表', () => {
   })
 
   it('本地服务无 Key 时不发送 Authorization', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ models: [{ name: 'qwen2.5:7b' }] }))
+    const fetchImpl = fetchReturning({ models: [{ name: 'qwen2.5:7b' }] })
     const configStore = makeConfigStore({ baseUrl: 'http://localhost:11434' }, '')
     const service = createAiService({ configStore, fetchImpl })
 

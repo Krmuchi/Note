@@ -1,4 +1,5 @@
 // 导入类型定义
+import type { JSX } from "react";
 import type { TagStats } from "@/types";
 
 /**
@@ -11,11 +12,11 @@ interface TagStatsPanelProps {
 /**
  * 标签统计面板组件
  */
-export default function TagStatsPanel({ stats }: TagStatsPanelProps) {
+export default function TagStatsPanel({ stats }: TagStatsPanelProps): JSX.Element {
   /**
    * 计算进度条宽度百分比
    */
-  const getBarWidth = (count: number, max: number) => {
+  const getBarWidth = (count: number, max: number): number => {
     if (max === 0) return 0;
     return (count / max) * 100;
   };

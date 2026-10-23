@@ -1,0 +1,844 @@
+/**
+ * 富文本编辑器（contenteditable）样式。
+ *
+ * 与 markdown-preview.css 的关系：预览是**只读渲染**，编辑器是**可编辑**，
+ * 两者需要不同的细节 —— 编辑态要有空块占位、光标色、块悬停提示、以及
+ * "这里能打字"的视觉暗示。所以不直接复用预览样式，而是单独定义一套，
+ * 但字号/行高/间距与预览保持一致，保证编辑/预览切换时不跳版。
+ */
+
+.rich-editor {
+  flex: 1;
+  min-height: 200px;
+  overflow-y: auto;
+  outline: none;
+  /*
+   * 上内边距 16px：文档标题就在正上方（.editor-doc-title 自带 12px 下边距），
+   * 合计 28px 的分隔，既不断层、也不会让标题和首段粘成一块。
+   */
+  padding: var(--space-4) max(var(--space-6), calc((100% - 760px) / 2)) var(--space-10);
+  font-family: var(--font-family-base, "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  line-height: var(--line-height-relaxed);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  caret-color: var(--primary-500);
+  word-break: break-word;
+  /* 与编辑区保持同一套内容栏居中算法（见 .editor-textarea） */
+  box-sizing: border-box;
+  transition: background var(--transition-fast);
+}
+
+/* ---------- 块级元素 ---------- */
+
+.rich-editor p {
+  margin: 0 0 10px;
+  min-height: 1.6em;
+}
+
+/*
+ * 标题字号阶梯（正文 15px 为基准）。
+ * 旧值 h1 1.9em / h2 1.55em / h3 1.3em 在 15px 正文下得到 28.5/23/19.5，
+ * 与文档标题(20px)撞在一起，页面出现三个体量相近的大字块。
+ * 现在文档标题 32px > H1 26px > H2 21px > H3 18px，层级唯一。
+ */
+.rich-editor h1,
+.rich-editor h2,
+.rich-editor h3,
+.rich-editor h4,
+.rich-editor h5,
+.rich-editor h6 {
+  margin: var(--space-5) 0 10px;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.1px;
+}
+
+.rich-editor h1 { font-size: 1.72em; margin-top: var(--space-6); }
+.rich-editor h2 { font-size: 1.4em; margin-top: var(--space-5); }
+.rich-editor h3 { font-size: 1.2em; }
+.rich-editor h4 { font-size: 1.05em; }
+.rich-editor h5,
+.rich-editor h6 { font-size: 1em; }
+
+.rich-editor h1:first-child,
+.rich-editor h2:first-child,
+.rich-editor h3:first-child {
+  margin-top: 0;
+}
+
+/* ---------- 标题折叠 ---------- */
+/*
+ * 折叠按钮用标题自身的 ::before 画（不插入真实节点）：
+ * contenteditable 里任何额外元素都会被回写成正文，用户文档会被污染。
+ * 标题留 18px 左内边距、同时负 18px 左外边距 —— 文字位置不变，
+ * 但这 18px 落在标题盒内，点击热区才可靠（伪元素在盒外时命中不稳定）。
+ */
+.rich-editor > h1,
+.rich-editor > h2,
+.rich-editor > h3,
+.rich-editor > h4,
+.rich-editor > h5,
+.rich-editor > h6 {
+  position: relative;
+  padding-left: 18px;
+  margin-left: -18px;
+}
+
+.rich-editor > h1::before,
+.rich-editor > h2::before,
+.rich-editor > h3::before,
+.rich-editor > h4::before,
+.rich-editor > h5::before,
+.rich-editor > h6::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -4px;
+  border-right: 1.5px solid var(--text-tertiary);
+  border-bottom: 1.5px solid var(--text-tertiary);
+  transform: rotate(45deg);
+  opacity: 0;
+  transition: opacity 120ms ease, transform 120ms ease;
+  cursor: pointer;
+}
+
+.rich-editor > h1:hover::before,
+.rich-editor > h2:hover::before,
+.rich-editor > h3:hover::before,
+.rich-editor > h4:hover::before,
+.rich-editor > h5:hover::before,
+.rich-editor > h6:hover::before {
+  opacity: 0.5;
+}
+
+/* 折叠态：箭头转向右，并保持可见（提示"这里还有内容"） */
+.rich-editor > h1[data-folded='1']::before,
+.rich-editor > h2[data-folded='1']::before,
+.rich-editor > h3[data-folded='1']::before,
+.rich-editor > h4[data-folded='1']::before,
+.rich-editor > h5[data-folded='1']::before,
+.rich-editor > h6[data-folded='1']::before {
+  transform: rotate(-45deg);
+  opacity: 0.75;
+}
+
+/* 被折叠的块：只加 class，不改变 DOM 结构（textContent 仍在，往返不受影响） */
+.rich-editor > .is-folded-body {
+  display: none;
+}
+
+/* ---------- 列表 ---------- */
+
+.rich-editor ul,
+.rich-editor ol {
+  margin: 0 0 var(--space-3);
+  padding-left: 1.6em;
+}
+
+.rich-editor li {
+  margin: var(--space-1) 0;
+}
+
+/* 任务列表：去掉默认项目符号，复选框占位对齐 */
+.rich-editor ul.task-list {
+  list-style: none;
+  padding-left: 0.2em;
+}
+
+.rich-editor li.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.rich-editor li.task-item input[type='checkbox'] {
+  margin-top: 0.35em;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* ---------- 引用 ---------- */
+
+.rich-editor blockquote {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-left: 3px solid var(--primary-300);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.rich-editor blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- 代码 ---------- */
+
+.rich-editor code {
+  padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-tertiary);
+  font-family: var(--font-mono, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace);
+  font-size: 0.92em;
+}
+
+.rich-editor pre {
+  margin: 0 0 var(--space-3);
+  /*
+   * 内边距放在 <code> 上而不是 <pre>：
+   * 点 <pre> 的 padding 区域时，浏览器会把光标放在 <pre> 本身（<code> 外面），
+   * 之后输入的文字会挂到代码块结构之外，回写时内容错位。
+   * 把可点击区域全部交给 <code>，光标就只会落在代码文本里。
+   */
+  padding: 0;
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-tertiary);
+  overflow-x: auto;
+}
+
+.rich-editor pre code {
+  display: block;
+  padding: var(--space-4);
+  background: none;
+  font-size: 0.9em;
+  line-height: 1.6;
+  white-space: pre;
+  outline: none;
+}
+
+/* ---------- 表格 ---------- */
+
+.rich-editor table {
+  margin: 0 0 var(--space-3);
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.95em;
+}
+
+.rich-editor th,
+.rich-editor td {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.rich-editor th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+
+/* ---------- 分割线 ---------- */
+
+.rich-editor hr {
+  margin: var(--space-5) 0;
+  border: none;
+  border-top: 1px solid var(--border-color);
+}
+
+/* ---------- 行内 ---------- */
+
+.rich-editor a {
+  color: var(--primary-500);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rich-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+}
+
+/* 选中态：与缩放工具条配合，明确"现在操作的是这张图" */
+.rich-editor img.is-selected {
+  outline: 2px solid var(--primary-500);
+  outline-offset: 2px;
+}
+
+/* ---------- 图片缩放工具条与手柄 ---------- */
+.image-toolbar {
+  position: fixed;
+  z-index: 62;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  background: var(--bg-elevated, var(--bg-primary));
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: var(--shadow-sm, 0 1px 4px rgb(0 0 0 / 10%));
+}
+
+.image-size-label {
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.image-toolbar button {
+  padding: 3px 7px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.image-toolbar button:hover {
+  background: var(--bg-quaternary);
+  color: var(--text-primary);
+}
+
+/* 右下角拖拽手柄：8px 小方块，命中区扩到 18px（伪元素不参与 DOM） */
+.image-resize-handle {
+  position: fixed;
+  z-index: 62;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--bg-primary);
+  border-radius: 3px;
+  background: var(--primary-500);
+  cursor: nwse-resize;
+  touch-action: none;
+  box-shadow: 0 0 0 1px var(--primary-500);
+}
+
+.rich-editor mark {
+  background: var(--warning-100, #fff3cd);
+  color: inherit;
+  padding: 0 0.15em;
+  border-radius: 2px;
+}
+
+/* ---------- 编辑态专属：空块占位 ---------- */
+
+/*
+ * contenteditable 里空段落会塌成 0 高度，用户看不到"这里能输入"。
+ * 用 :empty 伪类给出占位提示 —— 比在 DOM 里塞假文本干净（假文本会被回写成 Markdown）。
+ */
+.rich-editor p:empty::before,
+.rich-editor h1:empty::before,
+.rich-editor h2:empty::before,
+.rich-editor h3:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+/* 段落内只有 <br> 时也算空（浏览器常用 <br> 表示空行） */
+.rich-editor p:has(> br:only-child) {
+  min-height: 1.6em;
+}
+
+/* ---------- 编辑态专属：块悬停提示 ---------- */
+
+/*
+ * 悬停时左侧出现一条主色细线，提示"这是一个块"。
+ * 语雀在这里放的是拖拽手柄；我们暂不做块拖拽（方案 C 的范围），
+ * 但保留视觉提示，让用户感到内容是有结构的。
+ */
+.rich-editor > p,
+.rich-editor > h1,
+.rich-editor > h2,
+.rich-editor > h3,
+.rich-editor > ul,
+.rich-editor > ol,
+.rich-editor > blockquote,
+.rich-editor > pre,
+.rich-editor > table {
+  position: relative;
+}
+
+.rich-editor > p::after,
+.rich-editor > h1::after,
+.rich-editor > h2::after,
+.rich-editor > h3::after,
+.rich-editor > blockquote::after,
+.rich-editor > pre::after {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--space-3));
+  top: 0.25em;
+  bottom: 0.25em;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--primary-400);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.rich-editor > p:hover::after,
+.rich-editor > h1:hover::after,
+.rich-editor > h2:hover::after,
+.rich-editor > h3:hover::after,
+.rich-editor > blockquote:hover::after,
+.rich-editor > pre:hover::after {
+  opacity: 0.45;
+}
+
+/* 窄屏收回内边距与块提示（与 .editor-textarea 的断点一致） */
+@media (max-width: 900px) {
+  .rich-editor {
+    padding: var(--space-6) var(--space-4);
+  }
+
+  .rich-editor > p::after,
+  .rich-editor > h1::after,
+  .rich-editor > h2::after,
+  .rich-editor > h3::after {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   划词浮层工具栏（语雀式）
+   --------------------------------------------------------------------------
+   选中文字后贴着选区上方出现。用 fixed 定位 + 视口坐标（由 JS 用
+   Range.getBoundingClientRect 算出），因此不受编辑器滚动容器影响。
+   层级要高于正文但低于弹窗：正文里的图片/表格可能形成层叠上下文。
+   ========================================================================== */
+.selection-toolbar {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 3px;
+  background: var(--bg-elevated, var(--bg-primary));
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-lg, 0 6px 24px rgb(0 0 0 / 12%));
+  /* 出现时轻微上浮，避免"啪"地跳出；位移量与 JS 定位的 8px 间距呼应 */
+  animation: selection-toolbar-in 120ms ease-out;
+}
+
+@keyframes selection-toolbar-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.selection-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.selection-toolbar-btn:hover {
+  background: var(--bg-hover, rgb(0 0 0 / 5%));
+  color: var(--text-primary);
+}
+
+.selection-toolbar-btn:active {
+  background: var(--bg-active, rgb(0 0 0 / 8%));
+}
+
+/* 键盘用户：浮层里的按钮也要有清晰的焦点态 */
+.selection-toolbar-btn:focus-visible {
+  outline: 2px solid var(--color-primary, #1677ff);
+  outline-offset: -2px;
+}
+
+.selection-toolbar-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--border-secondary);
+}
+
+/* 触摸设备上浮层按钮偏小，手指容易点错；加大命中区 */
+@media (pointer: coarse) {
+  .selection-toolbar-btn {
+    width: 34px;
+    height: 34px;
+  }
+}
+
+/* ==========================================================================
+   正文内的大标题（语雀式）
+   --------------------------------------------------------------------------
+   关键点：**与正文共用同一条内容列的居中算法**。
+   正文的 padding 是 `var(--space-8) max(var(--space-6), calc((100% - 760px) / 2))`
+   —— 左右内边距随视口变化，内容列固定 760px 居中。
+   标题若用自己的内边距，就会出现"标题比正文左移几像素"的错位，
+   这正是"看起来像毛坯房"的典型来源。所以这里的水平内边距与正文完全一致。
+   ========================================================================== */
+.editor-doc-title {
+  /*
+   * flex: 0 0 auto —— 按**内容高度**占位，不参与剩余空间分配。
+   *
+   * 必须显式写死：编辑器容器是 flex column，只写 flex-shrink:0 时
+   * 若别处有 flex:1 覆盖（曾经撞上侧栏的 .doc-title），标题容器会被
+   * 拉伸到剩余高度（实测被撑到 376px，标题与正文之间出现约 390px 空白）。
+   */
+  flex: 0 0 auto;
+  /* 与 .rich-editor / .editor-textarea 相同：内容列居中，右内边距对称 */
+  padding: var(--space-6) max(var(--space-6), calc((100% - 760px) / 2)) var(--space-3);
+  font-family: var(--font-family-base, "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  /*
+   * 32px / 650：文档标题必须是页面上最大的文字。
+   * 旧值 --font-size-3xl(20px) 比正文 H1(1.9em ≈ 28.5px) 还小 ——
+   * 层级倒挂，标题看起来像"窗口名"，而正文里随手写的 # 标题反而更像标题。
+   */
+  font-size: 32px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.2px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: none;
+  outline: none;
+  /* 长标题自然换行，不横向截断（input 做不到这点，所以用 contenteditable） */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+
+/* 空标题时显示占位（contenteditable 没有 placeholder 属性，用 :empty::before） */
+.editor-doc-title:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-placeholder);
+  pointer-events: none;
+}
+
+/* 标题正在编辑时给一点聚焦反馈，但不要边框（语雀是无边框风格） */
+.editor-doc-title:focus {
+  outline: none;
+}
+
+/* 窄窗口下收窄边距，与正文的响应式规则保持一致 */
+@media (max-width: 900px) {
+  .editor-doc-title {
+    padding: var(--space-6) var(--space-4) var(--space-3);
+  }
+}
+
+/* ==========================================================================
+   块级悬浮手柄（语雀式）
+   --------------------------------------------------------------------------
+   鼠标移入某个块时，其左侧浮出「+ 插入」「⋮⋮ 移动」两个按钮。
+   独立一层（不塞进块里），fixed 定位由 JS 用块的 getBoundingClientRect 算出。
+   层级高于正文（z-index 60），低于弹窗。手柄不夺焦：点击要保住编辑器选区。
+   ========================================================================== */
+.block-handle {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-elevated, var(--bg-primary));
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: var(--shadow-sm, 0 1px 4px rgb(0 0 0 / 10%));
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  pointer-events: none;
+}
+
+/* 有挂载坐标时才可见（由组件渲染出来即有），做轻微淡入 */
+.block-handle:not([style*='none']) {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.block-handle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm, 5px);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.block-handle-btn:hover {
+  background: var(--bg-hover, rgb(0 0 0 / 5%));
+  color: var(--text-primary);
+}
+
+.block-handle-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* 拖拽手柄的指示色与指针，提示可移动 */
+.block-handle-grip {
+  cursor: grab;
+}
+.block-handle-grip:active {
+  cursor: grabbing;
+}
+
+.block-handle-grip.active {
+  background: var(--bg-hover, rgb(0 0 0 / 5%));
+  color: var(--text-primary);
+}
+
+/* ---------- 块菜单（语雀式：转换 / 复制 / 删除 / 移动） ---------- */
+
+.block-menu {
+  position: fixed;
+  z-index: 70;
+  width: 208px;
+  padding: 6px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 14%);
+  animation: blockMenuIn 120ms ease;
+}
+
+@keyframes blockMenuIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.block-menu-label {
+  padding: 2px 6px 6px;
+  font-size: var(--font-size-xs, 11px);
+  color: var(--text-tertiary);
+}
+
+.block-menu-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+
+.block-menu-chip {
+  padding: 5px 8px;
+  border: none;
+  border-radius: var(--radius-sm, 5px);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm, 12px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.block-menu-chip:hover {
+  background: var(--bg-hover, rgb(0 0 0 / 5%));
+}
+
+.block-menu-divider {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--border-secondary);
+}
+
+.block-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm, 5px);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm, 12px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.block-menu-item:hover {
+  background: var(--bg-hover, rgb(0 0 0 / 5%));
+}
+
+.block-menu-item svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+/* 块悬停时的左侧强调线：语雀用一条竖线提示"当前块" */
+.rich-editor > *:hover {
+  position: relative;
+}
+
+/* 已完成任务项：文字划线 + 变淡（语雀同款视觉） */
+.rich-editor li.task-done > span,
+.rich-editor li.task-item.task-done > span {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+
+/* ---------- 表格上下文工具栏 ---------- */
+
+.table-toolbar {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-elevated, var(--bg-primary));
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: var(--shadow-sm, 0 1px 4px rgb(0 0 0 / 10%));
+}
+
+.table-toolbar button {
+  padding: 3px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.table-toolbar button:hover {
+  background: var(--bg-quaternary);
+  color: var(--text-primary);
+}
+
+.table-toolbar button.table-toolbar-danger:hover {
+  color: var(--error-500);
+}
+
+.table-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--border-color);
+}
+
+/* ---------- 代码块工具条（语言 / 复制） ---------- */
+
+.code-toolbar {
+  position: fixed;
+  z-index: 61;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-elevated, var(--bg-primary));
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: var(--shadow-sm, 0 1px 4px rgb(0 0 0 / 10%));
+  opacity: 0.92;
+  transition: opacity 120ms ease;
+}
+
+.code-toolbar:hover {
+  opacity: 1;
+}
+
+.code-lang-wrap {
+  position: relative;
+}
+
+.code-lang-btn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono, Consolas, monospace);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.code-lang-btn:hover {
+  background: var(--bg-quaternary);
+  color: var(--text-primary);
+}
+
+.code-lang-btn svg {
+  width: 10px;
+  height: 10px;
+  opacity: 0.7;
+}
+
+.code-copy-btn {
+  padding: 3px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.code-copy-btn:hover {
+  background: var(--bg-quaternary);
+  color: var(--text-primary);
+}
+
+.code-lang-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 62;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(52px, 1fr));
+  gap: 2px;
+  width: 186px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 5px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 14%);
+}
+
+.code-lang-option {
+  padding: 4px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, Consolas, monospace);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.code-lang-option:hover {
+  background: var(--bg-quaternary);
+  color: var(--text-primary);
+}
+
+.code-lang-option.active {
+  background: var(--primary-50);
+  color: var(--primary-600);
+}

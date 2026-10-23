@@ -1,5 +1,7 @@
 import { useNotesStore } from '@/store';
-import { exportHtmlDoc, exportPdfDoc, exportDoc, exportNotebookZip } from '@/services/storage';
+import { exportHtmlDoc, exportPdfDoc, exportDoc, exportNotebookZip, printDoc } from '@/services/storage';
+import { DEFAULT_PDF_OPTIONS } from '@/utils/pdfOptions';
+import type { PdfExportOptions } from '@/types';
 import { toast } from '@/components/common/Toast';
 
 /**
@@ -59,17 +61,35 @@ export async function exportCurrentNotebookAsZip(): Promise<void> {
   }
 }
 
-export async function exportCurrentDocAsPdf(): Promise<void> {
+export async function exportCurrentDocAsPdf(options: PdfExportOptions = DEFAULT_PDF_OPTIONS): Promise<void> {
   try {
     const doc = useNotesStore.getState().activeDoc;
     if (!doc) return;
     const ok = await exportPdfDoc({
       title: doc.title,
       content: doc.content || '',
+      options,
     });
     if (ok) toast.success('PDF 导出成功');
   } catch (err) {
     console.error('Export PDF failed:', err);
     toast.error(`导出 PDF 失败：${err instanceof Error ? err.message : '未知错误'}`);
+  }
+}
+
+/** 系统打印当前文档（C5）：弹出系统打印对话框，可打印也可另存为 PDF */
+export async function printCurrentDoc(): Promise<void> {
+  try {
+    const doc = useNotesStore.getState().activeDoc;
+    if (!doc) return;
+    const result = await printDoc({ title: doc.title, content: doc.content || '' });
+    if (result.ok) {
+      toast.success('已提交打印');
+    } else if (!result.cancelled) {
+      toast.error(result.error || '打印失败');
+    }
+  } catch (err) {
+    console.error('Print failed:', err);
+    toast.error(`打印失败：${err instanceof Error ? err.message : '未知错误'}`);
   }
 }

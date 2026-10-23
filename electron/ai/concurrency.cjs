@@ -7,10 +7,27 @@
 const DEFAULT_LIMIT = 3;
 
 /**
+ * 把外部传入的 limit 收敛为合法正整数。
+ * 必须显式判 Number.isFinite：`Math.max(1, 'abc')` 得到 NaN，
+ * 而 `active < NaN` 恒为 false，会让闸门永久死锁（所有 AI 请求无声挂起，无报错无超时）。
+ *
+ * 只接受真数字或可解析为数字的字符串：null / [] / {} / '' 这类会被 Number()
+ * 悄悄转成 0 的值一律视为非法并回退，避免把"配置写坏了"误当成"并发设为 1"。
+ */
+function normalizeLimit(value, fallback = DEFAULT_LIMIT) {
+  let n;
+  if (typeof value === 'number') n = value;
+  else if (typeof value === 'string' && value.trim() !== '') n = Number(value);
+  else return fallback;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, Math.floor(n));
+}
+
+/**
  * @param {{limit?: number}} [options]
  */
 function createGate(options = {}) {
-  let limit = Math.max(1, options.limit ?? DEFAULT_LIMIT);
+  let limit = normalizeLimit(options.limit);
   let active = 0;
   const queue = [];
 
@@ -44,7 +61,9 @@ function createGate(options = {}) {
   }
 
   function setLimit(nextLimit) {
-    limit = Math.max(1, nextLimit);
+    const normalized = normalizeLimit(nextLimit, limit);
+    if (normalized === limit) return;
+    limit = normalized;
     // 放宽限制后立刻唤醒排队者
     while (active < limit && queue.length > 0) {
       const next = queue.shift();
@@ -70,4 +89,4 @@ function createGate(options = {}) {
   };
 }
 
-module.exports = { DEFAULT_LIMIT, createGate };
+module.exports = { DEFAULT_LIMIT, createGate, normalizeLimit };

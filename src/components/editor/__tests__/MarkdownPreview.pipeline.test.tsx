@@ -8,7 +8,6 @@ describe('MarkdownPreview - 编辑器 HTML 功能渲染', () => {
       <MarkdownPreview content={'前<span style="color:#ff0000">你好</span>后'} />,
     )
     const colored = container.querySelector('span[style]')
-    console.log('SPAN HTML:', container.querySelector('.markdown-preview')?.innerHTML)
     expect(colored).toBeTruthy()
     expect(colored?.getAttribute('style')).toContain('rgb(255, 0, 0)')
     expect(colored?.textContent).toBe('你好')

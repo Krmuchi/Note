@@ -1,8 +1,17 @@
+/*
+ * 卡片化：外壳里唯一不叫 .editor-panel 的整块面板（开始 / 小记 / 标签走它）。
+ * 背景由 --bg-secondary 改为 --bg-primary，两个原因：
+ *   1) 外壳约定「所有卡片同色、只有画布更深一档」，此处是唯一的例外；
+ *   2) 绿 / 暖 / 深邃蓝三套浅色主题的 --bg-canvas 恰好等于其 --bg-secondary，
+ *      沿用旧值会让这张卡在画布上完全隐形。
+ */
 .start-panel {
   flex: 1;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   padding: var(--space-10) var(--space-12);
   overflow-y: auto;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
 }
 
 .start-page {
@@ -55,42 +64,31 @@
   width: 100%;
 }
 
+/*
+ * 快捷操作卡片。
+ *
+ * 之前是 1px 描边 + 顶部 3px 主色装饰条 —— 描边让卡片看起来"框"在一起，
+ * 装饰条又和整体的线性图标风格冲突。语雀的做法是**底色分层**：
+ * 卡片用比页面略深的底色（bg-secondary），hover 时再深一档，不画框。
+ */
 .quick-action-card {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  border: none;
   border-radius: var(--radius-xl);
   padding: var(--space-4);
   cursor: pointer;
-  transition: all var(--transition-base);
+  transition: background var(--transition-base), transform var(--transition-base);
   position: relative;
   overflow: hidden;
 }
 
-.quick-action-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--primary-500);
-  opacity: 0;
-  transition: opacity var(--transition-base);
-}
-
 .quick-action-card:hover {
-  border-color: var(--primary-300);
-  box-shadow: var(--shadow-md);
+  background: var(--bg-tertiary);
   transform: translateY(-1px);
-}
-
-.quick-action-card:hover::before {
-  opacity: 1;
 }
 
 .quick-action-card:active {
   transform: translateY(0);
-  box-shadow: none;
 }
 
 .quick-action-card.disabled {
@@ -132,16 +130,28 @@
   gap: var(--space-3);
 }
 
+/*
+ * 快捷卡片图标：统一的单色线性 SVG（替代 emoji）。
+ * 底色用浅主色而非随机的浅紫/浅黄/浅粉 —— 让四张卡片看起来是"一套"，
+ * 而不是四张各挑各的贴纸。
+ */
 .action-icon {
-  font-size: 24px;
   width: 44px;
   height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--primary-500) 12%, transparent);
+  color: var(--primary-500);
+  border-radius: var(--radius-lg, 12px);
   flex-shrink: 0;
+  /* hover 时图标轻微上浮 + 变深，给"可点击"的反馈 */
+  transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.quick-action-card:hover .action-icon {
+  background: color-mix(in srgb, var(--primary-500) 18%, transparent);
+  transform: translateY(-2px);
 }
 
 .action-info {
@@ -167,10 +177,14 @@
   color: var(--text-tertiary);
 }
 
+/*
+ * 文档区块容器：改用底色分层（对齐语雀），去掉 1px 描边。
+ * 卡片用 bg-secondary、页面用 bg-primary，靠色差而不是描边来区分层级。
+ */
 .docs-section {
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   border-radius: var(--radius-xl);
-  border: 1px solid var(--border-color);
+  border: none;
   overflow: hidden;
 }
 
@@ -213,7 +227,7 @@
 
 .filter-tab.active {
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   font-weight: 500;
 }
 
@@ -255,7 +269,7 @@
   min-width: 80px;
 }
 
-.filter-select:focus {
+.filter-select:focus:not(:focus-visible) {
   outline: none;
   border-color: var(--border-active);
   box-shadow: 0 0 0 2px var(--primary-50);

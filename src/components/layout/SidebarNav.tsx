@@ -35,6 +35,8 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
     onLeftMenuChange(menu);
     if (menu === 'favorite') {
       onViewChange('favorite');
+    } else if (menu === 'recent') {
+      onViewChange('recent');
     }
   }, [collapsed, onExpand, onLeftMenuChange, onViewChange]);
 
@@ -42,6 +44,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
     { id: 'start', icon: 'home', label: '开始' },
     { id: 'note', icon: 'note', label: '小记' },
     { id: 'favorite', icon: 'star', label: '收藏' },
+    { id: 'recent', icon: 'history', label: '最近' },
     { id: 'tags', icon: 'tag', label: '标签' },
   ];
 
@@ -62,6 +65,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
               {item.icon === 'home' && <><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></>}
               {item.icon === 'note' && <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></>}
               {item.icon === 'star' && <><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></>}
+              {item.icon === 'history' && <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>}
               {item.icon === 'tag' && <><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" /></>}
             </svg>
           </span>

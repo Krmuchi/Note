@@ -157,6 +157,28 @@ describe('aiClient - 三种能力映射', () => {
     await aiClient.generate(GENERATE_INPUT, { bypassCache: true })
     expect(api.aiGenerate.mock.calls[0][0].bypassCache).toBe(true)
   })
+
+  it('generate 透传附加指令，未填写时不带该字段', async () => {
+    await aiClient.generate({ ...GENERATE_INPUT, instructions: '面向零基础读者' })
+    expect(api.aiGenerate.mock.calls[0][0].instructions).toBe('面向零基础读者')
+
+    api.aiGenerate.mockClear()
+    await aiClient.generate({ ...GENERATE_INPUT, instructions: '' })
+    expect(api.aiGenerate.mock.calls[0][0]).not.toHaveProperty('instructions')
+  })
+
+  it('optimize / transform 同样透传附加指令（选区菜单入口）', async () => {
+    await aiClient.optimize({ action: 'polish', text: '原文', instructions: '保留专业术语' })
+    expect(api.aiGenerate.mock.calls[0][0].instructions).toBe('保留专业术语')
+
+    api.aiGenerate.mockClear()
+    await aiClient.transform({ text: '原文', targetStyle: 'casual', instructions: '控制在 200 字内' })
+    expect(api.aiGenerate.mock.calls[0][0].instructions).toBe('控制在 200 字内')
+
+    api.aiGenerate.mockClear()
+    await aiClient.optimize({ action: 'polish', text: '原文', instructions: undefined })
+    expect(api.aiGenerate.mock.calls[0][0]).not.toHaveProperty('instructions')
+  })
 })
 
 describe('aiClient - 失败信封与异常归一化', () => {

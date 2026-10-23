@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface RecoveryDialogProps {
   timestamp: string;
@@ -23,12 +24,14 @@ export const RecoveryDialog: React.FC<RecoveryDialogProps> = ({
   onClose,
 }) => {
   const recoverBtnRef = useRef<HTMLButtonElement>(null);
+  // Tab 在弹窗内循环（A2）：恢复草稿这种"数据安全"弹窗尤其不能让焦点跑到背后
+  const trapRef = useFocusTrap<HTMLDivElement>();
 
   useEffect(() => {
     recoverBtnRef.current?.focus();
 
     if (!onClose) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
       // capture 阶段拦截，阻断全局 useKeyboard 的 Escape（避免连带关闭背后的面板）
       e.stopImmediatePropagation();
@@ -47,7 +50,7 @@ export const RecoveryDialog: React.FC<RecoveryDialogProps> = ({
       aria-modal="true"
       aria-label="检测到未保存的更改"
     >
-      <div className="confirm-dialog recovery-dialog" onClick={(e) => e.stopPropagation()}>
+      <div ref={trapRef} className="confirm-dialog recovery-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="confirm-dialog-header">
           <span className="confirm-dialog-icon recovery-icon" aria-hidden="true">
             💾

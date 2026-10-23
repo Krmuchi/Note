@@ -1,8 +1,14 @@
 // 导入 React hooks 和类型定义
 import { useState } from 'react';
+import type { JSX } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { DocVersion } from '@/types';
 import { useNotesStore } from '@/store';
+import { confirmAction } from '@/hooks/useConfirmAction';
+import VersionListItem from './VersionListItem';
+import VersionDiffView from './VersionDiffView';
+import VersionContentDetail from './VersionContentDetail';
+import VersionTagModal from './VersionTagModal';
 
 /**
   * 版本历史面板属性接口
@@ -16,11 +22,12 @@ interface VersionHistoryPanelProps {
 /**
  * 版本历史面板组件
  */
-function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanelProps) {
-  const { notebooks, restoreVersion, updateDoc } = useNotesStore(useShallow((s) => ({
+function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanelProps): JSX.Element {
+  const { notebooks, restoreVersion, updateDoc, createVersionSnapshot } = useNotesStore(useShallow((s) => ({
     notebooks: s.notebooks,
     restoreVersion: s.restoreVersion,
     updateDoc: s.updateDoc,
+    createVersionSnapshot: s.createVersionSnapshot,
   })));
   
   // 获取当前知识库和文档
@@ -39,9 +46,28 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   const [versionComment, setVersionComment] = useState('');                        // 版本备注
 
   /**
+   * 手动为当前内容存一个版本（"把这一版定住"）。
+   * 自动快照是 30 秒合并的，用户想标记"改到这里为止"时没有入口，
+   * 只能等到下一次自动快照，且可能被后续编辑覆盖。
+   */
+  const handleSaveCurrentVersion = (): void => {
+    if (!currentDoc) return
+    const id = createVersionSnapshot(notebookId, docId, { tag: '手动保存' })
+    if (!id) return
+    // 选中刚创建的版本，用户可以立刻给它加备注或做对比
+    const created = useNotesStore
+      .getState()
+      .notebooks.find(nb => nb.id === notebookId)
+      ?.docs.find(d => d.id === docId)
+      ?.versions?.find(v => v.id === id)
+    if (created) setSelectedVersion(created)
+    setShowDiff(false)
+  };
+
+  /**
    * 处理选择版本
    */
-  const handleSelectVersion = (version: DocVersion) => {
+  const handleSelectVersion = (version: DocVersion): void => {
     if (showDiff && compareVersion) {
       setSelectedVersion(version);
     } else {
@@ -53,7 +79,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   /**
    * 处理版本对比
    */
-  const handleCompare = () => {
+  const handleCompare = (): void => {
     if (selectedVersion) {
       setCompareVersion(selectedVersion);
       setSelectedVersion(null);
@@ -63,30 +89,26 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   /**
    * 处理恢复版本
    */
-  const [confirmRestore, setConfirmRestore] = useState(false)
-
-  const handleRestore = () => {
-    if (selectedVersion) {
-      setConfirmRestore(true)
-    }
+  const handleRestore = (): void => {
+    if (!selectedVersion) return
+    const versionId = selectedVersion.id
+    // 统一走 App 层的全局确认弹窗，避免各组件自绘 .confirm-dialog 造成交互/样式漂移
+    confirmAction({
+      title: '确认恢复',
+      message: '确定要恢复到此版本吗？当前内容将被替换。',
+      confirmText: '确认恢复',
+      variant: 'danger',
+      onConfirm: () => {
+        restoreVersion(notebookId, docId, versionId)
+        onClose()
+      },
+    })
   }
-
-  const handleConfirmRestore = () => {
-    if (selectedVersion) {
-      restoreVersion(notebookId, docId, selectedVersion.id)
-      setConfirmRestore(false)
-      onClose()
-    }
-  }
-
-  const handleCancelRestore = () => {
-    setConfirmRestore(false)
-  };
 
   /**
    * 处理添加版本标签
    */
-  const handleAddTag = () => {
+  const handleAddTag = (): void => {
     if (selectedVersion && versionTag.trim()) {
       updateDoc(notebookId, docId, { 
         versions: (currentDoc?.versions || []).map(v => 
@@ -104,7 +126,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   /**
    * 处理导出版本
    */
-  const handleExportVersion = () => {
+  const handleExportVersion = (): void => {
     if (selectedVersion) {
       const content = `# ${selectedVersion.title}\n\n${selectedVersion.content}`;
       const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
@@ -119,204 +141,6 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     }
   };
 
-  /**
-   * 获取版本类型标签
-   */
-  const getVersionTypeLabel = (type: string) => {
-    switch (type) {
-      case 'manual': return '手动保存';
-      case 'published': return '已发布';
-      default: return '自动保存';
-    }
-  };
-
-  /**
-   * 获取版本类型样式类名
-   */
-  const getVersionTypeClass = (type: string) => {
-    switch (type) {
-      case 'manual': return 'version-type-manual';
-      case 'published': return 'version-type-published';
-      default: return 'version-type-auto';
-    }
-  };
-
-  /**
-   * 渲染版本对比视图
-   */
-  /** 基于 LCS 的行级 diff 算法 */
-  const computeDiff = (currentLines: string[], compareLines: string[]) => {
-    const m = currentLines.length
-    const n = compareLines.length
-    // 构建 LCS 矩阵
-    const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        dp[i][j] = currentLines[i - 1] === compareLines[j - 1]
-          ? dp[i - 1][j - 1] + 1
-          : Math.max(dp[i - 1][j], dp[i][j - 1])
-      }
-    }
-
-    // 回溯生成 diff 操作序列
-    type DiffOp = { type: 'unchanged' | 'added' | 'removed' | 'modified'; current?: string; compare?: string }
-    const ops: DiffOp[] = []
-    let i = m, j = n
-    while (i > 0 || j > 0) {
-      if (i > 0 && j > 0 && currentLines[i - 1] === compareLines[j - 1]) {
-        ops.unshift({ type: 'unchanged', current: currentLines[i - 1], compare: compareLines[j - 1] })
-        i--; j--
-      } else if (i > 0 && j > 0 && dp[i - 1][j - 1] >= dp[i - 1][j] && dp[i - 1][j - 1] >= dp[i][j - 1]) {
-        // 相邻行不同，视为"修改"
-        ops.unshift({ type: 'modified', current: currentLines[i - 1], compare: compareLines[j - 1] })
-        i--; j--
-      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-        ops.unshift({ type: 'removed', compare: compareLines[j - 1] })
-        j--
-      } else {
-        ops.unshift({ type: 'added', current: currentLines[i - 1] })
-        i--
-      }
-    }
-
-    // 分别生成两侧显示行
-    const current = ops
-      .filter(op => op.type !== 'removed')
-      .map(op => ({
-        text: op.current!,
-        type: (op.type === 'modified' ? 'added' : op.type) as 'unchanged' | 'added',
-      }))
-    const compare = ops
-      .filter(op => op.type !== 'added')
-      .map(op => ({
-        text: op.compare!,
-        type: (op.type === 'modified' ? 'removed' : op.type) as 'unchanged' | 'removed',
-      }))
-
-    return { current, compare }
-  }
-
-  const renderDiff = () => {
-    if (!selectedVersion || !compareVersion) return null;
-    
-    const currentContent = selectedVersion.content.split('\n');
-    const compareContent = compareVersion.content.split('\n');
-    const diff = computeDiff(currentContent, compareContent);
-    
-    return (
-      <div className="diff-view">
-        <div className="diff-header">
-          <span className="diff-label">当前版本:</span>
-          <span className="diff-time">{new Date(selectedVersion.createdAt).toLocaleString('zh-CN')}</span>
-          <span className="diff-separator">vs</span>
-          <span className="diff-label">对比版本:</span>
-          <span className="diff-time">{new Date(compareVersion.createdAt).toLocaleString('zh-CN')}</span>
-        </div>
-        <div className="diff-content">
-          <div className="diff-panel">
-            <div className="diff-panel-header">
-              <span>{new Date(selectedVersion.createdAt).toLocaleString('zh-CN')}</span>
-            </div>
-            <div className="diff-body">
-              {diff.current.map((line, idx) => (
-                <div key={idx} className={`diff-line diff-line-${line.type}`}>
-                  <span className="diff-line-number">{idx + 1}</span>
-                  <span className="diff-line-prefix">{line.type === 'added' ? '+' : ' '}</span>
-                  <span className="diff-line-content">{line.text || ' '}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="diff-panel">
-            <div className="diff-panel-header">
-              <span>{new Date(compareVersion.createdAt).toLocaleString('zh-CN')}</span>
-            </div>
-            <div className="diff-body">
-              {diff.compare.map((line, idx) => (
-                <div key={idx} className={`diff-line diff-line-${line.type}`}>
-                  <span className="diff-line-number">{idx + 1}</span>
-                  <span className="diff-line-prefix">{line.type === 'removed' ? '-' : ' '}</span>
-                  <span className="diff-line-content">{line.text || ' '}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  /**
-   * 渲染版本内容详情
-   */
-  const renderVersionContent = () => {
-    if (!selectedVersion) {
-      return (
-        <div className="version-empty">
-          <span className="version-empty-icon">📋</span>
-          <span className="version-empty-text">选择一个版本查看详情</span>
-        </div>
-      );
-    }
-
-    return (
-      <div className="version-content">
-        <div className="version-content-header">
-          <input
-            className="version-title-input"
-            value={selectedVersion.title}
-            readOnly
-          />
-          <div className="version-actions">
-            <button 
-              className="version-action-btn" 
-              onClick={() => setShowTagModal(true)}
-              title="添加标签"
-            >
-              🏷️ 添加标签
-            </button>
-            <button 
-              className="version-action-btn" 
-              onClick={handleExportVersion}
-              title="导出版本"
-            >
-              📥 导出
-            </button>
-            {!showDiff && (
-              <button 
-                className="version-action-btn primary" 
-                onClick={handleRestore}
-              >
-                ↩ 恢复此版本
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="version-meta">
-          <span className="version-meta-item">
-            <span className="meta-label">创建时间:</span>
-            <span className="meta-value">{new Date(selectedVersion.createdAt).toLocaleString('zh-CN')}</span>
-          </span>
-          {selectedVersion.versionTag && (
-            <span className="version-meta-item">
-              <span className="meta-label">标签:</span>
-              <span className="meta-value version-tag">{selectedVersion.versionTag}</span>
-            </span>
-          )}
-          {selectedVersion.comment && (
-            <span className="version-meta-item">
-              <span className="meta-label">备注:</span>
-              <span className="meta-value">{selectedVersion.comment}</span>
-            </span>
-          )}
-        </div>
-        <div className="version-body">
-          <pre className="version-content-text">{selectedVersion.content}</pre>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="version-history-overlay" onClick={onClose}>
       <div className="version-history-panel" onClick={(e) => e.stopPropagation()}>
@@ -327,6 +151,24 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
           </div>
           <button className="version-close-btn" onClick={onClose}>
             ×
+          </button>
+        </div>
+
+        {/* 手动存版本：自动快照是 30 秒合并的，用户需要"把这一刻定住"的入口 */}
+        <div className="version-save-row">
+          <button
+            type="button"
+            className="version-save-btn"
+            onClick={handleSaveCurrentVersion}
+            disabled={!currentDoc}
+            title="把当前内容另存为一个版本（不会被后续自动快照覆盖）"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
+            保存当前版本
           </button>
         </div>
         
@@ -363,112 +205,49 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
               </div>
             ) : (
               versions.map((version, index) => (
-                <div
+                <VersionListItem
                   key={version.id}
-                  className={`version-item ${selectedVersion?.id === version.id ? 'selected' : ''} ${compareVersion?.id === version.id ? 'compare' : ''}`}
-                  onClick={() => handleSelectVersion(version)}
-                >
-                  <div className="version-item-header">
-                    <span className="version-date">
-                      {new Date(version.createdAt).toLocaleDateString('zh-CN')}
-                    </span>
-                    <span className="version-time">
-                      {new Date(version.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    <span className={`version-type ${getVersionTypeClass(version.type)}`}>
-                      {getVersionTypeLabel(version.type)}
-                    </span>
-                  </div>
-                  {version.versionTag && (
-                    <div className="version-tag">{version.versionTag}</div>
-                  )}
-                  {index === 0 && (
-                    <span className="version-latest">最新</span>
-                  )}
-                </div>
+                  version={version}
+                  index={index}
+                  selected={selectedVersion?.id === version.id}
+                  compare={compareVersion?.id === version.id}
+                  onSelect={handleSelectVersion}
+                />
               ))
             )}
           </div>
 
           <div className="version-detail">
             {showDiff ? (
-              <>
-                <div className="compare-header">
-                  <span className="compare-label">与</span>
-                  <select 
-                    className="compare-select"
-                    value={compareVersion?.id || ''}
-                    onChange={(e) => {
-                      const v = versions.find(v => v.id === e.target.value);
-                      setCompareVersion(v || null);
-                    }}
-                  >
-                    <option value="">请选择历史版本</option>
-                    {versions.map(v => (
-                      <option key={v.id} value={v.id}>
-                        {new Date(v.createdAt).toLocaleString('zh-CN')}
-                      </option>
-                    ))}
-                  </select>
-                  <button className="compare-btn" onClick={handleCompare}>
-                    对比
-                  </button>
-                </div>
-                {renderDiff()}
-              </>
+              <VersionDiffView
+                versions={versions}
+                selectedVersion={selectedVersion}
+                compareVersion={compareVersion}
+                onCompareVersionChange={setCompareVersion}
+                onCompare={handleCompare}
+              />
             ) : (
-              renderVersionContent()
+              <VersionContentDetail
+                selectedVersion={selectedVersion}
+                showDiff={showDiff}
+                onAddTag={() => setShowTagModal(true)}
+                onExport={handleExportVersion}
+                onRestore={handleRestore}
+              />
             )}
           </div>
         </div>
 
         {/* 添加版本标签弹窗 */}
         {showTagModal && (
-          <div className="vh-tag-modal-overlay" onClick={() => setShowTagModal(false)}>
-            <div className="vh-tag-modal" onClick={(e) => e.stopPropagation()}>
-              <div className="vh-tag-modal-header">
-                <span className="vh-tag-modal-title">添加版本标签</span>
-                <button className="vh-tag-modal-close" onClick={() => setShowTagModal(false)}>×</button>
-              </div>
-              <div className="vh-tag-modal-body">
-                <label className="vh-tag-modal-label">标签名称</label>
-                <input 
-                  className="vh-tag-modal-input"
-                  value={versionTag}
-                  onChange={(e) => setVersionTag(e.target.value)}
-                  placeholder="例如: v1.0.0"
-                />
-                <label className="vh-tag-modal-label">备注（可选）</label>
-                <textarea 
-                  className="vh-tag-modal-textarea"
-                  value={versionComment}
-                  onChange={(e) => setVersionComment(e.target.value)}
-                  placeholder="添加备注说明..."
-                  rows={3}
-                />
-              </div>
-              <div className="vh-tag-modal-footer">
-                <button className="vh-tag-modal-btn secondary" onClick={() => setShowTagModal(false)}>
-                  取消
-                </button>
-                <button className="vh-tag-modal-btn primary" onClick={handleAddTag}>
-                  确定
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {confirmRestore && (
-          <div className="confirm-dialog-overlay" onClick={(e) => e.stopPropagation()}>
-            <div className="confirm-dialog confirm-dialog-warning" onClick={(e) => e.stopPropagation()}>
-              <h3>确认恢复</h3>
-              <p>确定要恢复到此版本吗？当前内容将被替换。</p>
-              <div className="confirm-dialog-actions">
-                <button onClick={handleCancelRestore}>取消</button>
-                <button onClick={handleConfirmRestore} className="btn-primary">确认恢复</button>
-              </div>
-            </div>
-          </div>
+          <VersionTagModal
+            versionTag={versionTag}
+            versionComment={versionComment}
+            onVersionTagChange={setVersionTag}
+            onVersionCommentChange={setVersionComment}
+            onClose={() => setShowTagModal(false)}
+            onConfirm={handleAddTag}
+          />
         )}
       </div>
     </div>

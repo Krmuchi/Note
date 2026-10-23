@@ -1,24 +1,113 @@
+/* 卡片化：同 .main-sidebar，边界交给画布间隙与圆角 */
 .docs-sidebar {
   width: 280px;
   background: var(--bg-primary);
-  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
   transition: width 0.1s linear;
 }
 
 .docs-header {
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border-secondary);
-  background: var(--bg-secondary);
-  height: 58px;
+  /*
+   * 顶部横带里这一栏与编辑器标题栏（.eh-title-bar，48px）左右相邻，
+   * 原为 58px 会让两条相邻分隔线在接缝处错开 10px，像没对齐的台阶。
+   * 48px 与移动端变体（responsive.css）本就用的一致。
+   */
+  height: 48px;  padding: 0 var(--space-4);
   box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /*
+   * 原为 --bg-secondary：在顶部形成一块比左右两栏都深的色块，
+   * 而两侧接缝处只有色差、没有分隔线，看上去像贴上去的补丁。
+   * 与左右两栏统一为 --bg-primary。
+   */
+  background: var(--bg-primary);
+  /* 与相邻的竖向分隔线（--border-color）取同色，否则 T 形接缝处一深一浅 */
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* ---------- 紧凑窗口：文档列表收起为窄条 ---------- */
+/*
+ * 窄窗口下三栏并排会把编辑区压到 400px 以内（正文栏被挤成一条、
+ * 格式工具栏被迫换行三行）。收起后只留 44px，宽度全部还给正文。
+ */
+.docs-sidebar.docs-sidebar-rail {
+  width: 44px;
+  min-width: 44px;
+  flex: 0 0 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  overflow: hidden;
+}
+
+.docs-rail-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.docs-rail-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.docs-rail-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.docs-rail-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.docs-rail-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.docs-rail-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 竖排标题：窄条里唯一能放下文字的方式 */
+.docs-rail-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  max-height: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  letter-spacing: 1px;
+  margin-top: auto;
+  margin-bottom: var(--space-2);
 }
 
 /* 移动端文档列表折叠开关：默认隐藏，窄窗口由 responsive.css 显示 */
@@ -85,7 +174,8 @@
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
   background: var(--bg-quaternary);
-  padding: 2px 8px;
+  /* 内边距收紧：标题行空间紧张，计数徽章每省 4px 都留给标题 */
+  padding: 2px 6px;
   border-radius: var(--radius-round);
   flex-shrink: 0;
 }
@@ -111,7 +201,7 @@
   border-radius: 50%;
   border: none;
   background: var(--primary-color);
-  color: var(--text-inverse);
+  color: var(--on-primary, #fff);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -156,7 +246,7 @@
   border-color: var(--border-color);
 }
 
-.docs-search-input:focus {
+.docs-search-input:focus:not(:focus-visible) {
   border-color: var(--border-active);
   box-shadow: 0 0 0 2px var(--primary-50);
   background: var(--bg-primary);
@@ -457,6 +547,12 @@
   min-width: 0;
 }
 
+.doc-title-input:focus-visible {
+  /* A3：基础规则里的 outline: none 会压掉全局键盘焦点环，这里补回一条 */
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
+}
+
 .doc-item.dragging {
   opacity: 0.4;
   background: var(--bg-tertiary);
@@ -497,66 +593,6 @@
   height: 6px;
   border-radius: 50%;
   background: var(--primary-500);
-}
-
-.context-menu {
-  position: fixed;
-  background: var(--bg-elevated);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
-  padding: var(--space-1) 0;
-  min-width: 190px;
-  z-index: 1000;
-  border: 1px solid var(--border-color);
-  animation: scaleIn var(--transition-fast);
-  overflow: hidden;
-}
-
-.context-menu-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  padding: var(--space-1) var(--space-3);
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: var(--font-size-base);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-  text-align: left;
-}
-
-.context-menu-item:hover {
-  background: var(--bg-tertiary);
-}
-
-.context-menu-item.danger {
-  color: var(--error-500);
-}
-
-.context-menu-item.danger:hover {
-  background: var(--error-50);
-  color: var(--error-600);
-}
-
-.context-menu-icon {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.context-menu-icon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.context-menu-text {
-  flex: 1;
-  text-align: left;
 }
 
 .move-target-list {
@@ -641,6 +677,6 @@
 
 .batch-toolbar-btn.active {
   background: var(--primary-500);
-  color: white;
+  color: var(--on-primary, #fff);
   border-color: var(--primary-500);
 }

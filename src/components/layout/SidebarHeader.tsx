@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNotesStore } from '@/store';
 import { modKey } from '@/utils/platform';
+import { IconBook } from '@/components/common/Icon';
 
 interface SidebarHeaderProps {
   searchText: string;
@@ -56,13 +57,19 @@ export const SidebarHeader: React.FC<SidebarHeaderProps> = ({
 
       <div className="brand">
         <div className="brand-icon-wrapper">
-          <span className="brand-icon" aria-hidden="true">📝</span>
+          {/* 品牌标记：简洁的线性图标（替代彩色 emoji）。logo 类标记的共同点是
+              "单色、可缩放、随主题变色"，emoji 在不同字体下渲染不一致且颜色失控 */}
+          <span className="brand-icon" aria-hidden="true">
+            <IconBook size={18} />
+          </span>
         </div>
         <span className="brand-text">笔记</span>
+        {/* 多工作空间尚未实现：置灰并说明，避免呈现为可点击却无响应的死按钮 */}
         <button
           className="brand-dropdown-btn"
-          title="切换工作空间"
-          aria-label="切换工作空间"
+          title="工作空间切换即将推出"
+          aria-label="工作空间切换即将推出"
+          disabled
         >
           <span className="dropdown-arrow">▼</span>
         </button>

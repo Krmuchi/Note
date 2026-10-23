@@ -7,6 +7,9 @@ import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
 import { Mermaid } from '@/components/common/Mermaid';
 import { parseSafeStyle, previewSchema, previewUrlTransform } from '@/utils/previewSanitize';
+import { WIKI_LINK_PREFIX, remarkWikiLink } from '@/utils/remarkWikiLink';
+import { remarkCallout } from '@/utils/remarkCallout';
+import { CALLOUT_PATHS, normalizeCalloutKind } from '@/utils/calloutMeta';
 import 'katex/dist/katex.min.css';
 
 interface MarkdownPreviewProps {
@@ -28,6 +31,8 @@ interface MarkdownPreviewProps {
    * 未传时任务 checkbox 保持只读。
    */
   onToggleTask?: (lineIndex: number, checked: boolean) => void;
+  /** 点击预览里的 [[双链]] 时回调（K1）；不传则链接退化为普通文本样式 */
+  onWikiLink?: (title: string) => void;
 }
 
 /** 高亮语言关键词表（省略部分同 tsx/jsx 以减小体积） */
@@ -62,7 +67,7 @@ const LANG_MAP: Record<string, string> = {
 /** 用 # 作为行注释的语言 */
 const HASH_COMMENT_LANGS = new Set(['python', 'bash', 'yaml', 'ruby', 'r', 'perl', 'toml']);
 
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const NUM_RE = /\b(\d+(?:\.\d+)?)\b/g;
 
 /** 对纯文本段做关键词 + 数字高亮（此时文本不含任何 HTML，二次替换安全） */
@@ -165,7 +170,7 @@ function withParsedStyle(props: { style?: unknown; node?: unknown }): React.CSSP
 }
 
 /** react-markdown 会传入 hast node，不能透传到 DOM */
-function stripNode({ node: _node, ...rest }: Record<string, unknown>) {
+function stripNode({ node: _node, ...rest }: Record<string, unknown>): Record<string, unknown> {
   return rest;
 }
 
@@ -177,6 +182,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   onScrollChange,
   onRegisterEditorScrollSync,
   onToggleTask,
+  onWikiLink,
 }) => {
   const previewRef = useRef<HTMLDivElement>(null);
   const isScrollingRef = useRef(false);
@@ -212,7 +218,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       if (line !== undefined) box.setAttribute('data-task-line', String(line));
     });
     if (!onToggleTask) return;
-    const handler = (e: Event) => {
+    const handler = (e: Event): void => {
       const target = e.target as HTMLInputElement;
       if (target.type !== 'checkbox') return;
       const line = target.getAttribute('data-task-line');
@@ -276,6 +282,20 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       );
     },
     a({ href, children }) {
+      // 双链（K1）：渲染成按钮而不是 <a>，避免点了以后窗口跳走，跳转交给 Editor
+      if (typeof href === 'string' && href.startsWith(WIKI_LINK_PREFIX)) {
+        const title = decodeURIComponent(href.slice(WIKI_LINK_PREFIX.length));
+        return (
+          <button
+            type="button"
+            className="wiki-link"
+            title={`打开「${title}」`}
+            onClick={() => onWikiLink?.(title)}
+          >
+            {children}
+          </button>
+        );
+      }
       return (
         <a href={href} target="_blank" rel="noopener noreferrer">
           {children}
@@ -292,8 +312,33 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
     },
     div(props) {
       const { style: _style, children, ...rest } = props;
+      /*
+       * 提示块标题：编辑器侧是"SVG 图标 + 文字"，预览侧必须一致。
+       * remarkCallout 把类型写进类名（md-callout-title-tip），因为标题节点
+       * 拿不到父节点的 class —— 据此在这里补上同一个图标。
+       */
+      const cls = String(props.className ?? '');
+      const isCalloutTitle = cls.includes('md-callout-title');
+      const kind = isCalloutTitle
+        ? normalizeCalloutKind(/md-callout-title-(\w+)/.exec(cls)?.[1] ?? '') ?? 'note'
+        : null;
       return (
         <div style={withParsedStyle(props)} {...stripNode(rest)}>
+          {kind && (
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {CALLOUT_PATHS[kind].map((d) => (
+                <path key={d} d={d} />
+              ))}
+            </svg>
+          )}
           {children}
         </div>
       );
@@ -338,7 +383,8 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         />
       );
     },
-  }), []);
+    // onWikiLink 参与渲染（双链按钮的点击回调），必须进依赖，否则会捕获旧闭包
+  }), [onWikiLink]);
 
   // 空态判断与正文渲染使用同一数据源（防抖后的内容），避免清空/输入时闪跳
   if (!debouncedContent || debouncedContent.trim() === '') {
@@ -362,7 +408,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       onScroll={handleScroll}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkWikiLink, remarkCallout]}
         // 顺序不可调换：raw 解析出编辑器写入的行内 HTML → 消毒（安全基线）→ KaTeX 渲染公式。
         // 消毒放在 KaTeX 之前，才能既拦住不可信 HTML，又不破坏 KaTeX 自身产出的 span/style。
         rehypePlugins={[rehypeRaw, [rehypeSanitize, previewSchema], rehypeKatex]}

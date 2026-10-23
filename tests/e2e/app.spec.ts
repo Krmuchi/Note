@@ -12,13 +12,13 @@ test.describe('笔记应用核心功能', () => {
   });
 
   test('创建新知识库', async ({ page }) => {
-    await page.getByRole('button', { name: '新建知识库' }).click();
+    await page.locator('.btn-add-notebook').click();
     await expect(page.locator('.notebook-name').first()).toContainText('新建知识库');
   });
 
   test('创建新文档并进入编辑器', async ({ page }) => {
     // 先建知识库（文档需要挂在知识库下）
-    await page.getByRole('button', { name: '新建知识库' }).click();
+    await page.locator('.btn-add-notebook').click();
     await expect(page.locator('.notebook-name').first()).toBeVisible();
     // 再建文档
     await page.getByRole('button', { name: '新建文档' }).first().click();
@@ -27,7 +27,7 @@ test.describe('笔记应用核心功能', () => {
   });
 
   test('编辑笔记内容并显示同步状态', async ({ page }) => {
-    await page.getByRole('button', { name: '新建知识库' }).click();
+    await page.locator('.btn-add-notebook').click();
     await page.getByRole('button', { name: '新建文档' }).first().click();
     const editor = page.locator('.editor-textarea');
     await editor.fill('# 测试笔记\n这是测试内容');
@@ -47,7 +47,7 @@ test.describe('笔记应用核心功能', () => {
 
   test('主题切换', async ({ page }) => {
     // 需要编辑器头部（主题按钮在编辑器工具栏）
-    await page.getByRole('button', { name: '新建知识库' }).click();
+    await page.locator('.btn-add-notebook').click();
     await page.getByRole('button', { name: '新建文档' }).first().click();
     await expect(page.locator('.eh-header')).toBeVisible();
     await page.getByTitle('切换到夜间模式').click();
@@ -57,7 +57,7 @@ test.describe('笔记应用核心功能', () => {
   });
 
   test('收藏文档', async ({ page }) => {
-    await page.getByRole('button', { name: '新建知识库' }).click();
+    await page.locator('.btn-add-notebook').click();
     await page.getByRole('button', { name: '新建文档' }).first().click();
     const favBtn = page.getByTitle('收藏');
     await expect(favBtn).toBeVisible();
@@ -66,7 +66,7 @@ test.describe('笔记应用核心功能', () => {
   });
 
   test('撤销重做', async ({ page }) => {
-    await page.getByRole('button', { name: '新建知识库' }).click();
+    await page.locator('.btn-add-notebook').click();
     await page.getByRole('button', { name: '新建文档' }).first().click();
     const editor = page.locator('.editor-textarea');
     await editor.fill('测试内容');

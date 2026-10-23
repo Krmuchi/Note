@@ -3,12 +3,14 @@ import React from 'react';
 interface EmptyStateAction {
   label: string;
   onClick: () => void;
-  icon?: string;
+  /** 图标节点（传 <IconXxx /> 而非 emoji 字符） */
+  icon?: React.ReactNode;
   variant?: 'primary' | 'secondary';
 }
 
 interface EmptyStateProps {
-  icon: string;
+  /** 图标节点：传 SVG 图标组件（如 <IconDocument size={36} />），不要传 emoji */
+  icon: React.ReactNode;
   title: string;
   description?: string;
   actions?: EmptyStateAction[];
