@@ -1,4 +1,5 @@
 // 导入 React hooks 和类型定义
+import '@/styles/tag-panel.css';
 import { useState } from "react";
 import type { JSX } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -16,7 +17,8 @@ import { confirmAction } from "@/hooks/useConfirmAction";
  */
 interface TagPanelProps {
   isOpen: boolean;       // 面板是否打开
-  onClose: () => void;   // 关闭回调
+  /** 关闭回调。作为视图嵌在 MainContent 里时不需要（侧栏切走即关闭），故可选 */
+  onClose?: () => void;
 }
 
 export default function TagPanel({ isOpen, onClose }: TagPanelProps): JSX.Element | null {

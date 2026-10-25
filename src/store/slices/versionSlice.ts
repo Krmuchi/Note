@@ -1,10 +1,10 @@
 import type { StateCreator } from 'zustand'
-import type { DocVersion } from '@/types'
+import type { NoteDoc } from '@/types'
 import type { NotesStore } from '@/store/types'
-import { newId } from '@/store/storeUtils'
+import { commitVersions, createVersion } from '@/store/docVersions'
 
 export interface VersionSlice {
-  getDocVersions: (notebookId: string, docId: string) => DocVersion[] | undefined
+  getDocVersions: (notebookId: string, docId: string) => NoteDoc['versions']
   restoreVersion: (notebookId: string, docId: string, versionId: string) => void
   /**
    * 手动把当前内容定成一个版本（用户点"保存版本"）。
@@ -38,26 +38,24 @@ export const createVersionSlice: VersionSliceCreator = (set, get) => ({
       const version = doc?.versions?.find(v => v.id === versionId)
       if (!doc || !version) return
 
-      // 恢复是破坏性操作：覆盖前先把当前内容压入版本列表，保证可再次恢复回来
-      const now = new Date().toISOString()
-      const backup: DocVersion = {
-        id: newId(),
-        docId: doc.id,
-        notebookId,
-        title: doc.title,
-        content: doc.content,
-        tags: doc.tags,
-        createdAt: now,
-        updatedAt: now,
-        versionTag: '恢复前备份',
+      /*
+       * 恢复是破坏性操作：覆盖前先把当前内容压成一份 manual 快照，保证可再恢复回来。
+       *
+       * 这份快照必须走 `commitVersions`：旧实现硬编码 `slice(0, 50)`，
+       * 绕过了大文档的条数收紧与字节预算 —— 一篇 200KB 的文档恢复一次就多出
+       * 50 份全量拷贝，直接撞上 notes:save 的 50MB 上限导致保存永久失败。
+       */
+      const backup = createVersion(doc, notebookId, {
         type: 'manual',
-      }
-      doc.versions = [backup, ...(doc.versions || [])].slice(0, 50)
+        versionTag: '恢复前备份',
+      })
 
       doc.title = version.title
       doc.content = version.content
       doc.tags = version.tags
-      doc.updatedAt = now
+      doc.updatedAt = new Date().toISOString()
+
+      commitVersions(doc, [backup, ...(doc.versions || [])])
       state.lastMutationAt = Date.now()
     })
   },
@@ -69,36 +67,14 @@ export const createVersionSlice: VersionSliceCreator = (set, get) => ({
       const doc = notebook?.docs.find(d => d.id === docId)
       if (!doc) return
 
-      const now = new Date().toISOString()
-      const version: DocVersion = {
-        id: newId(),
-        docId: doc.id,
-        notebookId,
-        title: doc.title,
-        content: doc.content,
-        tags: doc.tags,
-        createdAt: now,
-        updatedAt: now,
+      const version = createVersion(doc, notebookId, {
         type: 'manual',
         ...(options.tag ? { versionTag: options.tag } : {}),
         ...(options.comment ? { comment: options.comment } : {}),
-      }
+      })
 
-      /*
-       * 与自动快照共用同一个数组和同一个上限（50）。
-       * 手动版本排在最前，保证用户"刚定住的那一版"不会被后续自动快照挤出视野；
-       * 超限时从**尾部**淘汰旧的自动版本，手动版本优先保留。
-       */
-      const existing = doc.versions || []
-      const merged = [version, ...existing]
-      if (merged.length > 50) {
-        const manual = merged.filter(v => v.type === 'manual')
-        const auto = merged.filter(v => v.type !== 'manual')
-        // 手动版本全留（最多 50），其余名额按时间顺序补给自动版本
-        doc.versions = [...manual.slice(0, 50), ...auto].slice(0, 50)
-      } else {
-        doc.versions = merged
-      }
+      // 手动版本排在最前，超出上限时由 commitVersions 优先保留手动版本
+      commitVersions(doc, [version, ...(doc.versions || [])])
 
       createdId = version.id
       state.lastMutationAt = Date.now()

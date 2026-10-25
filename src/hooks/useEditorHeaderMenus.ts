@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type RefObject } from 'react';
-import type { ColorTab } from '@/components/editor/EditorHeaderColorPicker';
+import type { ColorTab } from '@/types';
 
 /**
  * EditorHeader 各下拉菜单的开关状态、对应 ref 与「点击外部关闭」逻辑。
@@ -76,6 +76,55 @@ export const useEditorHeaderMenus = (
     return () => document.removeEventListener('mousedown', handleClickOutside);
     // colorTriggerRefs 由父级 useRef 创建，引用终身稳定，等价于原先的空依赖
   }, [colorTriggerRefs]);
+
+  const anyMenuOpen = Boolean(
+    showHeadingMenu ||
+      showFontSizeMenu ||
+      showAlignMenu ||
+      showListMenu ||
+      showColorPicker ||
+      showMoreMenu ||
+      showAddMenu ||
+      showTableMenu ||
+      showCodeLangMenu,
+  );
+
+  /*
+   * Esc 先关闭工具栏菜单，并阻止事件继续冒泡到 window。
+   *
+   * 工具栏按钮会阻止 mousedown 的默认行为以保住正文选区，因此菜单打开时
+   * 焦点仍留在编辑器里；如果不在这里截住 Esc，Editor 的"Esc 收起工具栏"
+   * 会同时触发 —— 用户只想关菜单，工具栏却整条消失了。
+   */
+  useEffect(() => {
+    if (!anyMenuOpen) return;
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      setShowHeadingMenu(false);
+      setShowFontSizeMenu(false);
+      setShowAlignMenu(false);
+      setShowListMenu(false);
+      setShowColorPicker(null);
+      setShowMoreMenu(false);
+      setShowAddMenu(false);
+      setShowTableMenu(false);
+      setShowCodeLangMenu(false);
+      e.stopPropagation();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [
+    anyMenuOpen,
+    setShowHeadingMenu,
+    setShowFontSizeMenu,
+    setShowAlignMenu,
+    setShowListMenu,
+    setShowColorPicker,
+    setShowMoreMenu,
+    setShowAddMenu,
+    setShowTableMenu,
+    setShowCodeLangMenu,
+  ]);
 
   return {
     showHeadingMenu,

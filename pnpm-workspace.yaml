@@ -1,7 +1,7 @@
 # 构建脚本白名单（pnpm 11 要求显式决策，未决策会让 pnpm install 以非 0 退出，
 # 进而把 pnpm 的"运行脚本前校验依赖"搞失败 —— 例如 pnpm dist）。
 allowBuilds:
-  # sass 的可选原生监视器；项目用纯 CSS，不需要编译原生模块
+  # vite 的依赖扫描器等工具可能间接引入；项目用纯 CSS，不需要编译原生模块
   '@parcel/watcher': false
   # Electron 需要下载运行时二进制
   electron: true

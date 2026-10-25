@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react'
 import type { JSX } from 'react'
 import type { FavoriteDocItem } from '@/types'
-import { useNotesStore } from '@/store'
+import { useNotesStore, selectActiveDoc } from '@/store'
 import { useFavoriteDocs } from '@/hooks/useFavoriteDocs'
+import { uiActions, useUIState } from '@/hooks/useUIState'
 import { Editor } from '@/components/editor/Editor'
 import { EmptyState } from '@/components/common/EmptyState'
 import { IconStar } from '@/components/common/Icon'
@@ -10,37 +11,29 @@ import { IconStar } from '@/components/common/Icon'
 type SortType = 'updated' | 'created' | 'name' | 'notebook'
 type GroupType = 'none' | 'notebook'
 
+/**
+ * 收藏视图。
+ *
+ * 字号 / 面板开关 / 版本历史 / 分享面板都改为自订阅 `useUIState`，
+ * 不再由 App 一层层透传 —— 这些是全局 UI 状态，任何视图都能自取。
+ */
 interface FavoriteViewProps {
   activeDocId: string
-  fontSize: string
-  onFontSizeChange: (size: string) => void
   onViewDoc: (notebookId: string, docId: string) => void
   activeNotebookId: string
   /** 空态引导：跳到文档树去收藏第一篇（空态必须给出下一步动作） */
   onGoToDocs?: () => void
-  onShowVersionHistory?: () => void
-  onShowSharePanel?: () => void
-  showOutlinePanel?: boolean
-  onToggleOutlinePanel?: () => void
-  showCommentsPanel?: boolean
-  onToggleCommentsPanel?: () => void
 }
 
 export default function FavoriteView({
   activeDocId,
-  fontSize,
-  onFontSizeChange,
   onViewDoc,
   activeNotebookId,
   onGoToDocs,
-  onShowVersionHistory,
-  onShowSharePanel,
-  showOutlinePanel,
-  onToggleOutlinePanel,
-  showCommentsPanel,
-  onToggleCommentsPanel,
 }: FavoriteViewProps): JSX.Element {
-  const activeDoc = useNotesStore((s) => s.activeDoc)
+  const { fontSize, showOutlinePanel, showCommentsPanel } = useUIState()
+  const { setFontSize, toggleShowOutlinePanel, toggleShowCommentsPanel, setShowVersionHistory, setShowSharePanel } = uiActions
+  const activeDoc = useNotesStore(selectActiveDoc)
   // 收藏列表订阅 notebooks（每次击键都会变），所以只在本视图里订阅，
   // 不能让 App 外壳代算 —— 否则整棵外壳跟着输入重渲染
   const favoriteDocs = useFavoriteDocs()
@@ -214,13 +207,13 @@ export default function FavoriteView({
         activeNotebookId={activeNotebookId}
         activeDocId={activeDocId}
         fontSize={fontSize}
-        onFontSizeChange={onFontSizeChange}
-        onShowVersionHistory={onShowVersionHistory}
-        onShowSharePanel={onShowSharePanel}
+        onFontSizeChange={setFontSize}
+        onShowVersionHistory={() => setShowVersionHistory(true)}
+        onShowSharePanel={() => setShowSharePanel(true)}
         showOutlinePanel={showOutlinePanel}
-        onToggleOutlinePanel={onToggleOutlinePanel}
+        onToggleOutlinePanel={toggleShowOutlinePanel}
         showCommentsPanel={showCommentsPanel}
-        onToggleCommentsPanel={onToggleCommentsPanel}
+        onToggleCommentsPanel={toggleShowCommentsPanel}
         onViewDoc={onViewDoc}
       />
     </>

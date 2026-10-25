@@ -77,6 +77,10 @@ interface EditorHeaderTitleBarProps {
   showMoreMenu: boolean;
   setShowMoreMenu: (show: boolean) => void;
   updateDocContent: (updates: Partial<NoteDoc>) => void;
+
+  /** 格式工具栏是否已收起（收起时在右侧提供展开入口） */
+  toolbarCollapsed?: boolean;
+  onToggleToolbar?: () => void;
 }
 
 const SAVE_STATUS_TEXT: Record<SaveStatus, string> = {
@@ -119,6 +123,8 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
   showMoreMenu,
   setShowMoreMenu,
   updateDocContent,
+  toolbarCollapsed = false,
+  onToggleToolbar,
 }) => {
   const [titleEditing, setTitleEditing] = useState(false);
   /** 导出 PDF / 打印共用的选项弹窗（C4 / C5） */
@@ -198,6 +204,20 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
       </div>
 
       <div className="eh-title-right">
+        {/* 工具栏收起后，展开入口留在标题栏；鼠标用户不必记住 Esc */}
+        {toolbarCollapsed && onToggleToolbar && (
+          <button
+            type="button"
+            className="eh-icon-btn eh-restore-toolbar-btn"
+            onClick={onToggleToolbar}
+            title="展开工具栏 (Esc)"
+            aria-label="展开工具栏"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        )}
         {/*
           语雀式顶栏：只保留「收藏 / 分享 / 更多」三个入口。
           上一篇/下一篇/历史版本/全屏/主题都属于低频操作，原先平铺成 8 个图标，

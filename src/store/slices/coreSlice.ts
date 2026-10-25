@@ -1,7 +1,8 @@
 import type { StateCreator } from 'zustand'
-import type { NoteDoc, Notebook, DocVersion, TrashDoc, AppStore } from '@/types'
+import type { NoteDoc, Notebook, TrashDoc, AppStore } from '@/types'
 import type { NotesStore } from '@/store/types'
 import { newId } from '@/store/storeUtils'
+import { pushAutoVersion } from '@/store/docVersions'
 import { loadAppStore, saveAppStore } from '@/services/storage'
 import { TRASH_RETENTION_DAYS } from '@/shared/constants'
 
@@ -12,36 +13,6 @@ function detachAndReparent(docs: NoteDoc[], docId: string, parentId: NoteDoc['pa
   return docs
     .filter(d => d.id !== docId)
     .map(d => d.parentId === docId ? { ...d, parentId } : d)
-}
-
-/** 向文档推入 auto 版本快照（30s 内去重，最多保留 50 个） */
-function pushAutoVersion(doc: NoteDoc, notebookId: string, updates: Partial<NoteDoc>): void {
-  const lastAuto = (doc.versions || []).find(v => v.type === 'auto')
-  if (lastAuto && Date.now() - new Date(lastAuto.createdAt).getTime() < 30_000) {
-    return
-  }
-
-  const now = new Date()
-  // doc/updates 都可能来自未归一化的外部数据（备份导入、草稿恢复），
-  // content 缺失时不能直接取 .length，否则 updateDoc 会抛 TypeError 中断编辑
-  const nextContent = updates.content ?? doc.content ?? ''
-  const newVersion: DocVersion = {
-    id: newId(),
-    docId: doc.id,
-    notebookId,
-    title: updates.title || doc.title,
-    content: nextContent,
-    tags: updates.tags || doc.tags,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-    type: 'auto',
-  }
-
-  // 大文档的全量快照会随保存 payload 一起膨胀（每份都是完整 content 拷贝），
-  // 超过 100KB 的文档仅保留 5 份快照，避免把 store 推向 IPC 50MB 上限导致保存永久失败
-  const snapshotContent = nextContent.length
-  const maxVersions = snapshotContent > 100_000 ? 5 : 50
-  doc.versions = [newVersion, ...(doc.versions || [])].slice(0, maxVersions)
 }
 
 /**
@@ -75,8 +46,6 @@ export interface CoreSlice {
   lastMutationAt: number
   activeNotebookId: string
   activeDocId: string
-  /** 缓存的活跃文档引用，避免每次渲染都执行两次 find */
-  activeDoc: NoteDoc | null
   searchText: string
   loadNotes: () => Promise<void>
   saveNotes: () => Promise<void>
@@ -118,14 +87,6 @@ type CoreSliceCreator = StateCreator<
   CoreSlice
 >
 
-/** 根据当前 notebooks/activeNotebookId/activeDocId 计算活跃文档 */
-function findActiveDoc(notebooks: Notebook[], notebookId: string, docId: string): NoteDoc | null {
-  if (!notebookId || !docId) return null
-  const notebook = notebooks.find(nb => nb.id === notebookId)
-  if (!notebook) return null
-  return notebook.docs.find(doc => doc.id === docId) ?? null
-}
-
 export const createCoreSlice: CoreSliceCreator = (set, get) => ({
   notebooks: [],
   trash: [],
@@ -136,7 +97,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
   lastMutationAt: 0,
   activeNotebookId: '',
   activeDocId: '',
-  activeDoc: null,
   searchText: '',
   templateUsage: {},
 
@@ -246,7 +206,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
             const docExists = savedDocId && targetNotebook.docs.some((d: NoteDoc) => d.id === savedDocId)
             state.activeDocId = docExists ? savedDocId : targetNotebook.docs[0].id
           }
-          state.activeDoc = findActiveDoc(state.notebooks, state.activeNotebookId, state.activeDocId)
         })
       }
     } catch (error) {
@@ -375,7 +334,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
         state.activeDocId = ''
         // 必须重算 activeDoc，否则编辑器继续显示已删除知识库中的幽灵文档，
         // 用户后续输入会被 updateDoc 静默丢弃
-        state.activeDoc = findActiveDoc(state.notebooks, state.activeNotebookId, state.activeDocId)
       }
     })
   },
@@ -410,7 +368,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
         notebook.docs.push(newDoc)
         state.activeNotebookId = notebookId
         state.activeDocId = newDoc.id
-        state.activeDoc = newDoc
         createdId = newDoc.id
       }
     })
@@ -445,11 +402,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
       if (updates.content || updates.title || updates.tags) {
         pushAutoVersion(doc, notebookId, updates)
       }
-
-      // 同步更新 activeDoc 缓存
-      if (state.activeDocId === docId && state.activeNotebookId === notebookId) {
-        state.activeDoc = doc
-      }
     })
   },
 
@@ -461,10 +413,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
       if (doc) {
         doc.favorite = !doc.favorite
         doc.updatedAt = new Date().toISOString()
-        // 同步更新 activeDoc 缓存
-        if (state.activeDocId === docId && state.activeNotebookId === notebookId) {
-          state.activeDoc = doc
-        }
       }
     })
   },
@@ -477,10 +425,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
       if (doc) {
         doc.pinned = !doc.pinned
         doc.updatedAt = new Date().toISOString()
-        // 同步更新 activeDoc 缓存
-        if (state.activeDocId === docId && state.activeNotebookId === notebookId) {
-          state.activeDoc = doc
-        }
       }
     })
   },
@@ -498,8 +442,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
         if (state.activeDocId === docId) {
           state.activeDocId = ''
         }
-        // 无论删除的是否是当前文档，都可能影响 activeDoc 缓存（如删除的是其祖先）
-        state.activeDoc = findActiveDoc(state.notebooks, state.activeNotebookId, state.activeDocId)
       }
     })
   },
@@ -528,8 +470,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
       if (state.activeDocId === docId) {
         state.activeDocId = ''
       }
-      // activeDoc 可能是被删文档的子文档（已被重挂），需重算缓存引用
-      state.activeDoc = findActiveDoc(state.notebooks, state.activeNotebookId, state.activeDocId)
     })
   },
 
@@ -553,8 +493,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
 
       if (state.activeDocId === docId) {
         state.activeNotebookId = targetNotebookId
-        // 文档移动到目标知识库后，重新查找 activeDoc
-        state.activeDoc = findActiveDoc(state.notebooks, state.activeNotebookId, state.activeDocId)
       }
     })
   },
@@ -611,7 +549,6 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
       state.trash = state.trash.filter((item) => item.id !== docId)
       state.activeNotebookId = targetNotebook.id
       state.activeDocId = target.id
-      state.activeDoc = restoredDoc
     })
   },
 
@@ -712,12 +649,10 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
 
   setActiveNotebookId: (id) => set((state) => {
     state.activeNotebookId = id
-    state.activeDoc = findActiveDoc(state.notebooks, state.activeNotebookId, state.activeDocId)
   }),
   setActiveDocId: (id) => {
     set((state) => {
       state.activeDocId = id
-      state.activeDoc = findActiveDoc(state.notebooks, state.activeNotebookId, state.activeDocId)
     })
     /*
      * 自动登记标签：所有"打开文档"的入口最终都会走到这里

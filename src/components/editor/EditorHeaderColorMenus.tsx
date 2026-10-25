@@ -1,6 +1,7 @@
 import React from 'react';
 import type { FormatType } from '@/hooks/useEditorFormatting';
-import { EditorHeaderColorPicker, type ColorTab } from './EditorHeaderColorPicker';
+import { EditorHeaderColorPicker } from './EditorHeaderColorPicker';
+import type { ColorTab } from '@/types';
 
 /**
  * EditorHeader 文字颜色 / 背景高亮两个下拉入口（含共用的颜色选择器浮层）。

@@ -64,7 +64,7 @@ beforeEach(() => {
 })
 
 const renderPanel = (): ReturnType<typeof render> =>
-  render(<SettingsPanel isOpen onClose={vi.fn()} fontSize="16px" onFontSizeChange={vi.fn()} />)
+  render(<SettingsPanel isOpen onClose={vi.fn()}  />)
 
 describe('设置 · 检查更新（D3）', () => {
   it('初始显示未检查，点击后显示已是最新', async () => {

@@ -1774,6 +1774,19 @@
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+  /* 收起后再展开时从顶部滑入，明确"工具栏回来了"（收起本身是直接让出高度） */
+  animation: ehToolbarIn 160ms ease;
+}
+
+@keyframes ehToolbarIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .eh-toolbar-row {
@@ -1802,23 +1815,25 @@
 }
 
 /*
- * 低频格式浮层（原"常驻第二行"）。
+ * 低频格式溢出菜单（语雀式下级菜单）。
  *
- * 旧实现用 max-height 动画把第二行展开在页头里，页头高度从 88px 涨到 128px，
- * 正文可用高度随开关跳变。改成绝对定位浮层后：
- * - 页头高度恒定，不挤压正文；
- * - 可以写分组标题（"文字" / "段落与插入"），图标不再是无说明的孤岛。
+ * 旧实现是一块带标题栏与分组文字的「更多格式」面板，视觉上像另一个设置窗口；
+ * 语雀的收折只是把低频工具收进工具栏的下级菜单。这里保持同样体量：
+ * 三行图标组、无标题栏、无关闭按钮，点外部 / Esc 关闭。
  */
-.eh-format-popover-anchor {
+.eh-overflow-anchor {
   position: absolute;
-  top: calc(100% - 2px);
+  top: calc(100% + 4px);
   right: var(--space-3);
   z-index: 60;
 }
 
-.eh-format-popover {
-  width: 264px;
-  padding: var(--space-2) var(--space-2) var(--space-3);
+.eh-overflow-popover {
+  width: 224px;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -1826,59 +1841,17 @@
   animation: ehFadeInDown 150ms ease;
 }
 
-.eh-format-popover-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-1) var(--space-2);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--text-tertiary);
-  letter-spacing: 0.3px;
-}
-
-.eh-format-popover-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-}
-
-.eh-format-popover-close:hover {
-  background: var(--bg-quaternary);
-  color: var(--text-primary);
-}
-
-.eh-format-popover-close svg {
-  width: 12px;
-  height: 12px;
-}
-
-.eh-format-section + .eh-format-section {
-  margin-top: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border-secondary);
-}
-
-.eh-format-label {
-  display: block;
-  padding: 0 var(--space-1) var(--space-1);
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-}
-
-.eh-format-row {
+.eh-overflow-group {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 2px;
+}
+
+.eh-overflow-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border-secondary);
 }
 
 .eh-toolbar-left,
@@ -2152,15 +2125,32 @@
   background: var(--bg-tertiary);
 }
 
-/* ===== 展开/收缩按钮 ===== */
-.eh-expand-btn,
+/* ===== 更多格式 / 收起工具栏 ===== */
+.eh-overflow-btn,
 .eh-collapse-btn {
   color: var(--text-tertiary);
 }
 
-.eh-expand-btn:hover:not(:disabled),
+.eh-overflow-btn:hover,
 .eh-collapse-btn:hover {
   color: var(--text-primary);
+}
+
+/* 窄窗口下有控件被自动收进溢出菜单：用一个小圆点提示"这里还有东西" */
+.eh-overflow-btn.has-hidden::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--primary-500);
+}
+
+/* 收起后标题栏里的展开入口：不用抢眼，但必须一眼能找到 */
+.eh-restore-toolbar-btn {
+  color: var(--text-secondary);
 }
 
 /* ===== 第三层：编辑区顶部留白 ===== */
@@ -2178,7 +2168,7 @@
 
 /* 添加按钮已使用 --success-500/600 主题变量，暗色主题自动跟随，无需单独覆盖 */
 
-[data-theme="dark"] .eh-format-popover {
+[data-theme="dark"] .eh-overflow-popover {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
 }
 

@@ -78,3 +78,47 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  rich-editor:
+    # 富文本内核的实机验收。
+    #
+    # 单独成 job 而不是塞进 verify：它需要真实 Chromium（jsdom 验证不了光标、
+    # 选区、contenteditable 的输入转换），而 verify 那层要能在无浏览器的环境跑。
+    # 它是编辑器唯一能验证"界面真的能用"的一层 —— 单元测试全绿而实机不能用
+    # 正是这类改动最常见的事故形态，所以必须进门禁。
+    name: 富文本实机验收
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 安装 Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: 交互验收（vite build + 真实浏览器操作）
+        run: pnpm run test:rich-editor
+
+      - name: 无损验收（复杂文档编辑后是否被改写）
+        run: pnpm run test:rich-editor:lossless
+
+      - name: 失败时上传截图
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rich-editor-artifacts
+          path: artifacts/rich-editor/
+          retention-days: 7

@@ -1,61 +1,38 @@
 import { useState, useEffect, useCallback } from "react"
 import type { ToastProps, ToastAction } from "./ToastView"
+import {
+  subscribeToast,
+  subscribeToastRemove,
+  showToast,
+  hideToast,
+  toast,
+  toastWithUndo,
+  type ToastMessage,
+} from "@/services/toast"
+
+/*
+ * Toast 拆成两层：
+ *
+ *  - `services/toast.ts`：纯发射器（无 React），hooks / store slice 从这里发提示，
+ *    不再反向依赖 UI 组件。
+ *  - 本文件：订阅发射器并把提示渲染进 React 树（useToast）。
+ *
+ * 这里重新导出 toast / toastWithUndo / showToast / hideToast，是为了让既有
+ * 组件侧调用点保持一行 import —— 但**非组件模块请直接从 `@/services/toast` 引入**，
+ * 否则会把 React 组件模块拖进纯逻辑依赖链。
+ */
+
+export type { ToastMessage, ToastAction }
+export { toast, toastWithUndo, showToast, hideToast }
 
 let toastId = 0
-
-export interface ToastMessage {
-  type: "success" | "error" | "warning" | "info"
-  message: string
-  duration?: number
-  /** 可选的行动按钮（如"撤销"）；带按钮时停留时间自动延长 */
-  action?: ToastAction
-}
-
-type ToastListener = (message: ToastMessage) => string
-type ToastRemoveListener = (id: string) => void
-
-const toastListeners = new Set<ToastListener>()
-const toastRemoveListeners = new Set<ToastRemoveListener>()
+let toastSeq = 0
 
 /** 同 type+message 在该时间窗内只弹一次，避免连点/连击刷屏 */
 const DEDUP_WINDOW = 3000
 /** 队列上限，超出丢弃最旧的一条 */
 const MAX_TOASTS = 5
 const recentToastAt = new Map<string, number>()
-
-/** 弹出提示并返回 id（可配合 hideToast 提前关闭），供"进行中"类提示使用 */
-export function showToast(message: ToastMessage): string {
-  let id = ''
-  toastListeners.forEach((listener) => {
-    id = listener(message) || id
-  })
-  return id
-}
-
-/** 按 id 提前关闭提示（用于"进行中"提示在操作结束时消失） */
-export function hideToast(id: string): void {
-  if (!id) return
-  toastRemoveListeners.forEach((listener) => listener(id))
-}
-
-/** 全局 Toast 发射器：供 store slice / hooks 等非组件模块使用 */
-export function emitToast(message: ToastMessage): void {
-  showToast(message)
-}
-
-/** 全局 Toast 便捷方法 */
-export const toast = {
-  success: (message: string, duration?: number, action?: ToastAction) =>
-    emitToast({ type: "success", message, duration, action }),
-  error: (message: string, duration?: number) => emitToast({ type: "error", message, duration }),
-  warning: (message: string, duration?: number) => emitToast({ type: "warning", message, duration }),
-  info: (message: string, duration?: number) => emitToast({ type: "info", message, duration }),
-}
-
-/** 带"撤销"按钮的成功提示：批量操作的统一回执方式 */
-export const toastWithUndo = (message: string, onUndo: () => void): void => {
-  emitToast({ type: "success", message, action: { label: "撤销", onClick: onUndo } })
-}
 
 export function useToast(): {
   toasts: ToastProps[]
@@ -85,7 +62,7 @@ export function useToast(): {
     }
     recentToastAt.set(dedupKey, now)
 
-    const id = `toast-${++toastId}`
+    const id = `toast-${++toastId}-${++toastSeq}`
     setToasts((prev) => {
       const next = [...prev, { ...message, id, onClose: removeToast }]
       return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next
@@ -93,14 +70,17 @@ export function useToast(): {
     return id
   }, [removeToast])
 
-  // 订阅全局 Toast 发射器，使 store slice / hooks 等非组件模块也能弹出/关闭提示
+  /*
+   * 订阅全局发射器，使 store slice / hooks 等非组件模块也能弹出/关闭提示。
+   * 依赖里带 addToast 是刻意的：StrictMode 下 effect 会执行两次（挂载-卸载-挂载），
+   * 订阅必须跟着 addToast 的最终引用重新绑定，否则旧监听器仍指向已卸载组件的 setState。
+   */
   useEffect(() => {
-    const listener: ToastListener = (message) => addToast(message)
-    toastListeners.add(listener)
-    toastRemoveListeners.add(removeToast)
+    const unsubscribe = subscribeToast((message) => addToast(message))
+    const unsubscribeRemove = subscribeToastRemove(removeToast)
     return () => {
-      toastListeners.delete(listener)
-      toastRemoveListeners.delete(removeToast)
+      unsubscribe()
+      unsubscribeRemove()
     }
   }, [addToast, removeToast])
 

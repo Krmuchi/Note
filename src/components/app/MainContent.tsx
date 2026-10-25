@@ -1,7 +1,7 @@
 import { lazy } from 'react'
 import type { JSX } from 'react'
 import type { RecentView as RecentViewEntry } from '@/types'
-import type { ViewType, LeftMenuType } from '@/hooks/useUIState'
+import { useUIState } from '@/hooks/useUIState'
 import { LazyLoader } from '@/components/common/LazyLoader'
 import TrashView from '@/components/views/TrashView'
 import FavoriteView from '@/components/views/FavoriteView'
@@ -12,22 +12,28 @@ const StartPage = lazy(() => import('@/components/start/StartPage'))
 const TagPanel = lazy(() => import('@/components/tags/TagPanel'))
 const QuickNotePanel = lazy(() => import('@/components/notes/QuickNotePanel'))
 
+/**
+ * 视图切换。
+ *
+ * `activeLeftMenu` / `activeView` / `fontSize` 与三个面板开关**不再由 props 传入**，
+ * 改为从 `useUIState` 的外部 store 自订阅 —— 这些状态 App 自己也用不上，
+ * 透传只会让每次改动都要同步修改 App → MainContent 两处的类型与实参
+ * （旧版这里收 30 个 props，其中 20 个是纯转发）。
+ *
+ * 剩下的 props 都是真正的**动作回调**：它们需要 App 里的闭包上下文
+ * （最近浏览记录、toast、确认弹窗），不属于"可自取的状态"。
+ */
 interface MainContentProps {
-  activeLeftMenu: LeftMenuType
-  activeView: ViewType
   recentViews: RecentViewEntry[]
   activeNotebookId: string
   activeDocId: string
   searchText: string
   trash: import('@/types').TrashDoc[]
-  fontSize: string
   isMobile: boolean
   /** 紧凑窗口：文档列表收起为窄条 */
   isCompact: boolean
   docsSidebarWidth: number | undefined
   dragging: string | null
-  showOutlinePanel: boolean
-  showCommentsPanel: boolean
   onViewDoc: (notebookId: string, docId: string) => void
   onSearchChange: (value: string) => void
   onCreateDoc: (notebookId: string, parentId: string | null) => void
@@ -35,12 +41,6 @@ interface MainContentProps {
   onRestoreFromTrash: (docId: string) => void
   onDeleteFromTrash: (docId: string) => void
   onClearTrash: () => void
-  onFontSizeChange: (size: string) => void
-  onSetActiveLeftMenu: (menu: LeftMenuType) => void
-  onShowVersionHistory: () => void
-  onShowSharePanel: () => void
-  onToggleOutlinePanel: () => void
-  onToggleCommentsPanel: () => void
   /** 空态引导：从收藏页跳到文档树 */
   onGoToDocs: () => void
   /** 鼠标或触摸都能发起调宽（A4） */
@@ -49,20 +49,15 @@ interface MainContentProps {
 }
 
 export function MainContent({
-  activeLeftMenu,
-  activeView,
   recentViews,
   activeNotebookId,
   activeDocId,
   searchText,
   trash,
-  fontSize,
   isMobile,
   isCompact,
   docsSidebarWidth,
   dragging,
-  showOutlinePanel,
-  showCommentsPanel,
   onViewDoc,
   onSearchChange,
   onCreateDoc,
@@ -70,16 +65,12 @@ export function MainContent({
   onRestoreFromTrash,
   onDeleteFromTrash,
   onClearTrash,
-  onFontSizeChange,
-  onSetActiveLeftMenu,
-  onShowVersionHistory,
-  onShowSharePanel,
-  onToggleOutlinePanel,
-  onToggleCommentsPanel,
   onGoToDocs,
   onDocsResizeStart,
   onDocsResizeReset,
 }: MainContentProps): JSX.Element {
+  const { activeLeftMenu, activeView } = useUIState()
+
   if (activeLeftMenu === 'start') {
     return (
       <main className="start-panel">
@@ -110,7 +101,7 @@ export function MainContent({
       <main className="editor-panel">
         {/* LazyLoader 自带 Suspense 与统一加载态，不要再套一层内联 fallback（V1 四态一致性） */}
         <LazyLoader>
-          <TagPanel key="tags-panel" isOpen={true} onClose={() => onSetActiveLeftMenu('notebooks')} />
+          <TagPanel key="tags-panel" isOpen={true} />
         </LazyLoader>
       </main>
     )
@@ -141,17 +132,9 @@ export function MainContent({
     return (
       <FavoriteView
         activeDocId={activeDocId}
-        fontSize={fontSize}
-        onFontSizeChange={onFontSizeChange}
-        onViewDoc={onViewDoc}
         activeNotebookId={activeNotebookId}
+        onViewDoc={onViewDoc}
         onGoToDocs={onGoToDocs}
-        onShowVersionHistory={onShowVersionHistory}
-        onShowSharePanel={onShowSharePanel}
-        showOutlinePanel={showOutlinePanel}
-        onToggleOutlinePanel={onToggleOutlinePanel}
-        showCommentsPanel={showCommentsPanel}
-        onToggleCommentsPanel={onToggleCommentsPanel}
       />
     )
   }
@@ -163,14 +146,6 @@ export function MainContent({
       onViewDoc={onViewDoc}
       activeNotebookId={activeNotebookId}
       activeDocId={activeDocId}
-      fontSize={fontSize}
-      onFontSizeChange={onFontSizeChange}
-      onShowVersionHistory={onShowVersionHistory}
-      onShowSharePanel={onShowSharePanel}
-      showOutlinePanel={showOutlinePanel}
-      onToggleOutlinePanel={onToggleOutlinePanel}
-      showCommentsPanel={showCommentsPanel}
-      onToggleCommentsPanel={onToggleCommentsPanel}
       docsSidebarWidth={isMobile ? undefined : docsSidebarWidth}
       onDocsResizeStart={onDocsResizeStart}
       onDocsResizeReset={onDocsResizeReset}

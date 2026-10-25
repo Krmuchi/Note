@@ -1,4 +1,4 @@
-﻿// IPC handlers 共用工具：payload 校验、文件名清洗、HTML 转义。
+// IPC handlers 共用工具：payload 校验、文件名清洗、HTML 转义。
 // 从 main.cjs 纯拆分而来，逻辑不变。
 
 const MAX_STORE_BYTES = 50 * 1024 * 1024; // 50MB
@@ -8,6 +8,19 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // base64 后 20MB
 
 const isNonEmptyString = (v) => typeof v === "string" && v.length > 0;
 const isOptionalString = (v) => v === undefined || v === null || typeof v === "string";
+
+/**
+ * UTF-8 字节长度（不依赖 Buffer）。
+ *
+ * 为什么不能用 Buffer.byteLength：这个模块被**两侧共用** —— 主进程 require()、
+ * 渲染层 import（Web 模式的导出 HTML 生成走 `buildExportDocument`）。渲染层没有
+ * Buffer，今天只是靠 tree-shaking 恰好没把这些校验函数打进包；一旦有人从渲染层
+ * import 了 `assertStorePayload`，浏览器端就是 "Buffer is not defined" 的白屏。
+ *
+ * 用 TextEncoder 是浏览器与 Node 都有的标准 API，语义与 Buffer.byteLength 一致
+ * （都按 UTF-8 计），中文 3 字节这种边界也就自然对齐了。
+ */
+const utf8Length = (str) => new TextEncoder().encode(str).length;
 
 /** 校验 notes:save 全量存储 payload 结构 */
 function assertStorePayload(payload) {
@@ -31,7 +44,7 @@ function assertStorePayload(payload) {
   }
   // 序列化一次并返回结果，供写盘复用（避免大 payload 校验+写盘各 stringify 一遍）
   const json = JSON.stringify(payload, null, 2);
-  const size = Buffer.byteLength(json, "utf-8");
+  const size = utf8Length(json);
   if (size > MAX_STORE_BYTES) {
     throw new Error(`Save payload too large: ${(size / 1024 / 1024).toFixed(1)}MB exceeds ${MAX_STORE_BYTES / 1024 / 1024}MB limit`);
   }
@@ -53,7 +66,7 @@ function assertExportPayload(payload, { allowDocs = false } = {}) {
     if (payload.content !== undefined && typeof payload.content !== "string") {
       throw new Error("Invalid export payload: content must be a string");
     }
-    if (typeof payload.content === "string" && Buffer.byteLength(payload.content, "utf-8") > MAX_EXPORT_CONTENT_BYTES) {
+    if (typeof payload.content === "string" && utf8Length(payload.content) > MAX_EXPORT_CONTENT_BYTES) {
       throw new Error("Invalid export payload: content too large");
     }
     return;
@@ -68,7 +81,7 @@ function assertExportPayload(payload, { allowDocs = false } = {}) {
     if (typeof doc.title !== "string" || typeof doc.content !== "string") {
       throw new Error("Invalid export payload: doc.title and doc.content must be strings");
     }
-    if (Buffer.byteLength(doc.content, "utf-8") > MAX_EXPORT_CONTENT_BYTES) {
+    if (utf8Length(doc.content) > MAX_EXPORT_CONTENT_BYTES) {
       throw new Error("Invalid export payload: doc content too large");
     }
   }

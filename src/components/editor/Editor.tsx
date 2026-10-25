@@ -25,7 +25,8 @@ import { useFormatPainter } from '@/hooks/useFormatPainter';
 import { usePreviewScrollSync } from '@/hooks/usePreviewScrollSync';
 import { EditorHeader } from './EditorHeader';
 import { TabBar } from '@/components/layout/TabBar';
-import { EditorContent, type SlashTriggerState } from './EditorContent';
+/* SlashTriggerState 是纯类型（import type 编译期擦除），不会把旧内核拉回主分块 */
+import type { SlashTriggerState } from './EditorContent';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { SLASH_ITEMS, type SlashCommandItem } from './slashItems';
 import { EditorStatusBar } from './EditorStatusBar';
@@ -44,7 +45,7 @@ import { stripDuplicateTitleHeading } from '@/utils/dedupeTitle';
 import { RichEditor } from './RichEditor';
 import type { RichEditorHandle } from './RichEditor';
 import { applyMarkdownFormat } from '@/utils/markdownFormat';
-import { isRichEditorEnabled } from '@/utils/richEditorFlag';
+import { useRichEditorEnabled } from '@/utils/richEditorFlag';
 import { copyToClipboard } from '@/utils/clipboard';
 import { findShortcutId } from '@/utils/shortcuts';
 import type { FormatType } from '@/hooks/useEditorFormatting';
@@ -63,6 +64,31 @@ const MarkdownPreview = lazy(() =>
 const PresentationMode = lazy(() =>
   import('@/components/presentation/PresentationMode').then((m) => ({ default: m.PresentationMode })),
 );
+
+/*
+ * 旧 textarea 内核改成懒加载。
+ *
+ * 富文本内核是默认内核，textarea 分支只有在设置里显式关闭富文本（或用户此前关过）
+ * 时才会渲染。旧实现是静态 import，于是 EditorContent + useSmartInput +
+ * useEditorKeys + useEditorLineOps + useEditorPasteDrop + editorTextOps（约 1100 行）
+ * 全部打进 App 主分块 —— 首屏为一个绝大多数用户永远不会进入的分支付了钱。
+ *
+ * 注意：不能用 `import('./EditorContent').then(m => ({ default: m.EditorContent }))`
+ * 之外的写法（命名导出必须转 default），且 SlashTriggerState 是纯类型，
+ * 从同一模块 import type 不会引入运行时依赖。
+ */
+const EditorContent = lazy(() =>
+  import('./EditorContent').then((m) => ({ default: m.EditorContent })),
+);
+
+/** 旧内核加载占位：保持编辑器区域高度，避免切换瞬间布局跳动 */
+function LegacyEditorFallback(): React.JSX.Element {
+  return (
+    <div className="editor-content-loading">
+      <Loading type="spinner" size="small" text="正在加载编辑器…" />
+    </div>
+  );
+}
 
 /** 预览分块的统一加载占位：保留容器尺寸，避免切到分屏时布局跳动 */
 function PreviewFallback(): React.JSX.Element {
@@ -128,13 +154,18 @@ export const Editor: React.FC<EditorProps> = ({
   const [showPresentation, setShowPresentation] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
+  /** 工具栏整体收起（语雀式：Esc 临时收起，再次 Esc 展开） */
+  const [toolbarCollapsed, setToolbarCollapsed] = useState(false);
   const [previewMode, setPreviewMode] = useState<PreviewMode>('edit');
-  /**
-   * 富文本内核开关。用 useState 惰性初始化只读一次 localStorage：
-   * 每次渲染都读会带来无谓的同步 IO，而开关在会话内不需要热切换。
+  /*
+   * 富文本内核开关：订阅式读取（useRichEditorEnabled）。
+   *
+   * 旧实现是 `useState(() => isRichEditorEnabled())` —— 只在挂载时读一次，
+   * 于是"改开关必须刷新页面"，而开关本身又只存在于 devtools（设置页没入口）。
+   * 现在设置页可直接切换，切换后立即重渲染，无需刷新。
    * 声明位置靠前：handleSlashRun / handleCommentSelection 等回调都要读它。
    */
-  const [richEditorEnabled] = useState(() => isRichEditorEnabled());
+  const richEditorEnabled = useRichEditorEnabled();
   /** 富文本编辑器的命令式接口（contenteditable 没有 selectionStart/End） */
   const richEditorRef = useRef<RichEditorHandle | null>(null);
   /**
@@ -236,6 +267,21 @@ export const Editor: React.FC<EditorProps> = ({
   const toggleFocusMode = useCallback(() => {
     setIsFocusMode(prev => !prev);
   }, []);
+
+  /**
+   * 工具栏收起 / 展开。
+   *
+   * 收起的是**整条工具栏**（不是打开低频格式面板），并立即把焦点还给正文 ——
+   * 与语雀一致：收起后直接继续写，Esc 再次恢复。若焦点停在即将卸载的按钮上，
+   * 浏览器会把焦点丢到 body，下一次 Esc 就检测不到"正在编辑"从而失效。
+   */
+  const toggleToolbar = useCallback(() => {
+    setToolbarCollapsed(prev => !prev);
+    requestAnimationFrame(() => {
+      if (richEditorEnabled) richEditorRef.current?.focus();
+      else textareaRef.current?.focus();
+    });
+  }, [richEditorEnabled]);
 
   useEffect(() => {
     const onFsChange = (): void => {
@@ -676,16 +722,54 @@ export const Editor: React.FC<EditorProps> = ({
       if (e.key === 'Escape' && isFocusMode) {
         e.preventDefault();
         toggleFocusMode();
+        return;
       }
       // Esc 优先取消待应用的格式刷
       if (e.key === 'Escape' && painterFormats) {
         e.preventDefault();
         cancelFormatPainter();
+        return;
+      }
+      /*
+       * 语雀式：正在正文里写作时按 Esc，临时收起整条工具栏；再按一次恢复。
+       * 只在焦点确实位于正文时生效 —— 否则在菜单、标题输入框、弹窗里按 Esc
+       * 应该由各自负责关闭，不能被这里抢走。
+       */
+      if (
+        e.key === 'Escape' &&
+        !findBar.open &&
+        !slashState &&
+        !linkDialog &&
+        !aiSelection
+      ) {
+        const active = document.activeElement;
+        const inEditorContent = active instanceof Node && (
+          (richEditorEnabled && !!richEditorNode?.contains(active)) ||
+          (!richEditorEnabled && !!textareaNode && active === textareaNode)
+        );
+        if (inEditorContent) {
+          e.preventDefault();
+          toggleToolbar();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePreviewMode, toggleFocusMode, isFocusMode, painterFormats, cancelFormatPainter]);
+  }, [
+    togglePreviewMode,
+    toggleFocusMode,
+    isFocusMode,
+    painterFormats,
+    cancelFormatPainter,
+    findBar.open,
+    slashState,
+    linkDialog,
+    aiSelection,
+    richEditorEnabled,
+    richEditorNode,
+    textareaNode,
+    toggleToolbar,
+  ]);
 
   // 文档内查找 / 替换的快捷键。
   // 必须用 capture 阶段：全局 useKeyboard 在 bubble 阶段对未识别按键一律 preventDefault，
@@ -996,6 +1080,8 @@ export const Editor: React.FC<EditorProps> = ({
           onToggleFocusMode={toggleFocusMode}
           previewMode={previewMode}
           onTogglePreviewMode={togglePreviewMode}
+          toolbarCollapsed={toolbarCollapsed}
+          onToggleToolbar={toggleToolbar}
         />
         {/* 反向链接（K1）：只有真的被引用时才出现 */}
         <BacklinksBar />
@@ -1016,6 +1102,8 @@ export const Editor: React.FC<EditorProps> = ({
                 : undefined
             }
             onRegisterJump={registerFindJump}
+            /* 旧内核是 React.lazy，查找栏可能先于编辑器出现 —— 就绪后需重新定位 */
+            editorReady={richEditorEnabled ? !!richEditorNode : !!textareaNode}
           />
         )}
         <div className={`editor-body-wrapper ${previewMode === 'split' ? 'editor-body-wrapper-split' : ''}`}>
@@ -1054,19 +1142,21 @@ export const Editor: React.FC<EditorProps> = ({
                   />
                 </>
               ) : (
-                <EditorContent
-                  activeDoc={activeDoc}
-                  fontSize={fontSize}
-                  updateDocContent={updateDocContent}
-                  handlePaste={handlePaste}
-                  onFormatShortcut={(type) => applyFormat(type)}
-                  resolveShortcut={resolveShortcut}
-                  onTextareaMount={handleTextareaMount}
-                  onScroll={handleEditorScrollWithOutline}
-                  onInsertImage={handleInsertImage}
-                  onInsertFile={handleInsertFile}
-                  onSlashChange={handleSlashChange}
-                />
+                <Suspense fallback={<LegacyEditorFallback />}>
+                  <EditorContent
+                    activeDoc={activeDoc}
+                    fontSize={fontSize}
+                    updateDocContent={updateDocContent}
+                    handlePaste={handlePaste}
+                    onFormatShortcut={(type) => applyFormat(type)}
+                    resolveShortcut={resolveShortcut}
+                    onTextareaMount={handleTextareaMount}
+                    onScroll={handleEditorScrollWithOutline}
+                    onInsertImage={handleInsertImage}
+                    onInsertFile={handleInsertFile}
+                    onSlashChange={handleSlashChange}
+                  />
+                </Suspense>
               )}
               {slashState && (
                 <SlashCommandMenu

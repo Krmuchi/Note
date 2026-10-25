@@ -1,3 +1,4 @@
+import '@/styles/share-panel.css';
 import { useState, useEffect, useRef } from "react";
 import type { JSX } from "react";
 import type { ShareLink } from "@/types";

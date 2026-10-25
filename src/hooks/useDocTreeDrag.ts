@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import type { NoteDoc, Notebook } from '@/types';
-import { toast } from '@/components/common/Toast';
+import { toast } from '@/services/toast';
 
 export type DragPosition = 'before' | 'after' | 'inside';
 

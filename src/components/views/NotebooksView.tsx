@@ -1,23 +1,22 @@
 import type { JSX } from 'react'
-import { useNotesStore } from '@/store'
+import { useNotesStore, selectActiveDoc } from '@/store'
+import { uiActions, useUIState } from '@/hooks/useUIState'
 import { DocsSidebar } from '@/components/layout/DocsSidebar'
 import { Editor } from '@/components/editor/Editor'
 import { ResizeHandle } from '@/components/layout/ResizeHandle'
 
+/**
+ * 文档视图（文档树 + 编辑器）。
+ *
+ * 字号 / 面板开关 / 版本历史 / 分享面板改为自订阅 `useUIState`：
+ * 它们是全局 UI 状态，让 App 逐层透传只会增加改一处动三处的成本。
+ */
 interface NotebooksViewProps {
   searchText: string
   onSearchChange: (value: string) => void
   onViewDoc: (notebookId: string, docId: string) => void
   activeNotebookId: string
   activeDocId: string
-  fontSize: string
-  onFontSizeChange: (size: string) => void
-  onShowVersionHistory?: () => void
-  onShowSharePanel?: () => void
-  showOutlinePanel?: boolean
-  onToggleOutlinePanel?: () => void
-  showCommentsPanel?: boolean
-  onToggleCommentsPanel?: () => void
   docsSidebarWidth?: number
   /** 鼠标或触摸都能发起调宽（A4） */
   onDocsResizeStart?: (e: React.MouseEvent | React.TouchEvent) => void
@@ -34,14 +33,6 @@ export default function NotebooksView({
   onViewDoc,
   activeNotebookId,
   activeDocId,
-  fontSize,
-  onFontSizeChange,
-  onShowVersionHistory,
-  onShowSharePanel,
-  showOutlinePanel,
-  onToggleOutlinePanel,
-  showCommentsPanel,
-  onToggleCommentsPanel,
   docsSidebarWidth,
   onDocsResizeStart,
   onDocsResizeReset,
@@ -49,8 +40,10 @@ export default function NotebooksView({
   isMobile = false,
   isCompact = false,
 }: NotebooksViewProps): JSX.Element {
+  const { fontSize, showOutlinePanel, showCommentsPanel } = useUIState()
+  const { setFontSize, toggleShowOutlinePanel, toggleShowCommentsPanel, setShowVersionHistory, setShowSharePanel } = uiActions
   // 正文由本视图自己订阅：App 外壳因此不必跟着每次击键重渲染
-  const activeDoc = useNotesStore((s) => s.activeDoc)
+  const activeDoc = useNotesStore(selectActiveDoc)
   return (
     <>
       <DocsSidebar
@@ -76,13 +69,13 @@ export default function NotebooksView({
         activeNotebookId={activeNotebookId}
         activeDocId={activeDocId}
         fontSize={fontSize}
-        onFontSizeChange={onFontSizeChange}
-        onShowVersionHistory={onShowVersionHistory}
-        onShowSharePanel={onShowSharePanel}
+        onFontSizeChange={setFontSize}
+        onShowVersionHistory={() => setShowVersionHistory(true)}
+        onShowSharePanel={() => setShowSharePanel(true)}
         showOutlinePanel={showOutlinePanel}
-        onToggleOutlinePanel={onToggleOutlinePanel}
+        onToggleOutlinePanel={toggleShowOutlinePanel}
         showCommentsPanel={showCommentsPanel}
-        onToggleCommentsPanel={onToggleCommentsPanel}
+        onToggleCommentsPanel={toggleShowCommentsPanel}
         onViewDoc={onViewDoc}
       />
     </>

@@ -13,15 +13,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { BlockHandle } from './BlockHandle'
 import type { BlockTransformType } from './BlockHandle'
-import { useNotesStore } from '@/store'
+import { useNotesStore, selectActiveDoc } from '@/store'
 import type { NoteDoc } from '@/types'
 import type { FormatType } from '@/hooks/useEditorFormatting'
-import { FORMAT_ACTIONS } from '@/hooks/useEditorKeys'
+import { FORMAT_ACTIONS } from '@/hooks/formatActions'
 import { eventToKeys } from '@/utils/shortcuts'
 import { markdownToEditorHtml, inlineMdToHtml, refreshBlockDataMd } from '@/utils/markdownToHtml'
 import { editorHtmlToMarkdown } from '@/utils/editorHtmlToMarkdown'
 import { htmlToMarkdown, HTML_TO_MD_MAX_LENGTH } from '@/utils/htmlToMarkdown'
 import { getCursorPosition } from './cursorPosition'
+/* 光标工具已抽到独立模块：它们是"静默失效"高发区，独立后可单测 */
+import { getCaretOffset, setCaretOffset } from './richEditorCaret'
 import {
   selectByMarkdownOffset,
   readMarkdownOffset,
@@ -78,64 +80,6 @@ export interface RichEditorHandle {
    * （看不出当前是不是加粗/标题/列表）。这里直接读 DOM 祖先链与当前块标签。
    */
   getActiveFormats: () => Set<string>
-}
-
-/**
- * 光标位置工具：记录/恢复"块内的字符偏移"。
- *
- * 行内语法渲染会替换块的 innerHTML，DOM 节点全变，光标会丢。
- * 用字符偏移（而不是节点引用）记录，渲染后按偏移重新定位 ——
- * 这是 contenteditable 里保住光标的标准做法。
- */
-function getCaretOffset(root: HTMLElement): number | null {
-  const sel = window.getSelection()
-  if (!sel || sel.rangeCount === 0) return null
-  const range = sel.getRangeAt(0)
-  if (!root.contains(range.startContainer)) return null
-
-  const pre = range.cloneRange()
-  pre.selectNodeContents(root)
-  pre.setEnd(range.startContainer, range.startOffset)
-  return pre.toString().length
-}
-
-function setCaretOffset(root: HTMLElement, offset: number): void {
-  let remaining = offset
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  let node = walker.nextNode()
-  while (node) {
-    const len = (node.textContent ?? '').length
-    if (remaining <= len) {
-      const range = document.createRange()
-      range.setStart(node, remaining)
-      range.collapse(true)
-      const sel = window.getSelection()
-      sel?.removeAllRanges()
-      sel?.addRange(range)
-      return
-    }
-    remaining -= len
-    node = walker.nextNode()
-  }
-
-  /*
-   * 偏移超出所有文本节点（行内渲染后文本变短时的常见情况）。
-   *
-   * 不能直接 placeCaretAtEnd：光标若停在 <strong>/<code> 这类行内元素的**边界**上，
-   * 浏览器会让后续输入**继承该元素的格式** —— 表现为"打完 **加粗** 再打字，
-   * 后面的字也变粗了"（实测复现）。这是 contenteditable 的已知行为。
-   *
-   * 做法：在末尾补一个空文本节点，把光标放进这个**纯文本**节点里，
-   * 后续输入就不会被并入前一个行内元素。
-   */
-  const tail = document.createTextNode('')
-  root.appendChild(tail)
-  const range = document.createRange()
-  range.setStart(tail, 0)
-  range.collapse(true)
-  const sel = window.getSelection()
-  sel?.removeAllRanges()
-  sel?.addRange(range)
 }
 
 export interface RichEditorProps {
@@ -1495,103 +1439,69 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
   )
 
   /**
-   * 任务项勾选。
+   * 任务项勾选：**事件委托 + change 事件**。
    *
-   * 用**原生捕获阶段监听**而不是 React 的 onClick：
-   * contenteditable 内的 `<input type="checkbox">` 点击时，浏览器会先做原生
-   * 处理（移动光标、切换 checked），React 的合成事件在这一层不一定能拿到
-   * —— 实测 React onClick 完全没有触发（诊断显示 li 上没有 task-done 类）。
-   * 捕获阶段在浏览器默认行为之前拿到事件，最可靠。
+   * 两处都必须踩对，否则表现为"点了没反应"（且不报错）：
+   *
+   * 1) 委托而非逐个绑定。旧实现在 effect 里用 WeakSet 去重后逐个 addEventListener，
+   *    而 effect 依赖含 updateDocContent（随内容变化换引用）→ 反复重跑 → 每次新建
+   *    一个 WeakSet，旧监听器却从未移除，同一个 checkbox 上叠了 N 个 handler。
+   *
+   * 2) 用 change 而不是 click。checkbox 的 `checked` 在 **click 派发之前**就被浏览器
+   *    翻转了，所以在 click 里 `box.checked = !box.checked` 写回的是**原值**；
+   *    更致命的是 `preventDefault()` 会让浏览器在 handler 返回后把 checked
+   *    **回滚到点击前** —— 手动设置被覆盖。旧代码同时踩了这两条，于是
+   *    `defaultPrevented === true` 但 `checked` 始终为 false（实测）。
+   *    change 在状态提交后触发，直接读 `box.checked` 就是用户想要的终态。
    */
   useEffect(() => {
-    /** 已绑定过 click 的 checkbox 实例（按对象身份，元素换新就重新绑） */
-    const boundBoxes = new WeakSet<HTMLInputElement>()
-    /**
-     * 给当前 DOM 里所有任务 checkbox 直接挂监听。
-     *
-     * 为什么不用 document 捕获 / React onClick：
-     * - React 的合成 onClick 在 contenteditable 内的 input 上不触发（实测）
-     * - document 捕获层能被更早注册的处理器拦掉（实测事件到了但没进我们的逻辑）
-     * 直接挂在 checkbox 元素本身最可靠；每次重渲染后重新挂一遍。
-     *
-     * 用 MutationObserver 覆盖"用户输入触发的结构变化"（新建任务项），
-     * 不需要在每次 input 里手动重挂。
-     */
-    const attach = (): void => {
+    if (!mountedRoot) return
+
+    const handleChange = (ev: Event): void => {
+      const target = ev.target as HTMLElement | null
+      const box = target?.closest?.('input[type="checkbox"]') as HTMLInputElement | null
+      if (!box) return
       const root = rootRef.current
-      if (!root) return
-      root.querySelectorAll('input[type="checkbox"]').forEach((el) => {
-        const box = el as HTMLInputElement
-        /*
-         * 用 WeakSet 记录已绑定的**元素实例**，而不是往元素上打 data 属性。
-         *
-         * 打 data 属性的做法有致命缺陷：innerHTML 重建时若属性被保留/克隆，
-         * 新元素会带着旧标记，于是被 `if (已绑定) return` 跳过 ——
-         * 结果是"标记在、监听器不在"（实测：dataset=1 但 click 不触发）。
-         * WeakSet 按对象身份判断，元素换新就一定重新绑定。
-         */
-        if (boundBoxes.has(box)) return
-        boundBoxes.add(box)
-        box.addEventListener('click', (ev) => {
-          ev.preventDefault()
-          ev.stopPropagation()
-          box.checked = !box.checked
-          const li = box.closest('li')
-          if (li) li.classList.toggle('task-done', box.checked)
+      if (!root || !root.contains(box)) return
 
-          // 同步 data-md（回写依据），否则 editorHtmlToMarkdown 读到旧状态
-          const list = li?.parentElement
-          if (li && list) {
-            const text = (li.querySelector('span')?.textContent ?? '').trim()
-            const mdLine = `- [${box.checked ? 'x' : ' '}] ${text}`
-            li.setAttribute('data-md', mdLine)
-            const items = Array.from(list.querySelectorAll(':scope > li'))
-            list.setAttribute(
-              'data-md',
-              items
-                .map((it) => {
-                  const b = it.querySelector('input[type="checkbox"]') as HTMLInputElement | null
-                  const t = (it.querySelector('span')?.textContent ?? '').trim()
-                  return b ? `- [${b.checked ? 'x' : ' '}] ${t}` : `- ${t}`
-                })
-                .join('\n'),
-            )
-          }
+      const li = box.closest('li')
+      // 只补划线类；checked 已由浏览器提交，不要改写它（会被默认行为覆盖）
+      if (li) li.classList.toggle('task-done', box.checked)
 
-          /*
-           * 只改内容不重渲染：走 commit 会触发同步 effect 整篇重建，
-           * 刚翻的 checked 会被按旧内容还原（表现为"点了没反应"）。
-           */
-          const root2 = rootRef.current
-          const doc = useNotesStore.getState().activeDoc
-          if (!root2 || !doc) return
-          const next = editorHtmlToMarkdown(root2)
-          if (next !== (doc.content ?? '')) {
-            lastWrittenRef.current = next
-            updateDocContent({ content: next })
-          }
-        })
-      })
+      // 同步 data-md（回写依据），否则 editorHtmlToMarkdown 读到旧状态
+      const list = li?.parentElement
+      if (li && list) {
+        const text = (li.querySelector('span')?.textContent ?? '').trim()
+        li.setAttribute('data-md', `- [${box.checked ? 'x' : ' '}] ${text}`)
+        const items = Array.from(list.querySelectorAll(':scope > li'))
+        list.setAttribute(
+          'data-md',
+          items
+            .map((it) => {
+              const b = it.querySelector('input[type="checkbox"]') as HTMLInputElement | null
+              const t = (it.querySelector('span')?.textContent ?? '').trim()
+              return b ? `- [${b.checked ? 'x' : ' '}] ${t}` : `- ${t}`
+            })
+            .join('\n'),
+        )
+      }
+
+      /*
+       * 只改内容不重渲染：走 commit 会触发同步 effect 整篇重建，
+       * 刚翻的 checked 会被按旧内容还原（表现为"点了没反应"）。
+       */
+      const doc = selectActiveDoc(useNotesStore.getState())
+      if (!doc) return
+      const next = editorHtmlToMarkdown(root)
+      if (next !== (doc.content ?? '')) {
+        lastWrittenRef.current = next
+        updateDocContent({ content: next })
+      }
     }
 
-    attach()
-    /*
-     * 用 mountedRoot 而不是 rootRef.current 建 observer：
-     * effect 首次执行时 contenteditable 的 ref 可能还没赋值，
-     * `if (!root) return` 会让 observer 根本没建立 —— 之后新出现的任务项
-     * 永远等不到绑定（实测症状：checkbox 上有 `data-dsh-bound` 标记为"(无)"）。
-     */
-    if (!mountedRoot) return
-    const mo = new MutationObserver(attach)
-    mo.observe(mountedRoot, { childList: true, subtree: true })
-    return () => mo.disconnect()
-    /*
-     * 依赖 mountedRoot 而不是空数组：effect 首次执行时 rootRef 可能还没挂上
-     * （contenteditable 的 ref 在 commit 阶段才赋值），直接 return 之后就再也不会重试。
-     * mountedRoot 变化会触发本 effect 重跑，从而在正确的时机挂上监听。
-     */
-  }, [updateDocContent, mountedRoot])
-
+    mountedRoot.addEventListener('change', handleChange)
+    return () => mountedRoot.removeEventListener('change', handleChange)
+  }, [mountedRoot, updateDocContent])
   const handleScroll = useCallback((): void => {
     onScroll?.()
   }, [onScroll])

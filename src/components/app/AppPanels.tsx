@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import type { JSX } from 'react'
-import { useNotesStore } from '@/store'
+import { useNotesStore, selectActiveDoc } from '@/store'
+import { uiActions, useUIState } from '@/hooks/useUIState'
 import { LazyLoader } from '@/components/common/LazyLoader'
 import { Loading } from '@/components/common/Loading'
 import type { ShareLink } from '@/types'
@@ -22,56 +23,55 @@ const VersionHistoryPanel = lazy(() => import('@/components/version/VersionHisto
 const ShortcutHelp = lazy(() => import('@/components/common/ShortcutHelp'))
 const SettingsPanel = lazy(() => import('@/components/settings/SettingsPanel'))
 
+/**
+ * 全局浮层面板集合。
+ *
+ * 面板开关（6 个）与字号改为**自订阅** `useUIState`：它们只是"开关状态"，
+ * 由 App 逐个透传（旧版 19 个 props）没有任何收益，反而让每个新面板
+ * 都要在 App、类型、实参三处同步。
+ *
+ * 保留为 props 的都是真正的动作回调（分享链接的增删复制需要 App 层的闭包
+ * 上下文：toast、错误提示、状态刷新）。
+ */
 interface AppPanelsProps {
-  showSharePanel: boolean
-  showTagPanel: boolean
-  showSearchPanel: boolean
-  showVersionHistory: boolean
-  showShortcutHelp: boolean
-  showSettings: boolean
   activeDocId: string
   activeNotebookId: string
-  fontSize: string
-  onCloseSharePanel: () => void
-  onCloseTagPanel: () => void
-  onCloseSearchPanel: () => void
-  onCloseVersionHistory: () => void
-  onCloseShortcutHelp: () => void
-  onCloseSettings: () => void
   onGenerateShareLink: (permission: string, password: string, expiresAt: string | null) => void
   onDeleteShareLink: (linkId: string) => void
   onCopyShareLink: (url: string) => Promise<void>
-  onFontSizeChange: (size: string) => void
 }
 
 export function AppPanels({
-  showSharePanel,
-  showTagPanel,
-  showSearchPanel,
-  showVersionHistory,
-  showShortcutHelp,
-  showSettings,
   activeDocId,
   activeNotebookId,
-  fontSize,
-  onCloseSharePanel,
-  onCloseTagPanel,
-  onCloseSearchPanel,
-  onCloseVersionHistory,
-  onCloseShortcutHelp,
-  onCloseSettings,
   onGenerateShareLink,
   onDeleteShareLink,
   onCopyShareLink,
-  onFontSizeChange,
 }: AppPanelsProps): JSX.Element {
+  const {
+    showSharePanel,
+    showTagPanel,
+    showSearchPanel,
+    showVersionHistory,
+    showShortcutHelp,
+    showSettings,
+  } = useUIState()
+  const {
+    setShowSharePanel,
+    setShowTagPanel,
+    setShowSearchPanel,
+    setShowVersionHistory,
+    setShowShortcutHelp,
+    setShowSettings,
+  } = uiActions
+
   /*
    * 分享面板需要的标题与链接由本组件自己订阅，而不是由 App 透传：
    * 这两个值都挂在 activeDoc 上，会随每次击键变化，透传会让 App 外壳
    * 在输入链路上重渲染。面板本身只在打开时才渲染，订阅范围足够小。
    */
-  const activeDocTitle = useNotesStore((s) => s.activeDoc?.title ?? '')
-  const shareLinks = useNotesStore((s) => s.activeDoc?.shareLinks) ?? EMPTY_SHARE_LINKS
+  const activeDocTitle = useNotesStore((s) => selectActiveDoc(s)?.title ?? '')
+  const shareLinks = useNotesStore((s) => selectActiveDoc(s)?.shareLinks) ?? EMPTY_SHARE_LINKS
 
   return (
     <>
@@ -81,7 +81,7 @@ export function AppPanels({
             <SharePanel
               key={`share-${activeDocId}`}
               isOpen={showSharePanel}
-              onClose={onCloseSharePanel}
+              onClose={() => setShowSharePanel(false)}
               docTitle={activeDocTitle}
               docId={activeDocId}
               notebookId={activeNotebookId}
@@ -97,7 +97,7 @@ export function AppPanels({
       {showTagPanel && (
         <LazyLoader>
           <Suspense fallback={PanelFallback}>
-            <TagPanel key="tag-panel-popup" isOpen={showTagPanel} onClose={onCloseTagPanel} />
+            <TagPanel key="tag-panel-popup" isOpen={showTagPanel} onClose={() => setShowTagPanel(false)} />
           </Suspense>
         </LazyLoader>
       )}
@@ -105,7 +105,7 @@ export function AppPanels({
       {showSearchPanel && (
         <LazyLoader>
           <Suspense fallback={PanelFallback}>
-            <SearchPanel key="search-panel" isOpen={showSearchPanel} onClose={onCloseSearchPanel} />
+            <SearchPanel key="search-panel" isOpen={showSearchPanel} onClose={() => setShowSearchPanel(false)} />
           </Suspense>
         </LazyLoader>
       )}
@@ -114,7 +114,7 @@ export function AppPanels({
         <LazyLoader>
           <Suspense fallback={PanelFallback}>
             <VersionHistoryPanel
-              onClose={onCloseVersionHistory}
+              onClose={() => setShowVersionHistory(false)}
               notebookId={activeNotebookId}
               docId={activeDocId}
             />
@@ -127,7 +127,7 @@ export function AppPanels({
           <Suspense fallback={PanelFallback}>
             <ShortcutHelp
               isOpen={showShortcutHelp}
-              onClose={onCloseShortcutHelp}
+              onClose={() => setShowShortcutHelp(false)}
             />
           </Suspense>
         </LazyLoader>
@@ -138,9 +138,7 @@ export function AppPanels({
           <Suspense fallback={PanelFallback}>
             <SettingsPanel
               isOpen={showSettings}
-              onClose={onCloseSettings}
-              fontSize={fontSize}
-              onFontSizeChange={onFontSizeChange}
+              onClose={() => setShowSettings(false)}
             />
           </Suspense>
         </LazyLoader>

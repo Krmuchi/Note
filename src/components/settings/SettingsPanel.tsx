@@ -1,3 +1,4 @@
+import '@/styles/settings.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import { useTheme, THEME_OPTIONS, useFont, FONT_OPTIONS, applyCustomPrimaryColor } from '@/shared/hooks';
@@ -26,7 +27,9 @@ import { confirmAction } from '@/hooks/useConfirmAction';
 import type { CrashLogResult, FileAssociationState, UpdateCheckResult } from '@/types';
 import { copyToClipboard } from '@/utils/clipboard';
 import { requestOnboarding } from '@/utils/onboarding';
-import { toast } from '@/components/common/Toast';
+import { setRichEditorEnabled, useRichEditorEnabled } from '@/utils/richEditorFlag';
+import { uiActions, useUIState } from '@/hooks/useUIState';
+import { toast } from '@/services/toast';
 import type { AiConfigView, AiFailure } from '@/types/ai';
 import AiSettingsTab from './AiSettingsTab';
 
@@ -35,8 +38,6 @@ type SettingsTabId = 'general' | 'editor' | 'ai' | 'shortcuts';
 interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  fontSize: string;
-  onFontSizeChange: (size: string) => void;
 }
 
 // 预设主题色
@@ -51,9 +52,14 @@ const PRESET_COLORS = [
   { name: '金色', value: '#faad14' },
 ];
 
-export default function SettingsPanel({ isOpen, onClose, fontSize, onFontSizeChange }: SettingsPanelProps): JSX.Element | null {
+export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): JSX.Element | null {
   const { theme, setCustomTheme } = useTheme();
   const { font, setCustomFont } = useFont();
+  /** 字号来自全局 UI store：设置页不再需要 App 透传 fontSize / onFontSizeChange */
+  const { fontSize } = useUIState();
+  const { setFontSize } = uiActions;
+  /** 富文本内核开关：切换后编辑器立即生效，不需要刷新页面 */
+  const richEditorEnabled = useRichEditorEnabled();
   const [activeTab, setActiveTab] = useState<SettingsTabId>('general');
   /** 关于信息（版本 / 数据目录）：面板打开时读取一次 */
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
@@ -615,7 +621,7 @@ export default function SettingsPanel({ isOpen, onClose, fontSize, onFontSizeCha
                 <select
                   className="settings-select"
                   value={fontSize}
-                  onChange={(e) => onFontSizeChange(e.target.value)}
+                  onChange={(e) => setFontSize(e.target.value)}
                 >
                   <option value="12px">12px</option>
                   <option value="13px">13px</option>
@@ -625,6 +631,22 @@ export default function SettingsPanel({ isOpen, onClose, fontSize, onFontSizeCha
                   <option value="18px">18px</option>
                   <option value="20px">20px</option>
                 </select>
+              </div>
+              <div className="settings-item">
+                <div className="settings-item-info">
+                  <span className="settings-item-label">富文本编辑器</span>
+                  <span className="settings-item-desc">
+                    标题、列表等在输入时即时成形（语雀式）。关闭后回到纯 Markdown 源码编辑。
+                  </span>
+                </div>
+                <label className="settings-toggle-row settings-toggle-inline">
+                  <input
+                    type="checkbox"
+                    checked={richEditorEnabled}
+                    onChange={(e) => setRichEditorEnabled(e.target.checked)}
+                  />
+                  <span>{richEditorEnabled ? '已开启' : '已关闭'}</span>
+                </label>
               </div>
               <div className="settings-item">
                 <div className="settings-item-info">

@@ -40,7 +40,7 @@ beforeEach(() => {
 })
 
 const renderPanel = (): ReturnType<typeof render> =>
-  render(<SettingsPanel isOpen onClose={vi.fn()} fontSize="16px" onFontSizeChange={vi.fn()} />)
+  render(<SettingsPanel isOpen onClose={vi.fn()}  />)
 
 describe('.md 文件关联（P5）', () => {
   it('默认关闭，并显示当前记录的原关联', async () => {

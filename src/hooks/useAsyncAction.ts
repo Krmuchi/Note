@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { hideToast, showToast } from '@/components/common/Toast'
+import { hideToast, showToast } from '@/services/toast'
 
 export interface AsyncActionOptions {
   /** 操作进行中的提示（结束时自动消失），用于菜单触发等无固定按钮的长操作 */

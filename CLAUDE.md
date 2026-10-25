@@ -18,7 +18,8 @@ npm run test:unit    # Vitest unit tests
 npm run test:e2e     # Playwright E2E (requires dev server on :5173)
 npm run start        # Run built Electron app
 pnpm verify          # Gate: typecheck + lint + unit tests + build (CI runs the same command)
-pnpm verify:all      # Gate + E2E (playwright webServer builds and serves automatically)
+pnpm verify:editor   # Rich-kernel live checks in real Chromium (26 + 11 assertions)
+pnpm verify:all      # Gate + verify:editor + E2E (playwright webServer builds and serves automatically)
 npm run icons        # Regenerate app icons (scripts/build-icons.cjs → build/icon.ico|png)
 npm run dist:dir     # electron-builder unpacked build → release/win-unpacked (fast validation)
 npm run dist         # electron-builder NSIS installer + portable → release/
@@ -37,16 +38,22 @@ Packaging rules that are easy to break:
 
 ### Entry & Shell
 - `src/main.tsx` — App entry: lazy-loads `App.tsx` inside `ErrorBoundary` + `Suspense`
-- `src/App.tsx` — Root component (~330 lines). Owns layout, panels wiring, keyboard shortcuts, auto-save/draft hooks; no per-view routing (see below)
-- `src/components/app/MainContent.tsx` — Picks the active view (Start / QuickNote / Tags / Trash / Favorite / Recent / Notebooks)
+- `src/App.tsx` — Root component (~530 lines). Owns layout wiring, keyboard shortcuts, auto-save/draft hooks; no per-view routing (see below).
+  **UI state lives in `src/hooks/useUIState.ts` (a module-level external store), not here** — see "Props drilling" under Key Patterns.
+- `src/components/app/MainContent.tsx` — Picks the active view (Start / QuickNote / Tags / Trash / Favorite / Recent / Notebooks). Reads `activeLeftMenu` / `activeView` from the UI store itself.
+- `src/components/app/AppPanels.tsx` — Global overlays (share / tag / search / version / shortcuts / settings). Reads its six open-flags from the UI store itself.
 
 ### State Management (`src/store/`)
 - Single Zustand store (`useNotesStore`) built from **slices** in `src/store/slices/`:
   - `coreSlice.ts` — notebooks/docs CRUD, trash, active ids, persistence (load/save)
-  - `versionSlice.ts` — version restore helpers (`getDocVersions` / `restoreVersion`)
+  - `versionSlice.ts` — version restore helpers (`getDocVersions` / `restoreVersion` / `createVersionSnapshot`)
   - `shareSlice.ts` / `commentSlice.ts` / `tagSlice.ts` / `searchSlice.ts` / `undoRedoSlice.ts`
-- **Auto version snapshots** are written inside `coreSlice.updateDoc` (30s merge window, max 50 versions) — `versionSlice.saveVersion` was removed as dead code; do NOT re-add a second writer
-- Persistence via `window.notesApi.load()` / `.save()` (IPC `notes:load` / `notes:save`) — defined in `electron/main.cjs` + `electron/preload.cjs`
+  - `quickNoteSlice.ts` — quick notes (own localStorage key, but **must** travel with backups/exports)
+  - `keyboardSlice.ts` — user-customizable key bindings
+  - `tabSlice.ts` — open-tab references (localStorage, not `notes-data.json`)
+- **`activeDoc` is a derived selector, not state.** `selectActiveDoc(state)` in `src/store/index.ts` computes it from `notebooks` + `activeDocId`. It used to be a cached field that 12 actions had to re-sync by hand — one missed sync and the editor silently showed stale content. **Never re-introduce a stored copy.**
+- **All version snapshots go through `src/store/docVersions.ts`** (`commitVersions` / `createVersion` / `pushAutoVersion`). That module owns the count cap (50, or 5 for docs >100KB) **and** the per-doc byte budget (8MB) — the old code had three writers with contradictory caps (auto snapshots capped at 5 for big docs, but `restoreVersion` hard-coded 50), so restoring a version on a 200KB doc could push `notes:save` past its 50MB IPC limit and fail forever.
+- Persistence via `window.notesApi.load()` / `.save()` (IPC `notes:load` / `notes:save`) — handlers live in `electron/ipc/handlers-storage.cjs`, bridge in `electron/preload.cjs`
 - ID generation: `newId()` in `src/store/storeUtils.ts`
 
 ### Type Definitions (`src/types/`)
@@ -109,9 +116,12 @@ Panels are lazy-loaded in `MainContent.tsx` / `App.tsx` via `React.lazy` + `<Laz
   button silently no-ops under the rich kernel. Code-block toggle scans **paired fences** rather than the
   caret's own line, because the caret usually sits on a content line, not a fence line.
 - `richEditorFlag.ts` — `notes-rich-editor` switch; **default on**. Storage semantics matter: only an
-  explicit `'0'` means off (`isRichEditorEnabled` returns `localStorage.getItem(KEY) !== '0'`). Do **not**
-  revert to "store '1' = on, delete = off" — with the default flipped to on, deleting the key means
-  "restore default = on", so users could never turn it off. To fall back to textarea: set `'0'` and reload.
+  explicit `'0'` means off. Do **not** revert to "store '1' = on, delete = off" — with the default flipped
+  to on, deleting the key means "restore default = on", so users could never turn it off.
+  Two readers, don't mix them: `isRichEditorEnabled()` reads storage every call (non-React/test code);
+  `useRichEditorEnabled()` is an external store (`useSyncExternalStore`) that re-renders on toggle.
+  The setting is exposed in Settings → 编辑器; toggling takes effect immediately (no reload). The legacy
+  textarea kernel (`EditorContent`) is `React.lazy`-loaded, so turning the switch off pulls it in on demand.
 - **Anything reading `textarea.selectionStart/End` needs a rich-kernel branch.** Those properties do not
   exist on contenteditable, so the old code's `if (!ta) return` guard turns into a *silent no-op* — the
   button looks alive but does nothing. Seven features shipped broken this way and were only caught by
@@ -146,8 +156,13 @@ Panels are lazy-loaded in `MainContent.tsx` / `App.tsx` via `React.lazy` + `<Laz
 - `clipboard.ts`, `sanitize.ts` (`escapeRegExp` only) — misc helpers
 
 ### Electron Layer (`electron/`)
-- `main.cjs` — Main process: window creation (CSP headers, `will-navigate` guard, `setWindowOpenHandler` deny), IPC handlers with payload validation, JSON store write queue, throttled backups (1/min, keep 10)
-- `preload.cjs` — Context bridge exposing a whitelisted `notesApi`
+- `main.cjs` — Shell only: window creation (CSP headers, `will-navigate` guard, `setWindowOpenHandler` deny, permission handler), tray, menus, zoom persistence, crash hooks, autostart, jump list. It **registers** IPC factories but contains no handlers itself.
+- `ipc/handlers-storage.cjs` — load/save, backups, image save, export-all, import-backup
+- `ipc/handlers-export.cjs` — markdown/html/pdf/print, notebook & ZIP export, file import
+- `ipc/handlers-ai.cjs` — AI config/stream/generation channels
+- `ipc/handlers-integration.cjs` — migrate data dir, relaunch, file association, crash log, update check, notifications, recent docs, app settings (11 channels, **DI-based so it is unit-testable** — see `tests/unit/integrationHandlers.test.ts`)
+- `ipc/shared.mjs` — payload validation + export-HTML builder, **imported by both processes**. It must not use `Buffer` / `node:` builtins (renderer has neither); `tests/unit/sharedModuleBoundary.test.ts` enforces this and restricts which symbols the renderer may import.
+- `preload.cjs` — Context bridge exposing a whitelisted `notesApi`. Only `require('electron')` (sandbox constraint).
 
 ### AI Layer (`electron/ai/` + `src/services/ai/`)
 - **All AI network calls happen in the main process.** Production CSP is `connect-src 'self' ws:`, so the renderer cannot reach external APIs — do NOT relax CSP; keep the main-process proxy. Zero new runtime dependencies (Node 22 global `fetch` / `AbortController` / `node:crypto` only).
@@ -171,7 +186,15 @@ Panels are lazy-loaded in `MainContent.tsx` / `App.tsx` via `React.lazy` + `<Laz
 - **No routing** — all views managed by `activeLeftMenu` / `activeView` state (UI state lives in `src/hooks/useUIState.ts`)
 - **Document hierarchy** — `parentId` field enables tree structure; `DocTree` renders nested items
 - **Undo/redo** — `undoRedoSlice` snapshot stacks (max 200) via `src/hooks/useUndoRedo.ts`; global Ctrl+Z/Y wired in `App.tsx`, editor Ctrl+B/I handled in `EditorContent`. Merge policy lives in `src/utils/undoHistory.ts`: a new history entry starts on a pause (>1s) **or** when the inserted text ends with a sentence boundary (space/punctuation/newline); deletions never start one
-- **Version history** — auto `type: 'auto'` snapshots on content/title/tags change (30s merge, max 50); `versionSlice.createVersionSnapshot` adds user-triggered `type: 'manual'` snapshots, which are kept preferentially when the 50-entry cap evicts
+- **Version history** — every writer goes through `store/docVersions.ts` (`commitVersions`), which applies
+  the 50-entry cap (5 for docs >100KB) **and** an 8MB-per-doc byte budget. Manual (`type: 'manual'`)
+  snapshots are kept preferentially over auto ones when the cap evicts. Do not add a fourth writer with its
+  own cap.
+- **CSS is partly lazy** — `App.css` `@import`s only the always-needed stylesheets. Panel styles that are
+  used *exclusively* by a lazily-loaded view (`tag-panel` / `settings` / `share-panel` / `quick-note`) are
+  imported by that component instead, so they load with the panel. Before moving another stylesheet, verify
+  no eager component uses its class names — otherwise you get an unstyled flash on first open.
+  `tests/style-loading-contract.test.ts` enforces both directions (owner imports it; no orphan CSS).
 - **Vite config** — `base: './'`; chunks via Rolldown's `build.rollupOptions.output.codeSplitting.groups`
   (react-vendor / zustand / immer / jszip / katex / markdown). **`manualChunks` is a no-op on Vite 8 / Rolldown** —
   it is accepted silently and ignored, so any chunking change must be verified against the emitted
@@ -185,6 +208,22 @@ Panels are lazy-loaded in `MainContent.tsx` / `App.tsx` via `React.lazy` + `<Laz
   promoted mermaid to a static dependency, so the 3MB chunk landed in `index.html`'s modulepreload and the App
   chunk imported it statically — startup preload went 190KB → 3.2MB. The many small async chunks are the
   cheaper trade; verify any chunking change against `dist/index.html`, not the config.
+- **Prop / UI-state wiring.** Global UI state (active view, six panel open-flags, font size) lives in a
+  module-level external store in `src/hooks/useUIState.ts` — read it with `useUIState()` /
+  `useUIStateSelector()`, mutate it with `uiActions` / `getUIState()`. **Do not thread these through props**:
+  the old design put them in `App.tsx` and hand-forwarded them, which is how `MainContent` ended up with 30
+  props (20 pure pass-through) and `AppPanels` with 19. Adding a panel meant editing three files. Props that
+  remain are genuine action callbacks that need `App`'s closure context.
+- **Derived state beats cached state.** `activeDoc` is computed (`selectActiveDoc`), version caps live in one
+  module (`store/docVersions.ts`), and toast emission lives in `services/toast.ts` so hooks never import UI
+  components. `tests/layering-contract.test.ts` enforces the dependency direction (hooks/utils/store/services
+  must not import `@/components/*`) — if it fails, move the type or the function down a layer instead of
+  adding an exception.
+- **Electron security posture.** `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`,
+  `webviewTag: false`, `setWindowOpenHandler → deny`, `will-navigate` allowlist, and **all** permission
+  requests denied (`setPermissionRequestHandler` / `setPermissionCheckHandler`). The renderer never touches
+  the filesystem directly. `sandbox: true` means `preload.cjs` may only `require('electron')` — adding a
+  node builtin there will break the bridge at runtime.
 - **Startup render cost** — `App.tsx` must not subscribe to per-keystroke state (`activeDoc`,
   `lastMutationAt`, `notebooks`). Editors subscribe to `activeDoc` themselves; `useAutoSave` uses
   `store.subscribe` for its side effect. Subscribing at the shell re-renders the whole tree on every keypress.

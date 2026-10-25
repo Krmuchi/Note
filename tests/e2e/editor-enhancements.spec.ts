@@ -34,8 +34,8 @@ test('行内标记自动补全：双星号生成加粗标记', async ({ page }) 
 test('表格尺寸选择器插入指定行列', async ({ page }) => {
   const editor = await openEditor(page);
 
-  // 二级工具栏需先展开
-  await page.locator('.eh-expand-btn').click();
+  // 低频工具收在「更多格式」溢出菜单里，先打开它
+  await page.locator('.eh-overflow-btn').click();
   await page.getByTitle('表格（可选择行列数）').click();
   await expect(page.locator('.eh-table-menu')).toBeVisible();
 
@@ -53,7 +53,7 @@ test('表格尺寸选择器插入指定行列', async ({ page }) => {
 test('代码块语言下拉插入带语言围栏', async ({ page }) => {
   const editor = await openEditor(page);
 
-  await page.locator('.eh-expand-btn').click();
+  await page.locator('.eh-overflow-btn').click();
   await page.getByTitle('代码块（可选择语言）').click();
   await expect(page.locator('.eh-codelang-menu')).toBeVisible();
   await page.locator('.eh-codelang-menu').getByText('Python', { exact: true }).click();

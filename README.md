@@ -8,7 +8,7 @@
 | --- | --- |
 | 桌面壳 | Electron 41（`contextIsolation` 开启，`nodeIntegration` 关闭） |
 | UI | React 19 + TypeScript 6 + Vite 8 |
-| 状态管理 | Zustand 5 + immer（分片 store：core / version / share / comment / tag / search / undoRedo） |
+| 状态管理 | Zustand 5 + immer（10 个切片：core / version / share / comment / tag / search / undoRedo / quickNote / keyboard / tab） |
 | 持久化 | Electron 主进程 JSON 文件（`userData/notes-data.json`）+ 渲染层 localStorage 草稿 |
 | 测试 | Vitest（单元）+ Playwright（E2E） |
 
@@ -102,17 +102,29 @@ E2E 失败时上传 playwright 报告作为 artifact。
 ## 目录结构
 
 ```
-electron/          # 主进程：窗口、IPC、存储、备份、CSP
+electron/          # 主进程：窗口壳、CSP、托盘、菜单（handler 全部在 ipc/ 下）
+  ipc/             #   handlers-storage / -export / -ai / -integration（均为依赖注入工厂，可单测）
 src/
-  app/ 组件入口       components/  UI 组件（editor / layout / search / tags / views ...）
-  hooks/           业务 hooks（useAutoSave / useDraftSync / useUndoRedo / useKeyboard ...）
-  store/slices/    Zustand 分片（core / version / share / comment / tag / search / undoRedo）
-  services/        IPC / 存储封装
+  components/      UI 组件（editor / layout / search / tags / views ...）
+  hooks/           业务 hooks（useAutoSave / useDraftSync / useUndoRedo / useKeyboard / useUIState ...）
+  store/           Zustand 单 store；slices/ 分片，docVersions.ts 是版本快照的唯一写入层
+  services/        IPC / 存储封装、toast 发射器、AI 客户端
   shared/          主题、常量
   types/           NoteDoc / Notebook / TrashDoc / AppStore 等类型
   utils/           纯函数工具（debounce / editorTextOps / platform / clipboard ...）
-tests/             Vitest 单测 + Playwright E2E
+tests/             Vitest 单测（含分层契约、样式装载契约）+ Playwright E2E
 ```
+
+## 架构要点
+
+几条**改代码前该知道**的约束（完整版见 `CLAUDE.md`）：
+
+- **单一真相**：`activeDoc` 由 `selectActiveDoc(state)` 从 `notebooks + activeDocId` 派生，不是 state 字段；版本快照只能经 `store/docVersions.ts` 写入（上限与字节预算都在那里）。
+- **分层方向**：`components → hooks → services/utils/types`。`tests/layering-contract.test.ts` 会拦住 hooks/utils/store/services 反向 import `@/components/*`。
+- **UI 状态用外部 store**：`src/hooks/useUIState.ts`（`useUIState()` / `uiActions`）。视图开关不再逐层透传 props。
+- **编辑器双内核**：富文本（默认）与 textarea 二选一，可在「设置 → 编辑器」即时切换；旧内核是 `React.lazy`，不进首屏。
+- **Electron 安全基线**：`contextIsolation` + `sandbox` 开启、`nodeIntegration` 关、窗口打开与导航白名单、所有权限请求一律拒绝。`sandbox: true` 意味着 `preload.cjs` 只能 `require('electron')`。
+- **富文本实机验收进门禁**：`pnpm verify:editor` 在真实 Chromium 里驱动编辑器（26 项交互 + 11 项无损），CI 单列一个 job 跑它。
 
 ## 数据与安全
 

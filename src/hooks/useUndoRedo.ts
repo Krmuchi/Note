@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useNotesStore } from '@/store'
+import { useNotesStore, selectActiveDoc } from '@/store'
 import type { NoteDoc } from '@/types'
 import type { DocSnapshot } from '@/store/slices/undoRedoSlice'
 import { extractInsertedText, shouldStartNewHistory } from '@/utils/undoHistory'
@@ -40,7 +40,7 @@ export const useUndoRedo = (): {
    * 连带把整个应用外壳拉进重渲染。撤销/重做只需要"调用那一刻"的最新内容，
    * 直接 getState 读取即可，无需参与订阅。
    */
-  const readActiveDoc = useCallback((): NoteDoc | null => useNotesStore.getState().activeDoc, [])
+  const readActiveDoc = useCallback((): NoteDoc | null => selectActiveDoc(useNotesStore.getState()), [])
 
   const docHistory = useNotesStore((s) => (activeDocId ? s.history[activeDocId] : undefined))
   const pushUndoSnapshot = useNotesStore((s) => s.pushUndoSnapshot)

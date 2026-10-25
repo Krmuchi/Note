@@ -56,7 +56,7 @@ beforeEach(() => {
 })
 
 const renderPanel = (): ReturnType<typeof render> =>
-  render(<SettingsPanel isOpen onClose={vi.fn()} fontSize="16px" onFontSizeChange={vi.fn()} />)
+  render(<SettingsPanel isOpen onClose={vi.fn()}  />)
 
 describe('更换数据目录（O5）', () => {
   it('先确认再迁移，成功后二次确认并重启', async () => {

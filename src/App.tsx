@@ -5,7 +5,7 @@ import type { RecentView, NoteDoc } from "@/types"
 import { useNotesStore } from "@/store"
 import { useAutoSave } from "@/hooks/useAutoSave"
 import { useKeyboard } from "@/hooks/useKeyboard"
-import { useUIState } from "@/hooks/useUIState"
+import { useUIState, uiActions, getUIState } from "@/hooks/useUIState"
 import { useConfirmAction } from "@/hooks/useConfirmAction"
 import { useAppInit } from "@/hooks/useAppInit"
 import { useDraftSync } from "@/hooks/useDraftSync"
@@ -13,7 +13,8 @@ import { useUndoRedo } from "@/hooks/useUndoRedo"
 import { debounce } from "@/utils/debounce"
 import { copyToClipboard } from "@/utils/clipboard"
 import { ToastContainer } from "@/components/common/ToastView"
-import { toast, useToast } from "@/components/common/Toast"
+import { useToast } from "@/components/common/Toast"
+import { toast } from "@/services/toast"
 import { Loading } from "@/components/common/Loading"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { ResizeHandle } from "@/components/layout/ResizeHandle"
@@ -86,30 +87,15 @@ function App(): JSX.Element {
     deleteShareLink: s.deleteShareLink,
   })))
 
-  const {
-    activeView,
-    setActiveView,
-    activeLeftMenu,
-    setActiveLeftMenu,
-    fontSize,
-    setFontSize,
-    showSearchPanel,
-    setShowSearchPanel,
-    showSharePanel,
-    setShowSharePanel,
-    showTagPanel,
-    setShowTagPanel,
-    showCommentsPanel,
-    setShowCommentsPanel,
-    showOutlinePanel,
-    setShowOutlinePanel,
-    showVersionHistory,
-    setShowVersionHistory,
-    showShortcutHelp,
-    setShowShortcutHelp,
-    showSettings,
-    setShowSettings,
-  } = useUIState()
+  /*
+   * UI 状态改由 `@/hooks/useUIState` 的模块级外部 store 持有。
+   *
+   * 旧实现把这 11 个状态放在 App 里，再逐个下传给 MainContent（30 个 props）
+   * 与 AppPanels（19 个 props），绝大多数是纯转发 —— 加一个面板开关要改 3 个文件。
+   * 现在 App 只保留它自己真的要用的字段，其余组件按需自行订阅。
+   */
+  const { activeView, activeLeftMenu } = useUIState()
+  const { setActiveView, setActiveLeftMenu, setShowSettings } = uiActions
 
   const { confirmConfig, confirm, handleConfirm, handleCancel } = useConfirmAction()
   const { toasts, removeToast, error } = useToast()
@@ -244,7 +230,7 @@ function App(): JSX.Element {
   }, [createDoc, handleViewDoc])
 
   useKeyboard({
-    onSearch: () => setShowSearchPanel(true),
+    onSearch: () => uiActions.setShowSearchPanel(true),
     onSave: () => saveNotes(),
     onUndo: () => {
       if (undo()) toast.info('已撤销', 1500)
@@ -266,16 +252,18 @@ function App(): JSX.Element {
     },
     // Escape 每次只关闭一个面板（按优先级），避免一次按键把多个面板同时关掉
     onEscape: () => {
+      // 从 store 读取实时状态，而不是闭包里的变量 —— 这些开关不再由 App 持有
+      const ui = getUIState()
       if (showQuickOpen) setShowQuickOpen(false)
       else if (showHelp) setShowHelp(false)
-      else if (showShortcutHelp) setShowShortcutHelp(false)
-      else if (showSearchPanel) setShowSearchPanel(false)
-      else if (showSharePanel) setShowSharePanel(false)
-      else if (showTagPanel) setShowTagPanel(false)
-      else if (showVersionHistory) setShowVersionHistory(false)
-      else if (showSettings) setShowSettings(false)
+      else if (ui.showShortcutHelp) uiActions.setShowShortcutHelp(false)
+      else if (ui.showSearchPanel) uiActions.setShowSearchPanel(false)
+      else if (ui.showSharePanel) uiActions.setShowSharePanel(false)
+      else if (ui.showTagPanel) uiActions.setShowTagPanel(false)
+      else if (ui.showVersionHistory) uiActions.setShowVersionHistory(false)
+      else if (ui.showSettings) uiActions.setShowSettings(false)
     },
-    onShortcutHelp: () => setShowShortcutHelp(!showShortcutHelp),
+    onShortcutHelp: () => uiActions.setShowShortcutHelp(!getUIState().showShortcutHelp),
     onQuickOpen: () => setShowQuickOpen(true),
     onPrevDoc: () => navigateAdjacent('prev'),
     onNextDoc: () => navigateAdjacent('next'),
@@ -424,7 +412,7 @@ function App(): JSX.Element {
         <Sidebar
           searchText={searchText}
           onSearchChange={debouncedSetSearchText}
-          onSearchPanelOpen={() => setShowSearchPanel(true)}
+          onSearchPanelOpen={() => uiActions.setShowSearchPanel(true)}
           activeLeftMenu={activeLeftMenu}
           onLeftMenuChange={setActiveLeftMenu}
           activeView={activeView}
@@ -453,20 +441,15 @@ function App(): JSX.Element {
         )}
 
         <MainContent
-          activeLeftMenu={activeLeftMenu}
-          activeView={activeView}
           recentViews={recentViews}
           activeNotebookId={activeNotebookId}
           activeDocId={activeDocId}
           searchText={searchText}
           trash={trash}
-          fontSize={fontSize}
           isMobile={isMobile}
           isCompact={isCompact}
           docsSidebarWidth={docsSidebarWidth}
           dragging={dragging}
-          showOutlinePanel={showOutlinePanel}
-          showCommentsPanel={showCommentsPanel}
           onViewDoc={handleViewDoc}
           onSearchChange={debouncedSetSearchText}
           onCreateDoc={handleCreateDoc}
@@ -474,12 +457,6 @@ function App(): JSX.Element {
           onRestoreFromTrash={restoreFromTrash}
           onDeleteFromTrash={handleDeleteFromTrash}
           onClearTrash={handleClearTrash}
-          onFontSizeChange={setFontSize}
-          onSetActiveLeftMenu={setActiveLeftMenu}
-          onShowVersionHistory={() => setShowVersionHistory(true)}
-          onShowSharePanel={() => setShowSharePanel(true)}
-          onToggleOutlinePanel={() => setShowOutlinePanel(!showOutlinePanel)}
-          onToggleCommentsPanel={() => setShowCommentsPanel(!showCommentsPanel)}
           onGoToDocs={() => {
             setActiveView("notebooks")
             setActiveLeftMenu("notebooks")
@@ -489,25 +466,11 @@ function App(): JSX.Element {
         />
 
         <AppPanels
-          showSharePanel={showSharePanel}
-          showTagPanel={showTagPanel}
-          showSearchPanel={showSearchPanel}
-          showVersionHistory={showVersionHistory}
-          showShortcutHelp={showShortcutHelp}
-          showSettings={showSettings}
           activeDocId={activeDocId}
           activeNotebookId={activeNotebookId}
-          fontSize={fontSize}
-          onCloseSharePanel={() => setShowSharePanel(false)}
-          onCloseTagPanel={() => setShowTagPanel(false)}
-          onCloseSearchPanel={() => setShowSearchPanel(false)}
-          onCloseVersionHistory={() => setShowVersionHistory(false)}
-          onCloseShortcutHelp={() => setShowShortcutHelp(false)}
-          onCloseSettings={() => setShowSettings(false)}
           onGenerateShareLink={handleGenerateShareLink}
           onDeleteShareLink={handleDeleteShareLink}
           onCopyShareLink={handleCopyShareLink}
-          onFontSizeChange={setFontSize}
         />
       </div>
 
@@ -536,7 +499,7 @@ function App(): JSX.Element {
         onClose={() => setShowHelp(false)}
         onOpenShortcuts={() => {
           setShowHelp(false)
-          setShowShortcutHelp(true)
+          uiActions.setShowShortcutHelp(true)
         }}
       />
 

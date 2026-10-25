@@ -1,11 +1,10 @@
-import React, { useRef, useCallback, useEffect, memo } from 'react';
+import React, { useRef, useCallback, useEffect, useState, memo } from 'react';
 import type { NoteDoc } from '@/types';
 import type { SaveStatus } from '@/store';
 import { useTheme } from '@/shared/hooks';
 import { modKey } from '@/utils/platform';
 import type { FormatType } from '@/hooks/useEditorFormatting';
 import type { PreviewMode } from './Editor';
-import { useResponsiveToolbar } from '@/hooks/useResponsiveToolbar';
 import { useEditorHeaderMenus } from '@/hooks/useEditorHeaderMenus';
 import { IconBtn } from './EditorHeaderIcon';
 import { EditorHeaderAddMenu } from './EditorHeaderAddMenu';
@@ -16,7 +15,7 @@ import { EditorHeaderColorMenus } from './EditorHeaderColorMenus';
 import { EditorHeaderAlignMenu } from './EditorHeaderAlignMenu';
 import { EditorHeaderListMenu } from './EditorHeaderListMenu';
 import { EditorHeaderViewControls } from './EditorHeaderViewControls';
-import { EditorHeaderSecondaryRow } from './EditorHeaderSecondaryRow';
+import { EditorToolbarOverflow } from './EditorToolbarOverflow';
 import { exportCurrentDocAsHtml, exportCurrentDocAsPdf, exportCurrentDocAsMarkdown, exportCurrentNotebookAsZip, printCurrentDoc } from './editorHeaderExports';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
 
@@ -67,6 +66,10 @@ interface EditorHeaderProps {
   onToggleFocusMode?: () => void;
   previewMode?: PreviewMode;
   onTogglePreviewMode?: () => void;
+  /** 工具栏整体是否收起 */
+  toolbarCollapsed: boolean;
+  /** 收起 / 展开工具栏 */
+  onToggleToolbar: () => void;
 }
 
 const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
@@ -107,6 +110,8 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   onToggleFocusMode,
   previewMode = 'edit',
   onTogglePreviewMode,
+  toolbarCollapsed,
+  onToggleToolbar,
 }) => {
   // 用解析后的 isDark 而不是原始 theme：选择「跟随系统」或暗夜紫/暗夜绿时，
   // 直接比较 theme === 'light' 会把暗色主题显示成日间模式
@@ -123,33 +128,48 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
     [],
   );
 
-  // 响应式宽度 / 展开收缩状态（rAF 节流 + localStorage 持久化）
-  const {
-    toolbarExpanded,
-    setToolbarExpanded,
-    isMobile,
-    effectiveExpanded,
-    hideRedo,
-    hideTableAndDivider,
-  } = useResponsiveToolbar();
+  /**
+   * 低频格式的溢出菜单（语雀的"下级菜单"）。
+   * 它和「收起工具栏」是两件事：前者收拢低频工具，后者把整条工具栏藏起来。
+   * 旧实现把两者混成一个"展开工具栏"按钮，点开却弹出格式面板，语义完全对不上。
+   */
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
 
   /**
-   * 「更多格式」浮层：点击外部 / 按 Esc 关闭。
-   * 浮层是 absolute 定位的，不参与页头高度 —— 这是它与旧"常驻第二行"的核心区别。
+   * 工具栏宽度测量：窄窗口下把颜色 / 对齐 / 列表 / 链接自动收进溢出菜单，
+   * 让主栏保持单行（语雀的工具栏"自动收折"）。
+   * 用 ResizeObserver 而不是窗口宽度：侧栏拖宽、折叠都会改变工具栏可用宽度。
    */
-  const formatPopoverRef = useRef<HTMLDivElement>(null);
+  const [toolbarNode, setToolbarNode] = useState<HTMLDivElement | null>(null);
+  const [toolbarWidth, setToolbarWidth] = useState(0);
   useEffect(() => {
-    if (!effectiveExpanded) return;
+    // jsdom（单元测试）没有 ResizeObserver：守卫掉，测试环境下不启用自动收折
+    if (!toolbarNode || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      setToolbarWidth(entry.contentRect.width);
+    });
+    observer.observe(toolbarNode);
+    return () => observer.disconnect();
+  }, [toolbarNode]);
+
+  const foldExtras = toolbarWidth > 0 && toolbarWidth < 760;
+
+  useEffect(() => {
+    if (!overflowOpen) return;
     const onPointerDown = (e: PointerEvent): void => {
       const target = e.target as HTMLElement | null;
       if (!target) return;
-      if (formatPopoverRef.current?.contains(target)) return;
+      if (overflowRef.current?.contains(target)) return;
       // 触发按钮自己负责 toggle，这里跳过，否则会"先关再开"
-      if (target.closest('.eh-expand-btn')) return;
-      setToolbarExpanded(false);
+      if (target.closest('.eh-overflow-btn')) return;
+      setOverflowOpen(false);
     };
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setToolbarExpanded(false);
+      if (e.key !== 'Escape') return;
+      setOverflowOpen(false);
+      // 截住 Esc：焦点仍在正文时，Editor 的"收起工具栏"不应被这次按键连带触发
+      e.stopPropagation();
     };
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
@@ -157,8 +177,13 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [effectiveExpanded, setToolbarExpanded]);
+  }, [overflowOpen]);
 
+  // 工具栏收起 / 展开时同步清掉溢出菜单，展开后不残留上一次的下级菜单
+  const handleToggleToolbar = useCallback(() => {
+    setOverflowOpen(false);
+    onToggleToolbar();
+  }, [onToggleToolbar]);
 
   // 各下拉菜单开关状态 / ref / 点击外部关闭
   const {
@@ -190,6 +215,14 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
     tableMenuRef,
     codeLangMenuRef,
   } = useEditorHeaderMenus(colorTriggerRefs);
+
+  // 溢出菜单关闭后重置其内部的下拉菜单状态，避免下次打开时上一个子菜单还开着
+  useEffect(() => {
+    if (overflowOpen) return;
+    setShowFontSizeMenu(false);
+    setShowCodeLangMenu(false);
+    setShowTableMenu(false);
+  }, [overflowOpen, setShowFontSizeMenu, setShowCodeLangMenu, setShowTableMenu]);
 
   const titleInputRef = useRef<HTMLInputElement>(null);
 
@@ -249,138 +282,166 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
         showMoreMenu={showMoreMenu}
         setShowMoreMenu={setShowMoreMenu}
         updateDocContent={updateDocContent}
+        toolbarCollapsed={toolbarCollapsed}
+        onToggleToolbar={handleToggleToolbar}
       />
 
-      {/* ===== 第二层：可展开/收缩的格式工具栏 ===== */}
-      <div
-        className={`eh-toolbar ${effectiveExpanded ? 'expanded' : ''}`}
-        /*
-         * 点击工具栏按钮时阻止默认的焦点转移。
-         *
-         * contenteditable 的选区绑定在焦点上：点按钮如果让编辑器失焦，
-         * 选区会被浏览器折叠/清除，`getSelectionRange()` 随即返回 null ——
-         * 表现为"选中文字后点加粗完全没反应"（语雀/Notion 都在 mousedown 里这样处理）。
-         */
-        onMouseDown={(e) => {
-          if ((e.target as HTMLElement).closest('button')) e.preventDefault();
-        }}
-      >
-        <div className="eh-toolbar-row eh-toolbar-row-primary">
-          <div className="eh-toolbar-left">
-            {/* 添加内容按钮 */}
-            <EditorHeaderAddMenu
-              open={showAddMenu}
-              setOpen={setShowAddMenu}
-              menuRef={addMenuRef}
-              applyFormat={applyFormat}
-            />
+      {/*
+        ===== 第二层：格式工具栏 =====
+        语雀式：这是一整条可以被「收起」的工具栏，而不是一扇格式面板。
+        收起后页头只剩标题栏，正文向上占满；恢复入口在标题栏右侧（Esc 亦可）。
+      */}
+      {!toolbarCollapsed && (
+        <div
+          className="eh-toolbar"
+          ref={setToolbarNode}
+          /*
+           * 点击工具栏按钮时阻止默认的焦点转移。
+           *
+           * contenteditable 的选区绑定在焦点上：点按钮如果让编辑器失焦，
+           * 选区会被浏览器折叠/清除，`getSelectionRange()` 随即返回 null ——
+           * 表现为"选中文字后点加粗完全没反应"（语雀/Notion 都在 mousedown 里这样处理）。
+           * 右侧的视图控件（预览/专注/溢出/收起）除外：它们不是格式命令，
+           * 允许焦点落在按钮上，Esc 才能正确地只关闭菜单而不会误触发工具栏折叠。
+           */
+          onMouseDown={(e) => {
+            const target = e.target as HTMLElement;
+            if (target.closest('button') && !target.closest('.eh-toolbar-right')) e.preventDefault();
+          }}
+        >
+          <div className="eh-toolbar-row eh-toolbar-row-primary">
+            <div className="eh-toolbar-left">
+              {/* 添加内容按钮 */}
+              <EditorHeaderAddMenu
+                open={showAddMenu}
+                setOpen={setShowAddMenu}
+                menuRef={addMenuRef}
+                applyFormat={applyFormat}
+              />
 
-            {/* 分组1：历史操作 */}
-            <div className="eh-toolbar-group">
-              <IconBtn title={`撤销 (${modKey}+Z)`} onClick={undo} disabled={!canUndo}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="1 4 1 10 7 10" />
-                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                </svg>
-              </IconBtn>
+              {/* 分组1：历史操作 */}
+              <div className="eh-toolbar-group">
+                <IconBtn title={`撤销 (${modKey}+Z)`} onClick={undo} disabled={!canUndo}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                  </svg>
+                </IconBtn>
 
-              {!hideRedo && (
                 <IconBtn title={`重做 (${modKey}+Y)`} onClick={redo} disabled={!canRedo}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="23 4 23 10 17 10" />
                     <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
                   </svg>
                 </IconBtn>
+              </div>
+
+              <div className="eh-group-divider" />
+
+              <EditorHeaderHeadingMenu
+                open={showHeadingMenu}
+                setOpen={setShowHeadingMenu}
+                menuRef={headingMenuRef}
+                activeFormats={activeFormats}
+                applyFormat={applyFormat}
+              />
+
+              <EditorHeaderInlineFormatGroup activeFormats={activeFormats} applyFormat={applyFormat} />
+
+              {/* 工具栏宽度不够时，这组低频但常用的控件自动移入「更多格式」 */}
+              {!foldExtras && (
+                <>
+                  <EditorHeaderColorMenus
+                    applyFormat={applyFormat}
+                    showColorPicker={showColorPicker}
+                    setShowColorPicker={setShowColorPicker}
+                    colorPickerRef={colorPickerRef}
+                    registerTriggerRef={registerColorTriggerRef}
+                  />
+
+                  <span className="eh-divider" />
+
+                  <EditorHeaderAlignMenu
+                    open={showAlignMenu}
+                    setOpen={setShowAlignMenu}
+                    menuRef={alignMenuRef}
+                    applyFormat={applyFormat}
+                  />
+
+                  <EditorHeaderListMenu
+                    open={showListMenu}
+                    setOpen={setShowListMenu}
+                    menuRef={listMenuRef}
+                    activeFormats={activeFormats}
+                    applyFormat={applyFormat}
+                  />
+
+                  <span className="eh-divider" />
+
+                  <IconBtn title="插入链接" onClick={() => applyFormat('link')}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                  </IconBtn>
+                </>
               )}
             </div>
 
-            <div className="eh-group-divider" />
-
-            <EditorHeaderHeadingMenu
-              open={showHeadingMenu}
-              setOpen={setShowHeadingMenu}
-              menuRef={headingMenuRef}
-              activeFormats={activeFormats}
-              applyFormat={applyFormat}
-            />
-
-            <EditorHeaderInlineFormatGroup activeFormats={activeFormats} applyFormat={applyFormat} />
-
-            <EditorHeaderColorMenus
-              applyFormat={applyFormat}
-              showColorPicker={showColorPicker}
-              setShowColorPicker={setShowColorPicker}
-              colorPickerRef={colorPickerRef}
-              registerTriggerRef={registerColorTriggerRef}
-            />
-
-            <span className="eh-divider" />
-
-            <EditorHeaderAlignMenu
-              open={showAlignMenu}
-              setOpen={setShowAlignMenu}
-              menuRef={alignMenuRef}
-              applyFormat={applyFormat}
-            />
-
-            <EditorHeaderListMenu
-              open={showListMenu}
-              setOpen={setShowListMenu}
-              menuRef={listMenuRef}
-              activeFormats={activeFormats}
-              applyFormat={applyFormat}
-            />
-
-            <span className="eh-divider" />
-
-            <IconBtn title="插入链接" onClick={() => applyFormat('link')}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-            </IconBtn>
+            <div className="eh-toolbar-right">
+              <EditorHeaderViewControls
+                previewMode={previewMode}
+                onTogglePreviewMode={onTogglePreviewMode}
+                isFocusMode={isFocusMode}
+                onToggleFocusMode={onToggleFocusMode}
+                overflowOpen={overflowOpen}
+                onToggleOverflow={() => setOverflowOpen((open) => !open)}
+                onCollapseToolbar={handleToggleToolbar}
+                hasHiddenItems={foldExtras}
+              />
+            </div>
           </div>
 
-          <div className="eh-toolbar-right">
-            <EditorHeaderViewControls
-              previewMode={previewMode}
-              onTogglePreviewMode={onTogglePreviewMode}
-              isFocusMode={isFocusMode}
-              onToggleFocusMode={onToggleFocusMode}
-              isMobile={isMobile}
-              toolbarExpanded={toolbarExpanded}
-              effectiveExpanded={effectiveExpanded}
-              setToolbarExpanded={setToolbarExpanded}
-            />
-          </div>
+          {overflowOpen && (
+            <div className="eh-overflow-anchor" ref={overflowRef}>
+              <EditorToolbarOverflow
+                applyFormat={applyFormat}
+                activeFormats={activeFormats}
+                fontSize={fontSize}
+                setFontSize={setFontSize}
+                onFontSizeSelect={onFontSizeSelect}
+                showFontSizeMenu={showFontSizeMenu}
+                setShowFontSizeMenu={setShowFontSizeMenu}
+                fontSizeMenuRef={fontSizeMenuRef}
+                onFormatPainter={onFormatPainter}
+                formatPainterActive={formatPainterActive}
+                onAiAction={onAiAction}
+                showCodeLangMenu={showCodeLangMenu}
+                setShowCodeLangMenu={setShowCodeLangMenu}
+                codeLangMenuRef={codeLangMenuRef}
+                showTableMenu={showTableMenu}
+                setShowTableMenu={setShowTableMenu}
+                tableMenuRef={tableMenuRef}
+                onAction={() => setOverflowOpen(false)}
+                foldedColors={foldExtras}
+                foldedAlign={foldExtras}
+                foldedList={foldExtras}
+                foldedLink={foldExtras}
+                showColorPicker={showColorPicker}
+                setShowColorPicker={setShowColorPicker}
+                colorPickerRef={colorPickerRef}
+                registerColorTriggerRef={registerColorTriggerRef}
+                showAlignMenu={showAlignMenu}
+                setShowAlignMenu={setShowAlignMenu}
+                alignMenuRef={alignMenuRef}
+                showListMenu={showListMenu}
+                setShowListMenu={setShowListMenu}
+                listMenuRef={listMenuRef}
+              />
+            </div>
+          )}
         </div>
-
-        {effectiveExpanded && (
-          <div className="eh-format-popover-anchor" ref={formatPopoverRef}>
-            <EditorHeaderSecondaryRow
-              applyFormat={applyFormat}
-              activeFormats={activeFormats}
-              hideTableAndDivider={hideTableAndDivider}
-              fontSize={fontSize}
-              setFontSize={setFontSize}
-              onFontSizeSelect={onFontSizeSelect}
-              showFontSizeMenu={showFontSizeMenu}
-              setShowFontSizeMenu={setShowFontSizeMenu}
-              fontSizeMenuRef={fontSizeMenuRef}
-              onFormatPainter={onFormatPainter}
-              formatPainterActive={formatPainterActive}
-              onAiAction={onAiAction}
-              onClose={() => setToolbarExpanded(false)}
-              showCodeLangMenu={showCodeLangMenu}
-              setShowCodeLangMenu={setShowCodeLangMenu}
-              codeLangMenuRef={codeLangMenuRef}
-              showTableMenu={showTableMenu}
-              setShowTableMenu={setShowTableMenu}
-              tableMenuRef={tableMenuRef}
-            />
-          </div>
-        )}
-      </div>
+      )}
     </header>
   );
 };

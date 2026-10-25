@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNotesStore } from '@/store'
+import { useNotesStore, selectActiveDoc } from '@/store'
 import { loadLatestDraft, clearDrafts, saveDraft } from '@/utils/autoSaveUtils'
 import { beginSession, endSession } from '@/utils/sessionGuard'
 import { markPerf } from '@/utils/perfMarks'
@@ -97,7 +97,7 @@ export function useAppInit({ onError, onAbnormalExit }: UseAppInitOptions): UseA
           tags: state.tags,
           searchHistory: state.searchHistory,
         } as AppStore,
-        state.activeDoc?.title
+        selectActiveDoc(state)?.title
       )
       // 异步保存仍尽力执行；仅当确认保存成功后才清除草稿，
       // 保存被中断时草稿保留，供下次启动恢复

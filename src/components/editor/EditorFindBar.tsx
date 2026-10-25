@@ -36,6 +36,15 @@ interface EditorFindBarProps {
    * 与既有的 onRegisterEditorScrollSync 是同一套 ref 直通模式。
    */
   onRegisterJump?: (fn: ((index: number) => void) | null) => void
+  /**
+   * 编辑器是否已挂载。
+   *
+   * 旧内核（EditorContent）改成 React.lazy 后，查找栏可能先于编辑器出现：
+   * `jumpTo` 里 `if (!ta) return` 会静默跳过且不再重试 ——
+   * 表现为"查找栏打开了、命中数也对，但没有选中任何一处"。
+   * 这个值从 false 变 true 时重新定位一次。
+   */
+  editorReady?: boolean
 }
 
 /**
@@ -54,6 +63,7 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
   initialQuery = '',
   onMatchesChange,
   onRegisterJump,
+  editorReady = false,
 }) => {
   const [query, setQuery] = useState(initialQuery)
   const [replacement, setReplacement] = useState('')
@@ -86,10 +96,17 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
     [content, matches, textareaRef, selectRangeInRichEditor],
   )
 
-  // 查询条件或内容变化后把当前命中保持在视口内（纯 DOM 操作，不 setState）
+  /**
+   * 查询条件或内容变化后把当前命中保持在视口内（纯 DOM 操作，不 setState）。
+   *
+   * `editorReady` 必须进依赖：旧内核（EditorContent）已改成 React.lazy，
+   * 查找栏出现时 textarea 可能还没挂载 —— jumpTo 里的 `if (!ta) return`
+   * 会直接跳过且永不重试，表现为"查找栏打开了，但没选中任何命中"。
+   * 编辑器一旦就绪（textareaRef 或富文本 root 有值）就重新跑一次。
+   */
   useEffect(() => {
     if (safeCurrent >= 0) jumpTo(safeCurrent, false)
-  }, [jumpTo, safeCurrent])
+  }, [jumpTo, safeCurrent, editorReady])
 
   // 命中信息上抛给 Editor 的刻度带；组件卸载时清空，避免刻度残留在关闭后的编辑器上
   useEffect(() => {

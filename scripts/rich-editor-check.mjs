@@ -457,25 +457,23 @@ if (taskBefore.exists) {
 }
 
 // 17. 块级悬浮手柄（语雀式：鼠标移入块，左侧浮出 + / ⋮⋮）
-const handleVisible = await page.evaluate(async () => {
-  const root = document.querySelector('.rich-editor')
-  if (!root) return false
-  const blocks = Array.from(root.children)
-  const target = blocks[blocks.length - 1]
-  if (!target) return false
-  const r = target.getBoundingClientRect()
-  // 在块内派发 mousemove，触发手柄定位
-  root.dispatchEvent(
-    new MouseEvent('mousemove', {
-      bubbles: true,
-      clientX: r.left + 20,
-      clientY: r.top + r.height / 2,
-    }),
-  )
-  // 等一帧让 React 渲染
-  await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)))
-  return document.querySelector('.block-handle') !== null
-})
+//
+// 必须用 page.mouse 真实移动，不能用 dispatchEvent 合成 mousemove：
+// 手柄用 `document.elementFromPoint(x, y)` 定位，而合成事件只带 clientX/Y，
+// 不会让浏览器产生真实的命中测试 —— elementFromPoint 仍按**指针实际位置**
+// 返回元素，于是合成事件永远定位不到块，手柄不会出现。
+// （实测：合成事件失败、page.mouse 成功；这是测试方式问题，不是功能缺陷。）
+const handleVisible = await (async () => {
+  const target = page.locator('.rich-editor > *').last()
+  const box = await target.boundingBox()
+  if (!box) return false
+  // 先移出手柄区域，再移入目标块，确保这次移动真的触发 mousemove
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 200)
+  await page.waitForTimeout(120)
+  await page.mouse.move(box.x + 20, box.y + box.height / 2)
+  await page.waitForTimeout(250)
+  return (await page.locator('.block-handle').count()) > 0
+})()
 check('鼠标移入块时浮出块级手柄', handleVisible)
 
 if (handleVisible) {

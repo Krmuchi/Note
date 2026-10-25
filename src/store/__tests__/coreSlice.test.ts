@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useNotesStore } from '@/store'
+import { useNotesStore, selectActiveDoc } from '@/store'
 
 describe('coreSlice - comment operations', () => {
   beforeEach(() => {
@@ -258,7 +258,6 @@ describe('coreSlice - data safety (trash restore / load-failed guard)', () => {
       searchHistory: [],
       activeNotebookId: '',
       activeDocId: '',
-      activeDoc: null,
       searchText: '',
       saveStatus: 'idle',
       lastSavedAt: null,
@@ -307,7 +306,7 @@ describe('coreSlice - data safety (trash restore / load-failed guard)', () => {
     expect(state.notebooks[0].docs.some(d => d.id === docId)).toBe(true)
   })
 
-  it('recalculates activeDoc after deleting the active notebook', () => {
+  it('derives null activeDoc after deleting the active notebook', () => {
     const { createNotebook, createDoc, setActiveNotebookId, setActiveDocId, deleteNotebook } = useNotesStore.getState()
     createNotebook('A')
     createNotebook('B')
@@ -319,13 +318,14 @@ describe('coreSlice - data safety (trash restore / load-failed guard)', () => {
     const docId = useNotesStore.getState().notebooks[0].docs[0].id
     setActiveNotebookId(idA)
     setActiveDocId(docId)
-    expect(useNotesStore.getState().activeDoc?.id).toBe(docId)
+    expect(selectActiveDoc(useNotesStore.getState())?.id).toBe(docId)
 
     deleteNotebook(idA)
 
     const state2 = useNotesStore.getState()
-    // 幽灵文档会导致后续输入被静默丢弃，activeDoc 必须重算
-    expect(state2.activeDoc).toBeNull()
+    // 幽灵文档会导致后续输入被静默丢弃：activeDoc 是派生值，
+    // 删库后 activeDocId 被清空，派生结果必然为 null（不存在"忘了重算"的可能）
+    expect(selectActiveDoc(state2)).toBeNull()
     expect(state2.activeNotebookId).toBe(idB)
   })
 
@@ -369,7 +369,6 @@ describe('coreSlice - data safety (trash restore / load-failed guard)', () => {
       searchHistory: [],
       activeNotebookId: 'nb1',
       activeDocId: 'doc1',
-      activeDoc: null,
       searchText: '',
       saveStatus: 'idle',
       lastSavedAt: null,

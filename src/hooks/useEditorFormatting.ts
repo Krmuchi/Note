@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { compressImage } from '@/shared/utils';
 import { saveImage, saveFile } from '@/services/storage';
-import { toast } from '@/components/common/Toast';
+import { toast } from '@/services/toast';
 import {
   wrapSelection,
   insertBlockMark,

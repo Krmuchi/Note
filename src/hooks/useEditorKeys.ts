@@ -8,13 +8,9 @@ import type { NoteDoc } from '@/types';
 import type { FormatType } from '@/hooks/useEditorFormatting';
 import { useEditorLineOps } from '@/hooks/useEditorLineOps';
 import { eventToKeys } from '@/utils/shortcuts';
+import { FORMAT_ACTIONS } from '@/hooks/formatActions';
 
-/** 可由快捷键直接触发的格式化动作（id 与 FormatType / keyboardSlice 对齐） */
-export const FORMAT_ACTIONS = new Set<string>([
-  'bold', 'italic', 'underline', 'strike', 'code',
-  'heading1', 'heading2', 'heading3', 'heading4', 'heading5', 'heading6',
-  'ulist', 'olist', 'tasklist', 'quote', 'link',
-]);
+export { FORMAT_ACTIONS };
 
 interface UseEditorKeysOptions {
   textareaRef: RefObject<HTMLTextAreaElement | null>;

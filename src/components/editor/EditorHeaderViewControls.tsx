@@ -3,18 +3,24 @@ import { modKey } from '@/utils/platform';
 import type { PreviewMode } from './Editor';
 
 /**
- * EditorHeader 主工具栏右侧：预览模式 / 专注模式 / 展开收敛按钮。
- * 从 EditorHeader.tsx 纯拆分，DOM/class/事件逻辑不变。
+ * 工具栏右侧控件：预览 / 专注 / 更多格式 / 收起工具栏。
+ *
+ * 「更多格式」与「收起工具栏」是两件不同的事（之前被合成一个按钮）：
+ * - 更多格式：展开低频工具的下级菜单，工具栏仍在；
+ * - 收起工具栏：整条工具栏收起来，只留下正文与标题栏，Esc 可再展开。
  */
 interface EditorHeaderViewControlsProps {
   previewMode: PreviewMode;
   onTogglePreviewMode?: () => void;
   isFocusMode: boolean;
   onToggleFocusMode?: () => void;
-  isMobile: boolean;
-  toolbarExpanded: boolean;
-  effectiveExpanded: boolean;
-  setToolbarExpanded: (expanded: boolean) => void;
+  /** 低频格式溢出菜单是否打开 */
+  overflowOpen: boolean;
+  onToggleOverflow: () => void;
+  /** 收起整条格式工具栏 */
+  onCollapseToolbar: () => void;
+  /** 窄窗口下有控件被自动收进溢出菜单（按钮上显示小圆点提示） */
+  hasHiddenItems?: boolean;
 }
 
 export const EditorHeaderViewControls: React.FC<EditorHeaderViewControlsProps> = ({
@@ -22,10 +28,10 @@ export const EditorHeaderViewControls: React.FC<EditorHeaderViewControlsProps> =
   onTogglePreviewMode,
   isFocusMode,
   onToggleFocusMode,
-  isMobile,
-  toolbarExpanded,
-  effectiveExpanded,
-  setToolbarExpanded,
+  overflowOpen,
+  onToggleOverflow,
+  onCollapseToolbar,
+  hasHiddenItems = false,
 }) => (
   <>
     {onTogglePreviewMode && (
@@ -71,16 +77,32 @@ export const EditorHeaderViewControls: React.FC<EditorHeaderViewControlsProps> =
         </svg>
       </button>
     )}
+
+    <span className="eh-divider" />
+
     <button
-      className="eh-icon-btn eh-expand-btn"
-      onClick={() => !isMobile && setToolbarExpanded(!toolbarExpanded)}
-      disabled={isMobile}
-      title={isMobile ? '窗口过窄，暂不支持展开' : (effectiveExpanded ? '收起工具栏' : '展开工具栏')}
+      type="button"
+      className={`eh-icon-btn eh-overflow-btn ${overflowOpen ? 'active' : ''} ${hasHiddenItems ? 'has-hidden' : ''}`}
+      onClick={onToggleOverflow}
+      title="更多格式"
+      aria-haspopup="menu"
+      aria-expanded={overflowOpen}
     >
       <svg viewBox="0 0 24 24" fill="currentColor">
-        <circle cx="12" cy="5" r="2" />
-        <circle cx="12" cy="12" r="2" />
-        <circle cx="12" cy="19" r="2" />
+        <circle cx="5" cy="12" r="1.8" />
+        <circle cx="12" cy="12" r="1.8" />
+        <circle cx="19" cy="12" r="1.8" />
+      </svg>
+    </button>
+
+    <button
+      type="button"
+      className="eh-icon-btn eh-collapse-btn"
+      onClick={onCollapseToolbar}
+      title="收起工具栏 (Esc)"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="18 15 12 9 6 15" />
       </svg>
     </button>
   </>

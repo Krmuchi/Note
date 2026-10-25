@@ -14,7 +14,7 @@ import type { RefObject } from 'react'
 
 import type { NoteDoc } from '@/types'
 import { getCaretPixelPosition } from '@/utils/editorTextOps'
-import { toast } from '@/components/common/Toast'
+import { toast } from '@/services/toast'
 
 export interface AiSelectionSnapshot {
   start: number

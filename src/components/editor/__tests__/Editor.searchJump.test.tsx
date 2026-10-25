@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, waitFor } from '@testing-library/react'
 import { Editor } from '@/components/editor/Editor'
 import { useNotesStore } from '@/store'
 import { requestSearchJump, resetSearchJump } from '@/utils/searchJump'
@@ -41,7 +41,6 @@ beforeEach(() => {
     searchHistory: [],
     activeNotebookId: 'nb1',
     activeDocId: 'd1',
-    activeDoc: doc,
     saveStatus: 'saved',
   })
 })
@@ -73,7 +72,16 @@ describe('Editor - 搜索跳转定位（S1）', () => {
     expect(screen.getByLabelText('查找内容')).toHaveValue('关键词')
     expect(screen.getByText('1/2')).toBeInTheDocument()
 
-    const textarea = document.querySelector('textarea') as HTMLTextAreaElement
+    /*
+     * 旧内核（EditorContent）已改成 React.lazy —— 富文本是默认内核，
+     * textarea 分支只有显式关闭富文本才渲染，没必要进首屏。
+     * 因此这里必须等异步分块解析完成，不能再同步取 DOM。
+     */
+    const textarea = await waitFor(() => {
+      const el = document.querySelector('textarea')
+      expect(el).not.toBeNull()
+      return el as HTMLTextAreaElement
+    })
     expect(textarea.selectionStart).toBe(content.indexOf('关键词'))
   })
 

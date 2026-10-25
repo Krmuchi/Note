@@ -1,3 +1,4 @@
+import '@/styles/quick-note.css';
 import { useState, useCallback, useEffect } from 'react';
 import type { JSX } from 'react';
 import { useNotesStore } from '@/store';

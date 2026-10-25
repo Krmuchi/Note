@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useNotesStore } from '@/store'
-import { toast } from '@/components/common/Toast'
+import { toast } from '@/services/toast'
 
 function scheduleIdleCallback(callback: () => void, timeout: number = 5000): void {
   if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {

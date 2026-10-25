@@ -84,6 +84,19 @@
   color: var(--text-tertiary);
 }
 
+/* 行内开关：与 settings-item 的说明文字并排，不占整行 */
+.settings-toggle-inline {
+  align-items: center;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.settings-toggle-inline span {
+  flex-direction: row;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
 /* ---- 设置：说明文字 ---- */
 
 .settings-hint {

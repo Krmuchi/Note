@@ -1,21 +1,17 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react"
 import type { CSSProperties, JSX } from "react"
+import type { ToastAction, ToastMessage } from "@/services/toast"
 
-export interface ToastAction {
-  /** 按钮文案，如"撤销" */
-  label: string
-  /** 点击后执行；点击即关闭该提示 */
-  onClick: () => void
-}
+/*
+ * 类型定义在 services/toast.ts（发射器侧），这里只做渲染。
+ * 两处各自声明一份 interface 会在改动时漂移，且发射器与渲染器的
+ * duration/action 语义必须完全一致（带 action 的提示停留更久）。
+ */
+export type { ToastAction }
 
-export interface ToastProps {
+export interface ToastProps extends ToastMessage {
   id: string
-  type: "success" | "error" | "warning" | "info"
-  message: string
   onClose: (id: string) => void
-  duration?: number
-  /** 可选的行动按钮（如"撤销"）。带按钮的提示会获得更长的停留时间 */
-  action?: ToastAction
 }
 
 const iconMap = {

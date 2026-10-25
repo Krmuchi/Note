@@ -1,7 +1,10 @@
 import React from 'react';
 import type { FormatType } from '@/hooks/useEditorFormatting';
+import type { ColorTab } from '@/types';
 
-export type ColorTab = 'text' | 'highlight';
+/* ColorTab 已下沉到 @/types（hooks 需要它，但不该 import 组件模块）。
+   这里重新导出，保持既有 import 路径可用。 */
+export type { ColorTab };
 
 const TEXT_COLORS = [
   '#000000', '#262626', '#595959', '#8c8c8c', '#bfbfbf', '#1677ff', '#0958d9', '#003eb3',
