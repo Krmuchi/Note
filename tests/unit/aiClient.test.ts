@@ -554,3 +554,127 @@ describe('aiClient - 模型列表', () => {
     expect(result.error.message).toContain('桌面应用')
   })
 })
+
+describe('aiClient - 非流式 CallOptions 契约（signal / timeoutMs）', () => {
+  it('signal 已 abort：直接返回 ABORTED，不发请求', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const result = await aiClient.generate(GENERATE_INPUT, { signal: controller.signal })
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('预期失败')
+    expect(result.error.code).toBe('AI_ERR_ABORTED')
+    expect(api.aiGenerate).not.toHaveBeenCalled()
+  })
+
+  it('在途 abort：立即以 ABORTED 结算，并 best-effort 通知主进程取消', async () => {
+    let release: (value: unknown) => void = () => {}
+    installApi({
+      aiGenerate: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            release = resolve
+          }),
+      ),
+    })
+    const controller = new AbortController()
+    const pending = aiClient.generate(GENERATE_INPUT, { signal: controller.signal })
+    // 让请求先发出去
+    await Promise.resolve()
+    controller.abort()
+
+    const result = await pending
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('预期失败')
+    expect(result.error.code).toBe('AI_ERR_ABORTED')
+    expect(api.aiCancel).toHaveBeenCalledTimes(1)
+    // 底层请求迟到完成也不能改变已结算的结果
+    release(SUCCESS)
+    await Promise.resolve()
+  })
+
+  it('timeoutMs 到期：以 TIMEOUT 结算并通知取消，迟到结果被忽略', async () => {
+    vi.useFakeTimers()
+    try {
+      let release: (value: unknown) => void = () => {}
+      installApi({
+        aiGenerate: vi.fn(
+          () =>
+            new Promise((resolve) => {
+              release = resolve
+            }),
+        ),
+      })
+      const pending = aiClient.generate(GENERATE_INPUT, { timeoutMs: 1000 })
+      await vi.advanceTimersByTimeAsync(1001)
+      const result = await pending
+      expect(result.ok).toBe(false)
+      if (result.ok) throw new Error('预期失败')
+      expect(result.error.code).toBe('AI_ERR_TIMEOUT')
+      expect(result.error.retryable).toBe(true)
+      expect(api.aiCancel).toHaveBeenCalledTimes(1)
+      release(SUCCESS)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('正常完成不受影响：先返回结果，取消/超时不再触发', async () => {
+    const controller = new AbortController()
+    const result = await aiClient.generate(GENERATE_INPUT, { signal: controller.signal, timeoutMs: 5000 })
+    expect(result.ok).toBe(true)
+    expect(api.aiCancel).not.toHaveBeenCalled()
+    // 完成后 abort 不应产生任何副作用（监听器已移除）
+    controller.abort()
+    expect(api.aiCancel).not.toHaveBeenCalled()
+  })
+
+  it('带 signal 的请求不参与同 key 去重：一个取消不殃及另一个调用方', async () => {
+    let calls = 0
+    const releases: Array<(value: unknown) => void> = []
+    installApi({
+      aiGenerate: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            calls += 1
+            releases.push(resolve)
+          }),
+      ),
+    })
+    const controller = new AbortController()
+    const cancelled = aiClient.generate(GENERATE_INPUT, { signal: controller.signal })
+    const other = aiClient.generate(GENERATE_INPUT)
+    await Promise.resolve()
+    expect(calls).toBe(2)
+
+    controller.abort()
+    const cancelledResult = await cancelled
+    expect(cancelledResult.ok).toBe(false)
+
+    // 另一个调用方照常拿到自己的结果
+    releases[1](SUCCESS)
+    const otherResult = await other
+    expect(otherResult.ok).toBe(true)
+    releases[0](SUCCESS)
+  })
+
+  it('无 options 时保持同 key 去重（连点复用同一请求）', async () => {
+    let calls = 0
+    let release: (value: unknown) => void = () => {}
+    installApi({
+      aiGenerate: vi.fn(() => {
+        calls += 1
+        return new Promise((resolve) => {
+          release = resolve
+        })
+      }),
+    })
+    const a = aiClient.generate(GENERATE_INPUT)
+    const b = aiClient.generate(GENERATE_INPUT)
+    await Promise.resolve()
+    expect(calls).toBe(1)
+    release(SUCCESS)
+    const [ra, rb] = await Promise.all([a, b])
+    expect(ra.ok).toBe(true)
+    expect(rb.ok).toBe(true)
+  })
+})

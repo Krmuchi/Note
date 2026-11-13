@@ -139,4 +139,39 @@ describe('EditorFindBar', () => {
     fireEvent.keyDown(screen.getByLabelText('查找内容'), { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
   })
+
+  /*
+   * 缺陷9：关闭后焦点回编辑器。富文本内核下 textareaRef 为 null，
+   * 旧实现 `textareaRef.current?.focus()` 静默跳过，焦点落 body，
+   * 用户关闭查找栏后接着打字毫无反应。onFocusEditor 必须被调用。
+   */
+  it('关闭时调用 onFocusEditor（富文本内核焦点回编辑器）', () => {
+    const onFocusEditor = vi.fn()
+    render(
+      <EditorFindBar
+        content={content}
+        textareaRef={{ current: null }}
+        onReplaceContent={vi.fn()}
+        onClose={vi.fn()}
+        onFocusEditor={onFocusEditor}
+      />,
+    )
+    fireEvent.keyDown(screen.getByLabelText('查找内容'), { key: 'Escape' })
+    expect(onFocusEditor).toHaveBeenCalled()
+  })
+
+  it('点 × 关闭也调用 onFocusEditor', () => {
+    const onFocusEditor = vi.fn()
+    render(
+      <EditorFindBar
+        content={content}
+        textareaRef={{ current: null }}
+        onReplaceContent={vi.fn()}
+        onClose={vi.fn()}
+        onFocusEditor={onFocusEditor}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('关闭查找'))
+    expect(onFocusEditor).toHaveBeenCalled()
+  })
 })

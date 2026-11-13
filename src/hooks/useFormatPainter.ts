@@ -16,9 +16,18 @@ interface UseFormatPainterOptions {
     type: FormatType,
     options?: { color?: string; size?: string; rows?: number; cols?: number; language?: string },
   ) => void;
+  /**
+   * 批量应用多个格式（缺陷5）。
+   * 富文本内核下必须一次算完：forEach 连调 applyFormat 会因渲染闭包旧值
+   * 让后一个格式覆盖前一个。提供时优先用它；缺省回退到逐个 applyFormat。
+   */
+  applyFormats?: (
+    types: FormatType[],
+    options?: { color?: string; size?: string },
+  ) => void;
 }
 
-export function useFormatPainter({ activeFormats, applyFormat }: UseFormatPainterOptions): {
+export function useFormatPainter({ activeFormats, applyFormat, applyFormats }: UseFormatPainterOptions): {
   painterFormats: string[] | null;
   handleFormatPainter: () => void;
   cancelFormatPainter: () => void;
@@ -32,14 +41,16 @@ export function useFormatPainter({ activeFormats, applyFormat }: UseFormatPainte
    */
   const handleFormatPainter = useCallback(() => {
     if (painterFormats) {
-      const formats = painterFormats;
+      const formats = painterFormats as FormatType[];
       setPainterFormats(null);
-      formats.forEach((format) => applyFormat(format as FormatType));
+      // 批量接口一次算完多格式，避免逐个调用时后一个覆盖前一个（缺陷5）
+      if (applyFormats) applyFormats(formats);
+      else formats.forEach((format) => applyFormat(format));
       return;
     }
     const captured = Array.from(activeFormats).filter((f) => PAINTER_INLINE_FORMATS.has(f));
     setPainterFormats(captured);
-  }, [painterFormats, activeFormats, applyFormat]);
+  }, [painterFormats, activeFormats, applyFormat, applyFormats]);
 
   /** 取消待应用的格式刷（Esc 触发） */
   const cancelFormatPainter = useCallback(() => {

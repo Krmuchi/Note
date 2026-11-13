@@ -128,6 +128,14 @@ export interface RichEditorProps {
   resolveShortcut?: (combo: string[]) => string | null
   /** 执行格式化动作（Editor.applyFormat） */
   onFormatShortcut?: (type: FormatType) => void
+  /**
+   * 斜杠菜单当前是否打开（状态由 Editor 持有）。
+   *
+   * 富文本内核据此在 selectionchange 时同步/关闭菜单：光标离开 token 即关闭。
+   * 不做这件事的后果是菜单残留 —— 它在 window 捕获阶段拦截 Enter，
+   * 用户点到别处按回车会把命令执行到**旧位置**。只在打开时挂监听，打字零开销。
+   */
+  slashActive?: boolean
   className?: string
 }
 
@@ -243,6 +251,30 @@ function insertTextAtCaret(text: string): void {
   range.collapse(true)
   sel.removeAllRanges()
   sel.addRange(range)
+}
+
+/** 在光标处插入纯文本（按行拆成文本节点 + <br>，换行成为真正的块分隔） */
+function insertPlainTextAtCaret(text: string): boolean {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return false
+  const range = sel.getRangeAt(0)
+  range.deleteContents()
+  const lines = text.split('\n')
+  const frag = document.createDocumentFragment()
+  lines.forEach((line, i) => {
+    if (i > 0) frag.appendChild(document.createElement('br'))
+    frag.appendChild(document.createTextNode(line))
+  })
+  const last = frag.lastChild
+  range.insertNode(frag)
+  if (last) {
+    const after = document.createRange()
+    after.setStartAfter(last)
+    after.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(after)
+  }
+  return true
 }
 
 /** 从节点向上找最近的指定标签（限制在 root 内） */
@@ -510,7 +542,7 @@ function ensureTrailingTextNode(host: HTMLElement): void {
 }
 
 export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(function RichEditor(
-  { activeDoc, updateDocContent, fontSize, onScroll, onMount, onSlashChange, onInsertImage, onInsertFile, onInsertMarkdown, resolveShortcut, onFormatShortcut, className = '' },
+  { activeDoc, updateDocContent, fontSize, onScroll, onMount, onSlashChange, onInsertImage, onInsertFile, onInsertMarkdown, resolveShortcut, onFormatShortcut, slashActive = false, className = '' },
   ref,
 ) {
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -575,6 +607,18 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
    * 只要 doc.content 等于我们自己刚写出去的值，就说明这次变化源于本编辑器，跳过重渲染。
    */
   const lastWrittenRef = useRef<string | null>(null)
+  /**
+   * 输入法组合态标志（缺陷3）。
+   *
+   * 拼音输入期间浏览器会连续派发 input 事件（内容是未确认的拼音串），
+   * 此时跑输入规则/行内渲染/回写会打断组合、产生脏撤销快照。
+   * compositionstart 置位、compositionend 清零并补跑一次完整处理。
+   */
+  const composingRef = useRef(false)
+  /** Ctrl+Shift+V：下一次粘贴走纯文本（keydown 置位，paste 消费，与旧内核同机制） */
+  const plainTextPasteRef = useRef(false)
+  /** Ctrl+Alt+C：下一次复制写入 Markdown 源码（keydown 置位，copy 消费） */
+  const copyAsMarkdownRef = useRef(false)
 
   /* ---------------- 渲染：Markdown → HTML ---------------- */
 
@@ -748,6 +792,16 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
   // （整体重建会丢光标位置，用户打字时表现为光标乱跳）。
   const docId = activeDoc?.id ?? null
   const docContent = activeDoc?.content ?? ''
+  /*
+   * 撤销/重做执行序号（store 单一数据源）。
+   *
+   * 键盘 Ctrl+Z/Y 走 App 全局快捷键，不经过 Editor 的 forceRender 包装；
+   * 若只比对 lastWrittenRef，"重做回到刚写出的值"会被误判为无需重建
+   * （实测：Ctrl+Z 后 Ctrl+Y 静默无效）。订阅序号后，任何入口的撤销/重做
+   * 都会让本 effect 重跑并强制重建 DOM。
+   */
+  const undoRedoSeq = useNotesStore((s) => s.undoRedoSeq)
+  const lastUndoRedoSeqRef = useRef(undoRedoSeq)
   useEffect(() => {
     const root = rootRef.current
     if (!root || !docId) return
@@ -760,6 +814,15 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
     if (docChanged) {
       // 折叠状态属于"当前这篇文档的阅读位置"，换文档必须清空
       foldedHeadingsRef.current.clear()
+      lastUndoRedoSeqRef.current = undoRedoSeq
+      renderFromMarkdown(docContent)
+      return
+    }
+
+    // 撤销/重做刚执行过：无条件重建（内容可能恰好等于 lastWrittenRef）
+    if (lastUndoRedoSeqRef.current !== undoRedoSeq) {
+      lastUndoRedoSeqRef.current = undoRedoSeq
+      lastWrittenRef.current = null
       renderFromMarkdown(docContent)
       return
     }
@@ -778,7 +841,7 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
     if (currentMd !== docContent) {
       renderFromMarkdown(docContent)
     }
-  }, [docId, docContent, renderFromMarkdown])
+  }, [docId, docContent, undoRedoSeq, renderFromMarkdown])
 
   /* ---------------- 回写：HTML → Markdown ---------------- */
 
@@ -1029,6 +1092,10 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
   const handleInput = useCallback((): void => {
     const root = rootRef.current
     if (!root) return
+    // 输入法组合期间（拼音未确认）不做任何转换/回写：
+    // 此时 DOM 里是临时拼音串，跑输入规则会打断组合、commit 会写入脏快照。
+    // compositionend 后会补跑一次完整处理。
+    if (composingRef.current) return
 
     // 点进代码块 padding 后直接输入时，先把光标移进 <code>（否则文字挂到代码块外）
     normalizePreCaret(root)
@@ -1054,6 +1121,48 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
     commit()
     syncSlash('input')
   }, [applyInputRule, commit, syncSlash])
+
+  /**
+   * 输入法组合开始/结束（缺陷3）。
+   *
+   * Chromium 用回车确认拼音候选时，会先派发 isComposing=true 的 keydown Enter，
+   * 随后才是 compositionend。handleKeyDown 与 handleInput 都必须跳过组合态，
+   * 否则"回车选词"被当成换行/续列表，拼音组合被拆断。
+   */
+  const handleCompositionStart = useCallback((): void => {
+    composingRef.current = true
+  }, [])
+
+  const handleCompositionEnd = useCallback((): void => {
+    composingRef.current = false
+    // 组合结束：补跑一次完整输入处理（转换规则 + 行内渲染 + 回写 + 斜杠同步）
+    handleInput()
+  }, [handleInput])
+
+  /*
+   * 斜杠菜单残留治理（缺陷4）：菜单打开期间监听 selectionchange。
+   *
+   * 旧实现只在 input 时同步斜杠状态，光标移开（点击别处 / 方向键）不触发 input，
+   * 菜单就残留着；而它在 window 捕获阶段拦截 Enter，用户点到别处按回车会把命令
+   * 执行到**旧位置**。这里选区一变就重新检测：离开 token 即上报 null 关闭菜单，
+   * 仍在 token 内则更新位置。rAF 合并连续的 selectionchange，卸载时清理。
+   * 只在菜单打开时挂监听，正常打字零开销。
+   */
+  useEffect(() => {
+    if (!slashActive) return
+    let raf = 0
+    const onSelectionChange = (): void => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        syncSlash('cursor')
+      })
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => {
+      cancelAnimationFrame(raf)
+      document.removeEventListener('selectionchange', onSelectionChange)
+    }
+  }, [slashActive, syncSlash])
 
   /* ---------------- 挂载与滚动 ---------------- */
 
@@ -1531,12 +1640,47 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
     if (!root) return
 
     /*
-     * 格式化快捷键：优先读 keyboardSlice 注册表（支持用户自定义键位），
-     * 未命中时回落到与 textarea 内核一致的历史硬编码。
+     * 输入法组合态（缺陷3）：拼音未确认时不拦截任何按键。
+     * Chromium 用回车确认候选词会先派发 isComposing=true 的 Enter，
+     * 若被下面的续列表/换行/标题退出分支吃掉，拼音组合会被拆断、光标乱跳。
+     */
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+
+    /*
+     * 快捷键注册表（单一数据源，含用户自定义键位）。
+     * 解析放在 onFormatShortcut 之外：置位-消费类与插行类不依赖格式化回调。
+     */
+    const combo = eventToKeys(e)
+    const action = combo.length > 0 ? resolveShortcut?.(combo) ?? null : null
+
+    // Ctrl+Shift+V / Ctrl+Alt+C：keydown 拿不到剪贴板数据，置位后交给 paste/copy 消费
+    if (action === 'plainTextPaste') {
+      plainTextPasteRef.current = true
+      return
+    }
+    if (action === 'copyAsMarkdown') {
+      copyAsMarkdownRef.current = true
+      return
+    }
+    // Ctrl+Enter / Ctrl+Shift+Enter：在当前块下方/上方插入空块（与旧内核插行语义一致）
+    if (action === 'insertLineBelow' || action === 'insertLineAbove') {
+      const target = currentTopBlock(root)
+      if (target) {
+        e.preventDefault()
+        const p = document.createElement('p')
+        p.appendChild(document.createElement('br'))
+        if (action === 'insertLineBelow') target.block.after(p)
+        else target.block.before(p)
+        placeCaretAtEnd(p)
+        commit()
+      }
+      return
+    }
+
+    /*
+     * 格式化快捷键：优先注册表，未命中时回落到与 textarea 内核一致的历史硬编码。
      */
     if (onFormatShortcut) {
-      const combo = eventToKeys(e)
-      const action = combo.length > 0 ? resolveShortcut?.(combo) ?? null : null
       if (action && (FORMAT_ACTIONS.has(action) || action === 'indent' || action === 'outdent')) {
         e.preventDefault()
         onFormatShortcut(action as FormatType)
@@ -1844,7 +1988,22 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
   /* ---------------- 粘贴：保留纯文本语义 ---------------- */
 
   const handlePaste = useCallback(
-    (e: React.ClipboardEvent<HTMLDivElement>): void => {      /*
+    (e: React.ClipboardEvent<HTMLDivElement>): void => {
+      /*
+       * Ctrl+Shift+V 纯文本粘贴（缺陷7）：keydown 已置位，这里消费。
+       * 必须最先判断 —— 否则下面的 HTML 优先分支会把格式带进来，
+       * 用户按了"纯文本粘贴"却仍得到富文本，等于快捷键静默失效。
+       */
+      if (plainTextPasteRef.current) {
+        plainTextPasteRef.current = false
+        const plain = e.clipboardData?.getData('text/plain') ?? ''
+        if (!plain) return
+        e.preventDefault()
+        if (insertPlainTextAtCaret(plain)) commit()
+        return
+      }
+
+      /*
        * 优先处理剪贴板图片。
        *
        * 与旧内核（useEditorPasteDrop）行为一致：复制一张图粘进笔记是高频操作，
@@ -1892,33 +2051,52 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
       e.preventDefault()
       const text = e.clipboardData.getData('text/plain')
       if (!text) return
-
-      const sel = window.getSelection()
-      if (!sel || sel.rangeCount === 0) return
-
-      const range = sel.getRangeAt(0)
-      range.deleteContents()
-
-      // 粘贴内容按行拆成文本节点 + <br>，让换行成为真正的块分隔
-      const lines = text.split('\n')
-      const frag = document.createDocumentFragment()
-      lines.forEach((line, i) => {
-        if (i > 0) frag.appendChild(document.createElement('br'))
-        frag.appendChild(document.createTextNode(line))
-      })
-
-      const last = frag.lastChild
-      range.insertNode(frag)
-      if (last) {
-        const after = document.createRange()
-      after.setStartAfter(last)
-      after.collapse(true)
-      sel.removeAllRanges()
-      sel.addRange(after)
-    }
-    commit()
+      if (insertPlainTextAtCaret(text)) commit()
     },
     [commit, onInsertImage, onInsertMarkdown],
+  )
+
+  /**
+   * Ctrl+Alt+C 复制为 Markdown（缺陷7）：keydown 已置位，这里消费。
+   * 把选区（无选区时为光标所在行）的 **Markdown 源码**写入剪贴板，
+   * 而不是浏览器默认复制的渲染富文本。与旧内核 useEditorPasteDrop.handleCopy 同语义。
+   */
+  const handleCopy = useCallback(
+    (e: React.ClipboardEvent<HTMLDivElement>): void => {
+      if (!copyAsMarkdownRef.current) return
+      copyAsMarkdownRef.current = false
+      const root = rootRef.current
+      if (!root) return
+      const content = activeDoc?.content ?? ''
+      const sel = window.getSelection()
+      if (!sel || sel.rangeCount === 0 || !root.contains(sel.anchorNode)) return
+
+      let text = ''
+      if (!sel.isCollapsed) {
+        const start = readMarkdownOffset(root)
+        // 终点：collapse 到末尾再读一次（与 getSelectionRange 同一套换算）
+        const range = sel.getRangeAt(0)
+        const probe = range.cloneRange()
+        probe.collapse(false)
+        const saved = sel.getRangeAt(0)
+        sel.removeAllRanges()
+        sel.addRange(probe)
+        const end = readMarkdownOffset(root)
+        sel.removeAllRanges()
+        sel.addRange(saved)
+        if (start !== null && end !== null) text = content.substring(start, end)
+      } else {
+        const pos = readMarkdownOffset(root)
+        if (pos === null) return
+        const lineStart = content.lastIndexOf('\n', pos - 1) + 1
+        const nextBreak = content.indexOf('\n', pos)
+        text = content.substring(lineStart, nextBreak === -1 ? content.length : nextBreak)
+      }
+      if (!text) return
+      e.preventDefault()
+      e.clipboardData.setData('text/plain', text)
+    },
+    [activeDoc?.content],
   )
   /* ---------------- 拖拽文件：与旧内核行为一致 ---------------- */
 
@@ -2084,12 +2262,15 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
         spellCheck={false}
         style={{ fontSize }}
         onInput={handleInput}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         onKeyDown={handleKeyDown}
         onMouseUp={() => {
           const root = rootRef.current
           if (root) normalizePreCaret(root)
         }}
         onPaste={handlePaste}
+        onCopy={handleCopy}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         onBlur={() => {

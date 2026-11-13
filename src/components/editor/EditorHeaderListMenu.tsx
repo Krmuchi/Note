@@ -20,7 +20,7 @@ export const EditorHeaderListMenu: React.FC<EditorHeaderListMenuProps> = ({
   <div className="eh-dropdown" ref={menuRef}>
     <button
       className={`eh-icon-btn ${activeFormats.has('ulist') || activeFormats.has('olist') ? 'active' : ''}`}
-      onClick={() => setOpen(!open)}
+      data-eh-menu-trigger onClick={() => setOpen(!open)}
       title="列表"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

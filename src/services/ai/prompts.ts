@@ -78,16 +78,20 @@ export interface ProviderPreset {
  * **刻意不填 model**：模型名会随服务商迭代而过期，写死一个默认值会让用户在不知情的情况下
  * 用上已下线或非预期的模型。模型必须由用户从「获取列表」拉到的实时结果中显式选择，
  * 因此这里把 model 清空，由 UI 强制要求选择后才能保存。
+ *
+ * **maxTokensParam 恒有值**：预设未声明时回写 'max_tokens'。若只在声明时带入，
+ * 从 MiMo（max_completion_tokens）切回 DeepSeek 等预设后表单会残留旧参数名，
+ * 目标服务商只认 max_tokens 时会 400。
  */
 export function presetToFormPatch(preset: ProviderPreset): {
   baseUrl: string
   model: string
-  maxTokensParam?: MaxTokensParam
+  maxTokensParam: MaxTokensParam
 } {
   return {
     baseUrl: preset.baseUrl,
     model: '',
-    ...(preset.maxTokensParam ? { maxTokensParam: preset.maxTokensParam } : null),
+    maxTokensParam: preset.maxTokensParam ?? 'max_tokens',
   }
 }
 

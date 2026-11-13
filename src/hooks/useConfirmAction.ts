@@ -28,6 +28,17 @@ export function confirmAction(config: ConfirmConfig): void {
   publish(config)
 }
 
+/**
+ * 当前是否有待确认弹窗。
+ *
+ * 供其它常驻弹窗判断"该不该让位"：LoadFailureDialog 在 capture 阶段吞掉 Esc
+ * （数据未加载时它是唯一出口，不允许 Esc 关掉），但用户从它里面点「从备份恢复」
+ * 会叠一个 ConfirmDialog —— 此时 Esc 必须交给确认框取消，而不是被吞掉。
+ */
+export function hasPendingConfirm(): boolean {
+  return pending !== null
+}
+
 export const useConfirmAction = (): {
   confirmConfig: ConfirmConfig | null
   confirm: (cfg: ConfirmConfig) => void

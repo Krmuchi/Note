@@ -54,6 +54,33 @@ describe('createSseParser - SSE 流解析', () => {
     expect(parser.text).toBe('')
   })
 
+  it('任何非空 data 帧都触发 onActivity（含只有 reasoning_content 的帧）', () => {
+    const onActivity = vi.fn()
+    const parser = createSseParser({ onActivity })
+    parser.push(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '思考' } }] })}\n\n`)
+    parser.push(`data: ${JSON.stringify({ choices: [{ delta: { content: '正文' } }] })}\n\n`)
+    parser.push('data: [DONE]\n\n')
+    // 3 个非空 data 帧 → 3 次活跃信号；思维链帧也算「连接活着」
+    expect(onActivity).toHaveBeenCalledTimes(3)
+  })
+
+  it('空行 / 注释 / 空 data 不触发 onActivity（不是真实数据）', () => {
+    const onActivity = vi.fn()
+    const parser = createSseParser({ onActivity })
+    parser.push(': keep-alive\n\n')
+    parser.push('event: message\n\n')
+    parser.push('data:\n\n')
+    parser.push('data:   \n\n')
+    expect(onActivity).not.toHaveBeenCalled()
+  })
+
+  it('非法 JSON 的 data 帧也触发 onActivity（上游确实在发数据）', () => {
+    const onActivity = vi.fn()
+    const parser = createSseParser({ onActivity, warn: vi.fn() })
+    parser.push('data: {坏 JSON}\n\n')
+    expect(onActivity).toHaveBeenCalledTimes(1)
+  })
+
   it('usage 仅在带 include_usage 的末包解析', () => {
     const parser = createSseParser()
     const events = parser.push(

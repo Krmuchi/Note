@@ -143,3 +143,54 @@ describe('边界与未知类型', () => {
     expect(r.end).toBeGreaterThanOrEqual(r.start)
   })
 })
+
+/*
+ * 缺陷5：格式刷多格式必须"一次算完"。
+ * Editor.applyFormats 在同一份演进中的源码上串行折叠多个格式，
+ * 每步用上一步的 result.content/start/end 作为下一步输入。
+ * 这里锁定该折叠语义：加粗+斜体叠加后两者都在，而不是后一个覆盖前一个。
+ */
+describe('多格式链式折叠（缺陷5 格式刷）', () => {
+  /** 模拟 applyFormats 的串行折叠 */
+  function fold(content: string, start: number, end: number, types: string[]): string {
+    let c = content
+    let s = start
+    let e = end
+    for (const t of types) {
+      const r = applyMarkdownFormat(c, s, e, t)!
+      c = r.content
+      s = r.start
+      e = r.end
+    }
+    return c
+  }
+
+  it('加粗+斜体叠加后两者都保留', () => {
+    expect(fold('文字', 0, 2, ['bold', 'italic'])).toBe('***文字***')
+  })
+
+  it('加粗+删除线叠加后两者都保留', () => {
+    // 先加粗（外层）再删除线（内层）：两种标记都在，不是后一个覆盖前一个
+    expect(fold('文字', 0, 2, ['bold', 'strike'])).toBe('**~~文字~~**')
+  })
+
+  it('三个行内格式叠加不互相覆盖', () => {
+    const out = fold('文字', 0, 2, ['bold', 'italic', 'code'])
+    expect(out).toContain('**')
+    expect(out).toContain('*')
+    expect(out).toContain('`')
+  })
+
+  it('折叠后选区仍指向内部文字（可继续操作）', () => {
+    let c = '文字'
+    let s = 0
+    let e = 2
+    for (const t of ['bold', 'italic']) {
+      const r = applyMarkdownFormat(c, s, e, t)!
+      c = r.content
+      s = r.start
+      e = r.end
+    }
+    expect(c.substring(s, e)).toBe('文字')
+  })
+})

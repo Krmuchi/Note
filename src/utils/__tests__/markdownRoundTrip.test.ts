@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { markdownToEditorHtml, parseMarkdownBlocks, inlineMdToHtml } from '@/utils/markdownToHtml'
+import { markdownToEditorHtml, parseMarkdownBlocks, inlineMdToHtml, refreshBlockDataMd } from '@/utils/markdownToHtml'
 import { editorHtmlToMarkdown, blockElementToMd } from '@/utils/editorHtmlToMarkdown'
 
 /**
@@ -187,5 +187,54 @@ describe('块级回写（用户编辑过的块）', () => {
     const el = mount('<p data-md="**加粗** 文字">加粗 文字</p>').firstElementChild!
     // 文本一致 → 返回原文（保住 ** 标记）
     expect(blockElementToMd(el)).toBe('**加粗** 文字')
+  })
+})
+
+/*
+ * 缺陷8：refreshBlockDataMd 的空块判定。
+ * 引用块 / 提示块即使可见文本为空也自带源码（`> ` / `> [!tip]`），
+ * 若当成空块跳过，后续所有块的 data-md 会整体错位一格（与 hr 同类坑）。
+ */
+describe('refreshBlockDataMd 空块判定（缺陷8）', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('空引用块不吞掉后续块的源码', () => {
+    // 空引用块（输入 `> ` 即时转换产生）+ 后续段落
+    const root = mount('<blockquote><p><br></p></blockquote><p>后文</p>')
+    refreshBlockDataMd(root, '> \n\n后文')
+    const bq = root.querySelector('blockquote')!
+    // 取**顶层**段落：p:last-child 会误匹配 blockquote 内部的 p
+    const p = root.querySelector(':scope > p')!
+    // 引用块拿到引用源码，段落拿到自己的源码（不能错位成 '> '）
+    expect(bq.getAttribute('data-md')).toBe('> ')
+    expect(p.getAttribute('data-md')).toBe('后文')
+  })
+
+  it('空提示块不吞掉后续块的源码', () => {
+    const root = mount(
+      '<div class="md-callout md-callout-tip" data-callout="tip"><div class="md-callout-title is-default"></div></div><p>后文</p>',
+    )
+    refreshBlockDataMd(root, '> [!tip]\n\n后文')
+    const callout = root.querySelector('.md-callout')!
+    const p = root.querySelector('p')!
+    expect(callout.getAttribute('data-md')).toBe('> [!tip]')
+    expect(p.getAttribute('data-md')).toBe('后文')
+  })
+
+  it('真正的空段落仍被置空（不消费解析结果）', () => {
+    const root = mount('<p><br></p><p>内容</p>')
+    refreshBlockDataMd(root, '内容')
+    const ps = root.querySelectorAll('p')
+    expect(ps[0].getAttribute('data-md')).toBe('')
+    expect(ps[1].getAttribute('data-md')).toBe('内容')
+  })
+
+  it('hr 之后块源码不错位（既有防线不回归）', () => {
+    const root = mount('<hr><p>后文</p>')
+    refreshBlockDataMd(root, '---\n\n后文')
+    expect(root.querySelector('hr')!.getAttribute('data-md')).toBe('---')
+    expect(root.querySelector('p')!.getAttribute('data-md')).toBe('后文')
   })
 })

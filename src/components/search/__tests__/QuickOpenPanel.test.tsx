@@ -93,4 +93,25 @@ describe('QuickOpenPanel', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
   })
+
+  it('Esc 自关后不再冒泡到全局链（避免一次 Esc 连带关掉下一层面板）', () => {
+    const parentKeyDown = vi.fn()
+    const windowKeyDown = vi.fn()
+    window.addEventListener('keydown', windowKeyDown)
+
+    const onClose = vi.fn()
+    render(
+      <div onKeyDown={parentKeyDown}>
+        <QuickOpenPanel isOpen onClose={onClose} />
+      </div>,
+    )
+    const input = screen.getByLabelText('快速打开文档')
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(onClose).toHaveBeenCalled()
+    expect(parentKeyDown).not.toHaveBeenCalled()
+    expect(windowKeyDown).not.toHaveBeenCalled()
+
+    window.removeEventListener('keydown', windowKeyDown)
+  })
 })

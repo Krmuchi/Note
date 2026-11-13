@@ -4,6 +4,7 @@ import { formatDateTime } from '@/utils/formatters';
 import { EmptyState } from '@/components/common/EmptyState';
 import { resolveAnchor } from '@/utils/commentAnchor';
 import { IconComment, IconUser } from '@/components/common/Icon';
+import { confirmAction } from '@/hooks/useConfirmAction';
 
 interface CommentsPanelProps {
   comments: Comment[];
@@ -63,6 +64,21 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
       setReplyingTo(null);
     }
   }, [replyContent, docId, onAddReply]);
+
+  /**
+   * 删除评论是破坏性操作：评论不进回收站、也没有撤销，
+   * 误点「删除」（与「回复」相邻）会连同整条回复串永久丢失。
+   * 与全站其它删除交互一致，走全局 danger 确认弹窗。
+   */
+  const handleDeleteComment = useCallback((commentId: string) => {
+    confirmAction({
+      title: '删除评论',
+      message: '确定要删除这条评论吗？它的全部回复也会一并删除，此操作无法撤销。',
+      confirmText: '删除',
+      variant: 'danger',
+      onConfirm: () => onDeleteComment(docId, commentId),
+    });
+  }, [docId, onDeleteComment]);
 
   const formatDate = (dateString: string): string => formatDateTime(dateString);
 
@@ -132,7 +148,7 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
                       回复
                     </button>
                   )}
-                  <button className="comment-action-btn" onClick={() => onDeleteComment(docId, comment.id)}>
+                  <button className="comment-action-btn" onClick={() => handleDeleteComment(comment.id)}>
                     删除
                   </button>
                 </div>
@@ -171,6 +187,8 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
                           handleReplySubmit(comment.id);
                         }
                         if (e.key === 'Escape') {
+                          // 只取消回复，不让 Esc 继续冒泡去关整个评论面板
+                          e.stopPropagation();
                           setReplyingTo(null);
                         }
                       }}

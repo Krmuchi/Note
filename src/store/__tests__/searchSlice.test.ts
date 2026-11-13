@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useNotesStore } from '@/store'
-import { getPrimarySearchTerm } from '@/store/slices/searchSlice'
-import type { NoteDoc, Notebook } from '@/types'
+import { getPrimarySearchTerm, sortSearchHistory } from '@/store/slices/searchSlice'
+import type { NoteDoc, Notebook, SearchHistory, Tag } from '@/types'
 
 /**
  * 搜索的行为契约（此前 searchSlice 零测试）。
@@ -152,5 +152,93 @@ describe('getPrimarySearchTerm', () => {
     expect(getPrimarySearchTerm('"精确短语"')).toBe('精确短语')
     expect(getPrimarySearchTerm('-只有排除词')).toBe('')
     expect(getPrimarySearchTerm('   ')).toBe('')
+  })
+})
+
+/**
+ * 回归：搜索历史的渲染顺序（SearchHistory 列表）与键盘 Enter 的取词顺序
+ * （SearchPanel 按 activeIndex 取数组项）必须一致。旧实现只在组件里排序，
+ * 有置顶项时"回车搜的不是高亮那条"。现在 store 写入路径保证置顶在前。
+ */
+describe('searchHistory - 置顶顺序', () => {
+  const history = (over: Partial<SearchHistory> & { id: string; query: string }): SearchHistory => ({
+    timestamp: '2026-01-01T00:00:00.000Z',
+    resultCount: 1,
+    pinned: false,
+    useCount: 1,
+    ...over,
+  })
+
+  beforeEach(() => {
+    useNotesStore.setState({ searchHistory: [] })
+  })
+
+  it('togglePin 把置顶项移到最前；取消置顶后稳定保持当前位置（渲染与取词仍一致）', () => {
+    useNotesStore.setState({
+      searchHistory: [history({ id: 'h1', query: '甲' }), history({ id: 'h2', query: '乙' })],
+    })
+
+    useNotesStore.getState().togglePinSearchHistory('h2')
+    expect(useNotesStore.getState().searchHistory.map(h => h.id)).toEqual(['h2', 'h1'])
+
+    // 取消置顶：稳定排序不重排未置顶项，h2 留在原位（顺序仍与渲染一致）
+    useNotesStore.getState().togglePinSearchHistory('h2')
+    expect(useNotesStore.getState().searchHistory.map(h => h.id)).toEqual(['h2', 'h1'])
+    expect(useNotesStore.getState().searchHistory.every(h => !h.pinned)).toBe(true)
+  })
+
+  it('addSearchHistory 新增条目后置顶项仍在前', () => {
+    useNotesStore.setState({
+      searchHistory: [history({ id: 'h1', query: '置顶词', pinned: true })],
+    })
+
+    useNotesStore.getState().addSearchHistory('新词', 3)
+    expect(useNotesStore.getState().searchHistory.map(h => h.query)).toEqual(['置顶词', '新词'])
+  })
+
+  it('sortSearchHistory 是稳定排序：同置顶状态保持原相对顺序', () => {
+    const list = [
+      history({ id: 'a', query: 'a' }),
+      history({ id: 'b', query: 'b', pinned: true }),
+      history({ id: 'c', query: 'c' }),
+      history({ id: 'd', query: 'd', pinned: true }),
+    ]
+    expect(sortSearchHistory(list).map(h => h.id)).toEqual(['b', 'd', 'a', 'c'])
+    // 不改动原数组
+    expect(list.map(h => h.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+})
+
+/**
+ * 回归：建议列表的数据顺序必须与 SearchSuggestions 的分组渲染顺序一致
+ * （history → title → tag）。键盘 ↑↓/Enter 用原始下标取词，
+ * 数据顺序与视觉顺序不同会让方向键"跳着走"。
+ */
+describe('getSearchSuggestions - 输出顺序与分组渲染一致', () => {
+  const tag: Tag = {
+    id: 't1',
+    name: '项目标签',
+    color: '#f00',
+    icon: '',
+    parentId: null,
+    usageCount: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+
+  beforeEach(() => {
+    useNotesStore.setState({
+      notebooks: [notebook([doc({ id: 'd1', title: '项目文档' })])],
+      tags: [tag],
+      searchHistory: [
+        { id: 'h1', query: '项目历史', timestamp: '2026-01-01T00:00:00.000Z', resultCount: 1, pinned: false, useCount: 1 },
+      ],
+    })
+  })
+
+  it('按 history → title → tag 输出', () => {
+    const suggestions = useNotesStore.getState().getSearchSuggestions('项目')
+    expect(suggestions.map(s => s.type)).toEqual(['history', 'title', 'tag'])
+    expect(suggestions.map(s => s.text)).toEqual(['项目历史', '项目文档', '项目标签'])
   })
 })

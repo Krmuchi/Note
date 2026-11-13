@@ -37,7 +37,7 @@ function makeTextarea(value: string, selStart: number, selEnd = selStart): HTMLT
 }
 
 /** 构造一个最小的 React 键盘事件替身（hook 只读这几个字段） */
-function keyEvent(key: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) {
+function keyEvent(key: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }> = {}): ReactKeyboardEvent<HTMLTextAreaElement> {
   return {
     key,
     ctrlKey: false,
@@ -239,5 +239,64 @@ describe('useSmartInput - 行内标记自动配对', () => {
 
     expect(result.current.handleSmartInput(keyEvent('a'))).toBe(false)
     expect(vi.mocked(updateDocContent)).not.toHaveBeenCalled()
+  })
+})
+
+/*
+ * 缺陷3：输入法组合态守卫。
+ * Chromium 用回车确认拼音候选会先派发 isComposing=true 的 Enter，
+ * 若被块续写吃掉，拼音组合被拆断、内容错乱。组合态必须放行给默认输入。
+ */
+describe('useSmartInput - 输入法组合态（缺陷3）', () => {
+  function composingEvent(key: string): ReactKeyboardEvent<HTMLTextAreaElement> {
+    return {
+      key,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      keyCode: 229,
+      nativeEvent: { isComposing: true },
+      preventDefault: vi.fn(),
+    } as unknown as ReactKeyboardEvent<HTMLTextAreaElement>
+  }
+
+  it('isComposing=true 的 Enter 不触发块续写', () => {
+    const ta = makeTextarea('- item', 6)
+    const updateDocContent = vi.fn() as unknown as (changes: Partial<NoteDoc>) => void
+    const { result } = renderHook(() =>
+      useSmartInput({ textareaRef: { current: ta }, activeDoc: makeDoc('- item'), updateDocContent }),
+    )
+    const e = composingEvent('Enter')
+    expect(result.current.handleSmartInput(e)).toBe(false)
+    expect(e.preventDefault).not.toHaveBeenCalled()
+    expect(updateDocContent).not.toHaveBeenCalled()
+  })
+
+  it('isComposing=true 的 Tab 不触发缩进', () => {
+    const ta = makeTextarea('hello', 0)
+    const updateDocContent = vi.fn() as unknown as (changes: Partial<NoteDoc>) => void
+    const { result } = renderHook(() =>
+      useSmartInput({ textareaRef: { current: ta }, activeDoc: makeDoc('hello'), updateDocContent }),
+    )
+    const e = composingEvent('Tab')
+    expect(result.current.handleSmartInput(e)).toBe(false)
+    expect(e.preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('keyCode=229（无 nativeEvent.isComposing）也放行', () => {
+    const ta = makeTextarea('- item', 6)
+    const updateDocContent = vi.fn() as unknown as (changes: Partial<NoteDoc>) => void
+    const { result } = renderHook(() =>
+      useSmartInput({ textareaRef: { current: ta }, activeDoc: makeDoc('- item'), updateDocContent }),
+    )
+    const e = {
+      key: 'Enter',
+      ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+      keyCode: 229,
+      preventDefault: vi.fn(),
+    } as unknown as ReactKeyboardEvent<HTMLTextAreaElement>
+    expect(result.current.handleSmartInput(e)).toBe(false)
+    expect(e.preventDefault).not.toHaveBeenCalled()
   })
 })

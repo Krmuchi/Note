@@ -5,6 +5,9 @@ import { useShallow } from 'zustand/react/shallow';
 import type { DocVersion } from '@/types';
 import { useNotesStore } from '@/store';
 import { confirmAction } from '@/hooks/useConfirmAction';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { exportDoc } from '@/services/storage';
+import { toast } from '@/services/toast';
 import VersionListItem from './VersionListItem';
 import VersionDiffView from './VersionDiffView';
 import VersionContentDetail from './VersionContentDetail';
@@ -23,6 +26,8 @@ interface VersionHistoryPanelProps {
  * 版本历史面板组件
  */
 function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanelProps): JSX.Element {
+  // 弹窗焦点陷阱：Tab 在面板内循环，关闭后归还焦点（A2）
+  const trapRef = useFocusTrap<HTMLDivElement>();
   const { notebooks, restoreVersion, updateDoc, createVersionSnapshot } = useNotesStore(useShallow((s) => ({
     notebooks: s.notebooks,
     restoreVersion: s.restoreVersion,
@@ -44,6 +49,11 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   const [showTagModal, setShowTagModal] = useState(false);                         // 是否显示标签弹窗
   const [versionTag, setVersionTag] = useState('');                                // 版本标签
   const [versionComment, setVersionComment] = useState('');                        // 版本备注
+  // 「显示所有本地存储版本」：取消勾选 = 仅看手动保存的版本（受控，真正参与过滤）
+  const [showAllVersions, setShowAllVersions] = useState(true);
+
+  // 列表按开关过滤；对比下拉仍可用全部版本（对比不该被列表过滤人为限制）
+  const visibleVersions = showAllVersions ? versions : versions.filter(v => v.type === 'manual');
 
   /**
    * 手动为当前内容存一个版本（"把这一版定住"）。
@@ -65,19 +75,17 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   };
 
   /**
-   * 处理选择版本
+   * 处理选择版本。
+   * 对比模式下点列表项只更新「当前版本」（左侧），绝不退出对比模式 ——
+   * 旧实现在 compareVersion 为空时会 setShowDiff(false)，把用户弹回「全部记录」。
    */
   const handleSelectVersion = (version: DocVersion): void => {
-    if (showDiff && compareVersion) {
-      setSelectedVersion(version);
-    } else {
-      setSelectedVersion(version);
-      setShowDiff(false);
-    }
+    setSelectedVersion(version);
   };
 
   /**
-   * 处理版本对比
+   * 把当前选中的版本固定为「对比基准」（右侧），随后在列表另选一个版本作为左侧即可看 diff。
+   * 没有选中版本时按钮禁用（见 VersionDiffView），不会清空已有选择。
    */
   const handleCompare = (): void => {
     if (selectedVersion) {
@@ -95,7 +103,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
     // 统一走 App 层的全局确认弹窗，避免各组件自绘 .confirm-dialog 造成交互/样式漂移
     confirmAction({
       title: '确认恢复',
-      message: '确定要恢复到此版本吗？当前内容将被替换。',
+      message: '确定要恢复到此版本吗？当前内容将被替换（恢复前会自动留存一份当前内容的快照，可再恢复回来）。',
       confirmText: '确认恢复',
       variant: 'danger',
       onConfirm: () => {
@@ -124,32 +132,36 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
   };
 
   /**
-   * 处理导出版本
+   * 处理导出版本：走统一的 IPC 导出通道（主进程弹保存对话框落盘），
+   * 不再用 blob + a.click（打包 Electron 下下载行为不可控，且成功/失败都无提示）。
+   * 用户取消保存对话框时 exportDoc 返回 false，不弹提示。
    */
-  const handleExportVersion = (): void => {
-    if (selectedVersion) {
-      const content = `# ${selectedVersion.title}\n\n${selectedVersion.content}`;
-      const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${selectedVersion.title}_${selectedVersion.createdAt.replace(/[:.]/g, '-')}.md`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+  const handleExportVersion = async (): Promise<void> => {
+    if (!selectedVersion) return
+    try {
+      const ok = await exportDoc({ title: selectedVersion.title, content: selectedVersion.content })
+      if (ok) toast.success('已导出版本为 Markdown 文件')
+    } catch (err) {
+      toast.error('导出失败：' + (err instanceof Error ? err.message : '未知错误'))
     }
   };
 
   return (
     <div className="version-history-overlay" onClick={onClose}>
-      <div className="version-history-panel" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={trapRef}
+        className="version-history-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="历史记录"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="version-history-header">
           <div className="version-history-title">
             <span className="version-icon">📜</span>
             <span className="title-text">历史记录</span>
           </div>
-          <button className="version-close-btn" onClick={onClose}>
+          <button className="version-close-btn" onClick={onClose} aria-label="关闭">
             ×
           </button>
         </div>
@@ -193,22 +205,34 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
         <div className="version-history-body">
           <div className="version-list">
             <div className="version-list-header">
-              <label className="version-list-checkbox">
-                <input type="checkbox" defaultChecked />
+              <label
+                className="version-list-checkbox"
+                title="勾选显示全部版本（含自动快照）；取消勾选只显示手动保存的版本"
+              >
+                <input
+                  type="checkbox"
+                  checked={showAllVersions}
+                  onChange={(e) => setShowAllVersions(e.target.checked)}
+                />
                 <span>显示所有本地存储版本</span>
               </label>
             </div>
-            {versions.length === 0 ? (
+            {visibleVersions.length === 0 ? (
               <div className="empty-versions">
                 <span className="empty-icon">📝</span>
-                <span className="empty-text">暂无版本历史</span>
+                <span className="empty-text">
+                  {versions.length === 0
+                    ? '暂无版本历史'
+                    : '暂无手动保存的版本（勾选上方「显示所有」查看自动快照）'}
+                </span>
               </div>
             ) : (
-              versions.map((version, index) => (
+              visibleVersions.map((version) => (
                 <VersionListItem
                   key={version.id}
                   version={version}
-                  index={index}
+                  // 下标按完整列表计算：过滤后「最新」徽标仍只属于真正最新的版本
+                  index={versions.findIndex(v => v.id === version.id)}
                   selected={selectedVersion?.id === version.id}
                   compare={compareVersion?.id === version.id}
                   onSelect={handleSelectVersion}
@@ -231,7 +255,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
                 selectedVersion={selectedVersion}
                 showDiff={showDiff}
                 onAddTag={() => setShowTagModal(true)}
-                onExport={handleExportVersion}
+                onExport={() => void handleExportVersion()}
                 onRestore={handleRestore}
               />
             )}

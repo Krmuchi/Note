@@ -78,8 +78,10 @@ export const createTabSlice: TabSliceCreator = (set, get) => ({
         ? { notebookId: state.activeNotebookId, docId: state.activeDocId }
         : null
 
+    // 传**关闭前**的原列表：pickTabAfterClose 需要知道关闭项的位置
+    // 才能选"右边顶上"的相邻标签（传 remaining 会永远找不到关闭项）
+    const nextActive = pickTabAfterClose(state.openTabs, tab, activeTab)
     const remaining = closeTabInList(state.openTabs, tab)
-    const nextActive = pickTabAfterClose(remaining, tab, activeTab)
 
     set((draft) => {
       draft.openTabs = remaining
@@ -121,13 +123,23 @@ export const createTabSlice: TabSliceCreator = (set, get) => ({
   },
 
   pruneOpenTabs: () => {
-    const { notebooks, openTabs } = get()
+    const { notebooks, openTabs, lastSavedAt, loadFailed } = get()
+
+    /*
+     * 闸门：数据未加载完成时一律跳过。
+     * lastSavedAt 只在 loadNotes 成功时置值（加载失败场景它也是 null，同样跳过）。
+     * 启动时 App 的 prune effect 先于异步 loadNotes 执行，此刻 notebooks 还是空的；
+     * 不拦截就会把刚从 localStorage 恢复的标签全部判为失效并清空 ——
+     * "重启恢复上次标签"因此从未生效。加载完成后 coreSlice.loadNotes 会补调一次。
+     */
+    if (loadFailed || lastSavedAt === null) return
+
     const pruned = pruneTabs(openTabs, (notebookId, docId) => {
       const notebook = notebooks.find((nb) => nb.id === notebookId)
       return Boolean(notebook?.docs.some((doc) => doc.id === docId))
     })
 
-    // 引用相等说明没有失效项，跳过写入避免无谓的 localStorage 写与重渲染
+    // 引用相等说明没有失效项，跳过写入避免无谓的 localStorage 写与重渲染（幂等）
     if (pruned.length === openTabs.length) return
 
     set((state) => {

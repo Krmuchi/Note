@@ -101,7 +101,7 @@ export function MainContent({
       <main className="editor-panel">
         {/* LazyLoader 自带 Suspense 与统一加载态，不要再套一层内联 fallback（V1 四态一致性） */}
         <LazyLoader>
-          <TagPanel key="tags-panel" isOpen={true} />
+          <TagPanel key="tags-panel" isOpen={true} embedded />
         </LazyLoader>
       </main>
     )

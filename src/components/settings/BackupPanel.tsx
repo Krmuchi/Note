@@ -73,7 +73,13 @@ export default function BackupPanel(): JSX.Element {
           }
           // 主进程已覆盖磁盘文件，重新加载让内存状态与之一致
           await useNotesStore.getState().loadNotes()
-          toast.success('已从备份恢复数据')
+          // 主进程已覆盖磁盘文件，但重新加载仍可能失败：必须按 loadFailed 分支提示，
+          // 不能无条件报「已恢复」（对照 LoadFailureDialog 的正确写法），否则与随后的加载失败弹窗矛盾
+          if (useNotesStore.getState().loadFailed) {
+            toast.error('已覆盖数据文件，但仍无法读取，请复制诊断信息后手工处理')
+          } else {
+            toast.success('已从备份恢复数据')
+          }
           void refresh()
         }, { pendingMsg: '正在从备份恢复…' })
       },

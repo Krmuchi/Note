@@ -1,26 +1,21 @@
 /**
  * Markdown 字符偏移 ↔ 编辑器 DOM 位置的双向换算。
  *
- * 背景：查找跳转、评论锚点、状态栏行列号都以 **Markdown 源码的字符偏移** 为接口，
- * 而 contenteditable 里是渲染后的 DOM（`**加粗**` 变成了 `<strong>加粗</strong>`，
- * 字符数变了）。所以需要一层换算。
+ * 背景：查找跳转、评论锚点、状态栏行列号、划词格式都以 **Markdown 源码的字符偏移**
+ * 为接口，而 contenteditable 里是渲染后的 DOM（`**加粗**` 变成 `<strong>加粗</strong>`，
+ * 列表 `- a\n- b` 变成两个 `<li>`，字符数与结构都变了）。所以需要一层换算。
  *
- * 换算策略：**按块累积**。
- * 每块记录它的 Markdown 源码（`data-md`）与渲染后可见文本；
- * 目标偏移先落到某个块，再在该块内按"可见文本偏移"定位 DOM。
- *
- * 局限（明确写出来，避免误以为精确）：行内标记（`**` `*` `` ` ``）在源码与可见文本里
- * 长度不同，块**内部**的偏移只能按可见字符近似。对"跳转到某个词"的场景足够
- * （查找和评论锚点都是先定位到匹配文本的起点），但不等价于逐字符精确。
+ * 换算策略：**按块累积 + 块内按行定位**。
+ * - 块之间在源码里由空行（`\n\n`，2 字符）分隔，跨块累加 data-md 长度 + 2。
+ * - 块内部：列表 / 引用 / 提示块的可见文本与源码**结构不同**（源码有行首标记与换行，
+ *   可见文本没有），必须把每个行内容器（li / p / 标题 span）对应到源码的**某一行**，
+ *   行首标记（`- ` / `1. ` / `> ` / `- [ ] `）计入偏移，行内标记（`**` 等）再单独剥。
+ *   只有"整块按可见字符近似"会在列表第二项起整体错位（实测：给第二项加粗落到第一项）。
+ * - 代码块正文是字面文本（无行内标记），换行以 `<br>` 承载，按 1:1 + 围栏偏移换算。
+ * - 段落 / 标题等单行块沿用"可见 ↔ 源码"的行内标记换算。
  */
 
-/**
- * 取块的 Markdown 源码。
- *
- * 兜底：空文档的初始段落（`<p><br></p>`）是渲染层补出来的，没有 data-md；
- * 用户直接在里面打字时若返回空串，偏移换算会恒为 0（实测导致斜杠检测完全失效）。
- * 用可见文本兜底，保证换算至少有正确的长度。
- */
+/** 取块的 Markdown 源码（data-md 优先；空段落用可见文本兜底，保证长度正确） */
 function blockMdOf(block: Element): string {
   const stored = block.getAttribute('data-md')
   if (stored !== null) return stored
@@ -32,11 +27,7 @@ export function blockMdLength(block: Element): number {
   return blockMdOf(block).length
 }
 
-/**
- * 找到"第 n 个块"及其在 Markdown 里的起始偏移。
- *
- * 块之间在 Markdown 里由空行分隔（`\n\n`，2 字符），所以累加时要加上分隔长度。
- */
+/** 找到"第 n 个块"及其在 Markdown 里的起始偏移（块间空行 2 字符） */
 function locateBlock(
   root: HTMLElement,
   offset: number,
@@ -45,228 +36,219 @@ function locateBlock(
   let acc = 0
   for (const el of children) {
     const mdLen = blockMdLength(el)
-    // 目标落在本块内（含块末尾边界）
     if (offset <= acc + mdLen) {
       return { block: el, blockStart: acc }
     }
-    acc += mdLen + 2 // 块间空行
+    acc += mdLen + 2
   }
-  // 偏移超出全部块：返回最后一块（跳转到底部）
   const last = children[children.length - 1]
   return last ? { block: last, blockStart: acc - blockMdLength(last) - 2 } : null
 }
 
-/**
- * Markdown 源码前缀 → 它渲染后的**可见字符长度**。
- *
- * 用与渲染完全相同的规则剥离标记，避免"手工数标记"与渲染器不一致
- * （实测：手工跳过 `**` 时闭合标记被算漏，偏移差 1~2 个字符）。
- * 这里直接借用行内渲染器的规则：去掉成对标记、链接只留文字。
- */
-function visibleLengthOfMdPrefix(mdPrefix: string): number {
-  return mdPrefix
-    // 行内代码：只留内容
-    .replace(/`([^`\n]*)`/g, '$1')
-    // 图片/链接：只留 alt/文字
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    // 强调标记：成对与单个都去掉
-    .replace(/\*\*\*|\*\*|~~|`/g, '')
-    .replace(/(^|[^*])\*/g, '$1')
-    // 行内 HTML 标签不占可见字符
-    .replace(/<\/?[a-z][^>]*>/gi, '')
-    .length
+/* ------------------------------------------------------------------ *
+ * 可见长度 / DOM 点（<br> 计为一个换行字符）
+ * ------------------------------------------------------------------ */
+
+/** 子树的可见字符数：文本按长度，<br> 记 1（代码块/软换行用它承载换行） */
+function visibleLengthOfNode(node: Node): number {
+  if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? '').length
+  if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === 'BR') return 1
+  let n = 0
+  node.childNodes.forEach((c) => {
+    n += visibleLengthOfNode(c)
+  })
+  return n
 }
 
-/**
- * 可见字符偏移 → Markdown 源码偏移（同一块内）。
- *
- * 与 visibleLengthOfMdPrefix 互逆：逐字符推进，遇到标记就跳过（不计数）。
- *
- * 关键细节：消费完目标数量的可见字符后，还要**跳过紧跟的标记**。
- * 否则 `这是 **加粗** 文字` 里"加粗"开头（可见偏移 3）会被算成源码偏移 3
- * （落在第一个 `*` 上），而不是正确的 5（`**` 之后）。
- * 光标位置必须指向"下一个可见字符"，所以标记要一并跳过。
- */
-function sourceOffsetForVisible(md: string, visibleTarget: number): number {
-  let visible = 0
-  let i = 0
-  while (i < md.length && visible < visibleTarget) {
-    // 成对标记：整体跳过
-    if (md.startsWith('***', i)) { i += 3; continue }
-    if (md.startsWith('**', i) || md.startsWith('~~', i)) { i += 2; continue }
-    if (md[i] === '*' || md[i] === '`') { i += 1; continue }
-    if (md[i] === '<') {
-      const close = md.indexOf('>', i)
-      if (close !== -1) { i = close + 1; continue }
-    }
-    visible += 1
-    i += 1
-  }
-
-  // 收尾：跳过紧跟的标记，让偏移指向下一个可见字符
-  for (;;) {
-    if (md.startsWith('***', i)) { i += 3; continue }
-    if (md.startsWith('**', i) || md.startsWith('~~', i)) { i += 2; continue }
-    if (md[i] === '*' || md[i] === '`') { i += 1; continue }
-    if (md[i] === '<') {
-      const close = md.indexOf('>', i)
-      if (close !== -1) { i = close + 1; continue }
-    }
-    break
-  }
-
-  return i
-}
-
-/** 按可见字符偏移把光标放到元素内 */
-export function setDomCaretByVisibleOffset(el: Element, visibleOffset: number): void {
-  let remaining = Math.max(0, visibleOffset)
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
-  let node = walker.nextNode()
-  while (node) {
-    const len = (node.textContent ?? '').length
-    if (remaining <= len) {
-      const range = document.createRange()
-      range.setStart(node, remaining)
-      range.collapse(true)
-      const sel = window.getSelection()
-      sel?.removeAllRanges()
-      sel?.addRange(range)
-      return
-    }
-    remaining -= len
-    node = walker.nextNode()
-  }
-  // 超出：落到末尾
-  const range = document.createRange()
-  range.selectNodeContents(el)
-  range.collapse(false)
+/** 光标在某个行内容器内的可见偏移（<br> 计入） */
+function caretVisibleOffset(host: Element): number {
   const sel = window.getSelection()
-  sel?.removeAllRanges()
-  sel?.addRange(range)
-}
-
-/**
- * 按 Markdown 偏移选中一段文本（查找跳转、评论锚点跳转都用它）。
- *
- * @returns 是否成功定位
- */
-export function selectByMarkdownOffset(root: HTMLElement, start: number, end: number): boolean {
-  const found = locateBlock(root, start)
-  if (!found) return false
-  const { block, blockStart } = found
-
-  // 块内偏移：源码偏移换算成"可见字符偏移"
-  const mdInBlock = blockMdOf(block).slice(0, Math.max(0, start - blockStart))
-  const visibleInBlock = visibleLengthOfMdPrefix(mdInBlock)
-  setDomCaretByVisibleOffset(block, visibleInBlock)
-
-  // 有选区范围时把 end 也定位过去（跨节点选择用 Range）
-  if (end > start) {
-    const endInBlock = blockMdOf(block).slice(0, Math.max(0, end - blockStart))
-    const endVisible = visibleLengthOfMdPrefix(endInBlock)
-    const sel = window.getSelection()
-    if (sel && sel.rangeCount > 0) {
-      const target = sel.getRangeAt(0).cloneRange()
-      // 找到 end 对应的文本节点位置
-      let remaining = endVisible
-      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT)
-      let node = walker.nextNode()
-      while (node) {
-        const len = (node.textContent ?? '').length
-        if (remaining <= len) {
-          target.setEnd(node, remaining)
-          sel.removeAllRanges()
-          sel.addRange(target)
-          break
-        }
-        remaining -= len
-        node = walker.nextNode()
-      }
-    }
+  if (!sel || sel.rangeCount === 0) return 0
+  const range = sel.getRangeAt(0)
+  const pre = range.cloneRange()
+  pre.selectNodeContents(host)
+  try {
+    pre.setEnd(range.startContainer, range.startOffset)
+  } catch {
+    return 0
   }
-
-  // 滚动到可见位置
-  const el = block as HTMLElement
-  el.scrollIntoView?.({ block: 'center' })
-  return true
+  return visibleLengthOfNode(pre.cloneContents())
 }
 
-/**
- * 可见字符偏移 → DOM 位置（不改选区）。
- *
- * 与 `setDomCaretByVisibleOffset` 的区别：那个直接操作 Selection（用于跳转/定位），
- * 这个只返回坐标 —— 评论高亮需要**不打断用户当前光标**。
- */
+/** 可见偏移 → DOM 点（不改选区）；<br> 占一个字符位 */
 function domPointByVisibleOffset(
   el: Element,
   visibleOffset: number,
 ): { node: Node; offset: number } | null {
   let remaining = Math.max(0, visibleOffset)
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
-  let node = walker.nextNode()
-  let last: Text | null = null
-  while (node) {
-    const len = (node.textContent ?? '').length
-    if (remaining <= len) return { node, offset: remaining }
-    remaining -= len
-    last = node as Text
-    node = walker.nextNode()
-  }
-  return last ? { node: last, offset: last.length } : null
-}
-
-/**
- * Markdown 偏移区间 → DOM Range（**纯函数，不改变选区**）。
- *
- * 用于评论锚点在正文里的高亮：配合 CSS Custom Highlight API，
- * 完全不用往正文插 `<mark>` —— 插了会被 `editorHtmlToMarkdown` 当成
- * 用户内容回写进 Markdown，而且每次重渲染都要重新插一遍。
- *
- * 跨块锚点按"起点块 + 终点块"分别定位；定位失败返回 null（调用方跳过该条）。
- */
-export function rangeByMarkdownOffset(
-  root: HTMLElement,
-  start: number,
-  end: number,
-): Range | null {
-  const startFound = locateBlock(root, start)
-  if (!startFound) return null
-
-  const startVisible = visibleLengthOfMdPrefix(
-    blockMdOf(startFound.block).slice(0, Math.max(0, start - startFound.blockStart)),
-  )
-  const startPoint = domPointByVisibleOffset(startFound.block, startVisible)
-  if (!startPoint) return null
-
-  let endPoint = startPoint
-  if (end > start) {
-    const endFound = locateBlock(root, end)
-    if (endFound) {
-      const endVisible = visibleLengthOfMdPrefix(
-        blockMdOf(endFound.block).slice(0, Math.max(0, end - endFound.blockStart)),
-      )
-      endPoint = domPointByVisibleOffset(endFound.block, endVisible) ?? startPoint
+  let last: { node: Node; offset: number } | null = null
+  const walk = (node: Node): { node: Node; offset: number } | null => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const len = (node.textContent ?? '').length
+      if (remaining <= len) return { node, offset: remaining }
+      remaining -= len
+      last = { node, offset: len }
+      return null
     }
-  }
-
-  const range = document.createRange()
-  try {
-    range.setStart(startPoint.node, startPoint.offset)
-    range.setEnd(endPoint.node, endPoint.offset)
-  } catch {
-    // 起止点不在同一文档序（DOM 刚被重建）时 setStart/setEnd 会抛错
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if ((node as HTMLElement).tagName === 'BR') {
+        if (remaining === 0 && node.parentNode) {
+          const idx = Array.prototype.indexOf.call(node.parentNode.childNodes, node)
+          return { node: node.parentNode, offset: idx }
+        }
+        remaining -= 1
+        return null
+      }
+      for (const c of Array.from(node.childNodes)) {
+        const r = walk(c)
+        if (r) return r
+      }
+    }
     return null
   }
-  return range
+  const found = walk(el)
+  if (found) return found
+  return last ?? { node: el, offset: el.childNodes.length }
+}
+
+/* ------------------------------------------------------------------ *
+ * 行内标记换算（单行源码 ↔ 可见文本）
+ * ------------------------------------------------------------------ */
+
+/** Markdown 源码前缀 → 可见字符长度（剥行内标记 / 链接 URL / 行内 HTML） */
+function visibleLengthOfMdPrefix(mdPrefix: string): number {
+  return mdPrefix
+    .replace(/`([^`\n]*)`/g, '$1')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*\*|\*\*|~~|`/g, '')
+    .replace(/(^|[^*])\*/g, '$1')
+    .replace(/<\/?[a-z][^>]*>/gi, '')
+    .length
+}
+
+/** 可见偏移 → 源码偏移（同一行内，跳过行内标记；消费完目标后再跳过紧跟的闭合标记） */
+function sourceOffsetForVisible(md: string, visibleTarget: number): number {
+  let visible = 0
+  let i = 0
+  const skipMarks = (): boolean => {
+    if (md.startsWith('***', i)) { i += 3; return true }
+    if (md.startsWith('**', i) || md.startsWith('~~', i)) { i += 2; return true }
+    if (md[i] === '*' || md[i] === '`') { i += 1; return true }
+    if (md[i] === '<') {
+      const close = md.indexOf('>', i)
+      if (close !== -1) { i = close + 1; return true }
+    }
+    return false
+  }
+  while (i < md.length && visible < visibleTarget) {
+    if (skipMarks()) continue
+    visible += 1
+    i += 1
+  }
+  for (;;) {
+    if (!skipMarks()) break
+  }
+  return i
+}
+
+/* ------------------------------------------------------------------ *
+ * 块内"行内容器 ↔ 源码行"映射
+ * ------------------------------------------------------------------ */
+
+interface LineEntry {
+  /** 承载该行可见文本的 DOM 元素 */
+  host: HTMLElement
+  /** 对应块源码的行号 */
+  lineIndex: number
+  /** 该行源码里行首标记的长度（`- ` / `1. ` / `> ` / `- [ ] ` / 缩进） */
+  prefixLen: number
+}
+
+/** 行首块标记长度（含任务项勾选框与缩进） */
+function linePrefixLen(line: string): number {
+  const m = /^(\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?|>\s?)/.exec(line)
+  return m ? m[0].length : 0
+}
+
+/** 某行在块源码里的起始偏移（前行长度 + 换行符） */
+function lineStartOffset(lines: string[], lineIndex: number): number {
+  let acc = 0
+  for (let i = 0; i < lineIndex; i++) acc += (lines[i]?.length ?? 0) + 1
+  return acc
 }
 
 /**
- * 找光标所在的块及其在 Markdown 里的起始偏移。
- *
- * 供"块内源码前缀"类判断使用（如斜杠命令检测要只看当前块，避免跨块误触发）。
+ * 建立块内行内容器到源码行的映射。
+ * 返回 null 表示该块按"整块行内换算"处理（段落 / 标题 / 表格等单行或近似块）。
+ * 代码块（pre）单独按字面文本处理，不走这里。
  */
-export function locateBlockForCaret(
+function blockLineMap(block: Element): LineEntry[] | null {
+  const tag = block.tagName.toLowerCase()
+  const lines = blockMdOf(block).split('\n')
+
+  if (tag === 'ul' || tag === 'ol') {
+    // querySelectorAll 按文档序返回 li（含嵌套），与源码"父项在前、子项随后"一致
+    const lis = Array.from(block.querySelectorAll('li'))
+    return lis.map((li, i) => {
+      // 任务项文本在 span 里（li 直接文本含勾选框后的空格，须排除）
+      const span = li.querySelector(':scope > span')
+      const host = (span ?? li) as HTMLElement
+      return { host, lineIndex: i, prefixLen: linePrefixLen(lines[i] ?? '') }
+    })
+  }
+
+  if (tag === 'blockquote') {
+    const ps = Array.from(block.children).filter((c) => c.tagName.toLowerCase() === 'p')
+    const hosts = ps.length ? ps : [block]
+    return hosts.map((h, i) => ({
+      host: h as HTMLElement,
+      lineIndex: i,
+      prefixLen: linePrefixLen(lines[i] ?? ''),
+    }))
+  }
+
+  if (tag === 'div' && block.classList.contains('md-callout')) {
+    const entries: LineEntry[] = []
+    const title = block.querySelector('.md-callout-title')
+    if (title) {
+      const marker = /^>\s*\[![\w-]+\]\s*/.exec(lines[0] ?? '')
+      entries.push({ host: title as HTMLElement, lineIndex: 0, prefixLen: marker ? marker[0].length : 0 })
+    }
+    const ps = Array.from(block.children).filter((c) => c.tagName.toLowerCase() === 'p')
+    ps.forEach((p, i) => {
+      entries.push({ host: p as HTMLElement, lineIndex: i + 1, prefixLen: linePrefixLen(lines[i + 1] ?? '') })
+    })
+    return entries
+  }
+
+  return null
+}
+
+/** 代码块围栏首行长度（含语言标记） */
+function preFenceLen(firstLine: string): number {
+  const m = /^\s*(```|~~~)[\w+-]*\s*/.exec(firstLine)
+  return m ? m[0].length : 0
+}
+
+/**
+ * 找光标所在的行映射项。
+ * 必须取**最后一个**匹配：嵌套列表里父 li 的 host 也包含子 li 的文本，
+ * 取第一个匹配会把子项的光标算到父项行上。文档序最后一项即最深层容器。
+ */
+function findLineEntry(map: LineEntry[], node: Node): LineEntry | null {
+  let hit: LineEntry | null = null
+  for (const e of map) {
+    if (e.host.contains(node)) hit = e
+  }
+  return hit
+}
+
+/* ------------------------------------------------------------------ *
+ * 光标所在块 / 行
+ * ------------------------------------------------------------------ */
+
+/** 找光标所在的顶层块及其源码起始偏移 */
+function locateBlockForCaret(
   root: HTMLElement,
 ): { block: Element; blockStart: number } | null {
   const sel = window.getSelection()
@@ -293,153 +275,192 @@ export function locateBlockForCaret(
   return { block, blockStart: acc }
 }
 
-/** 行内容器标签：文字直接挂在这些元素里，且各自对应源码的一行 */
-const INLINE_HOSTS = new Set(['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'td', 'th'])
+/* ------------------------------------------------------------------ *
+ * 对外：源码偏移 → DOM 点 / 选区
+ * ------------------------------------------------------------------ */
 
-/**
- * 取光标所在**行内容器**（p / li / h*）以及它在块源码里对应的行号。
- *
- * 为什么需要"按行对应"：列表块的可见文本是 `列表项/`（`<li>` 之间无换行符），
- * 而源码是 `- 列表项\n- /`（含换行与列表标记）。逐字符跳过标记的换算无法
- * 跨越这个结构差异 —— 实测偏移会算成 4 而不是 8，斜杠检测因此定位到错误位置。
- * `<li>` 与源码行是一一对应的，按行取前缀才能得到正确偏移。
- */
-function caretLineInfo(
+/** Markdown 源码偏移 → DOM 点（纯函数，不改选区） */
+function domPointBySourceOffset(
   root: HTMLElement,
-): { host: HTMLElement; lineIndex: number } | null {
-  const sel = window.getSelection()
-  if (!sel || sel.rangeCount === 0) return null
-  const range = sel.getRangeAt(0)
-  if (!root.contains(range.startContainer)) return null
+  offset: number,
+): { node: Node; offset: number } | null {
+  const found = locateBlock(root, offset)
+  if (!found) return null
+  const { block, blockStart } = found
+  const inBlock = Math.max(0, offset - blockStart)
+  const md = blockMdOf(block)
+  const lines = md.split('\n')
+  const tag = block.tagName.toLowerCase()
 
-  // 向上找最内层的行内容器
-  let node: Node | null = range.startContainer
-  let host: HTMLElement | null = null
-  while (node && node !== root) {
-    if (node.nodeType === Node.ELEMENT_NODE && INLINE_HOSTS.has((node as HTMLElement).tagName.toLowerCase())) {
-      host = node as HTMLElement
-      break
+  // 代码块：正文是字面文本，偏移 = 围栏首行 + 换行 + 可见偏移
+  if (tag === 'pre') {
+    const code = (block.querySelector('code') ?? block) as HTMLElement
+    const bodyStart = preFenceLen(lines[0] ?? '') + 1
+    const visible = Math.max(0, inBlock - bodyStart)
+    return domPointByVisibleOffset(code, visible)
+  }
+
+  const map = blockLineMap(block)
+  if (!map) {
+    const visible = visibleLengthOfMdPrefix(md.slice(0, inBlock))
+    return domPointByVisibleOffset(block, visible)
+  }
+
+  let acc = 0
+  for (const e of map) {
+    const line = lines[e.lineIndex] ?? ''
+    if (inBlock <= acc + line.length) {
+      const srcInLine = inBlock - acc
+      const visible = srcInLine <= e.prefixLen
+        ? 0
+        : visibleLengthOfMdPrefix(line.slice(e.prefixLen, srcInLine))
+      return domPointByVisibleOffset(e.host, visible)
     }
-    node = node.parentNode
+    acc += line.length + 1
   }
-  if (!host) return null
-
-  // 行号：li 取其在同级 li 中的序号；其余容器（p/h*）就是该块的第 0 行
-  let lineIndex = 0
-  if (host.tagName.toLowerCase() === 'li') {
-    const siblings = Array.from(host.parentElement?.children ?? []).filter(
-      (el) => el.tagName.toLowerCase() === 'li',
-    )
-    lineIndex = Math.max(0, siblings.indexOf(host))
-  }
-  return { host, lineIndex }
+  const last = map[map.length - 1]
+  return domPointByVisibleOffset(last.host, Number.MAX_SAFE_INTEGER)
 }
 
-/**
- * 光标在**当前行内**的源码偏移（相对该行起点，含行首标记）。
- *
- * 行首标记（`- ` / `1. ` / `> `）要计入，因为它在源码里占位；
- * 但斜杠匹配前会把它剥掉，所以这里返回的是"含标记"的完整行内偏移。
- */
-function caretOffsetInLine(host: HTMLElement): number {
+/** 按 Markdown 偏移选中一段文本（查找跳转 / 评论锚点跳转） */
+export function selectByMarkdownOffset(root: HTMLElement, start: number, end: number): boolean {
+  const startPoint = domPointBySourceOffset(root, start)
+  if (!startPoint) return false
   const sel = window.getSelection()
-  if (!sel || sel.rangeCount === 0) return 0
-  const range = sel.getRangeAt(0)
-  const pre = range.cloneRange()
-  pre.selectNodeContents(host)
-  pre.setEnd(range.startContainer, range.startOffset)
-  const visible = pre.toString().length
-  // 行内标记不占可见字符，需换算回源码偏移
-  const raw = (host.textContent ?? '').replace(/\u00a0/g, ' ')
-  return sourceOffsetForVisible(raw, visible)
+  if (!sel) return false
+
+  const range = document.createRange()
+  try {
+    range.setStart(startPoint.node, startPoint.offset)
+    if (end > start) {
+      const endPoint = domPointBySourceOffset(root, end)
+      if (endPoint) range.setEnd(endPoint.node, endPoint.offset)
+      else range.collapse(true)
+    } else {
+      range.collapse(true)
+    }
+  } catch {
+    return false
+  }
+  sel.removeAllRanges()
+  sel.addRange(range)
+
+  const found = locateBlock(root, start)
+  ;(found?.block as HTMLElement | undefined)?.scrollIntoView?.({ block: 'center' })
+  return true
 }
 
 /**
- * 检测光标前的斜杠命令片段（`/` 位于行首或空白之后）。
- *
- * 与 textarea 版 `detectSlashToken` 用**同一套正则**，保证两种内核行为一致。
- * 返回的 start/end 是 **Markdown 源码偏移**，与 Editor 里删除 `/query` 的逻辑对齐。
- *
- * 放在这里而不是 RichEditor.tsx：组件文件里导出非组件函数会让
- * react-refresh 失效（改一行就要整页重载）。
+ * Markdown 偏移区间 → DOM Range（纯函数，不改选区）。
+ * 评论锚点高亮用：配合 CSS Custom Highlight，不往正文插标签。
  */
-export function detectSlashInRoot(
+export function rangeByMarkdownOffset(
   root: HTMLElement,
-): { start: number; end: number; query: string } | null {
-  const blockInfo = locateBlockForCaret(root)
-  if (!blockInfo) return null
-  const lineInfo = caretLineInfo(root)
-  if (!lineInfo) return null
-
-  const { block, blockStart } = blockInfo
-  const { host, lineIndex } = lineInfo
-
-  // 该块源码的第 lineIndex 行
-  const mdLines = blockMdOf(block).split('\n')
-  const line = mdLines[lineIndex] ?? ''
-  // 该行起点在整个块/文档里的绝对偏移
-  let lineStartAbs = blockStart
-  for (let i = 0; i < lineIndex; i++) lineStartAbs += (mdLines[i]?.length ?? 0) + 1
-
-  /*
-   * 行内偏移 = **行首块标记长度** + 光标在行内容器内的偏移。
-   *
-   * 漏掉行标记会算少字符数（实测：源码行 `- /`、光标在 `/` 之后应为 3，
-   * 只算 li 内的偏移会得到 1 —— 前缀截成 `-`，正则匹配不到 `/`，菜单唤不出）。
-   */
-  const markerMatch = /^(?:[-*+]\s+|\d+[.)]\s+|>\s?)/.exec(line)
-  const markerLen = markerMatch ? markerMatch[0].length : 0
-  const offset = lineStartAbs + markerLen + caretOffsetInLine(host)
-
-  // 只在该行内匹配；行首块标记不参与
-  const prefix = line.slice(0, Math.max(0, offset - lineStartAbs))
-  const stripped = prefix.replace(/^(?:[-*+]\s+|\d+[.)]\s+|>\s?)/, '')
-  const matched = /(?:^|\s)\/([^\s/]*)$/.exec(stripped)
-  if (!matched) return null
-
-  const query = matched[1]
-  return { start: offset - query.length - 1, end: offset, query }
+  start: number,
+  end: number,
+): Range | null {
+  const startPoint = domPointBySourceOffset(root, start)
+  if (!startPoint) return null
+  let endPoint = startPoint
+  if (end > start) {
+    endPoint = domPointBySourceOffset(root, end) ?? startPoint
+  }
+  const range = document.createRange()
+  try {
+    range.setStart(startPoint.node, startPoint.offset)
+    range.setEnd(endPoint.node, endPoint.offset)
+  } catch {
+    return null
+  }
+  return range
 }
 
-/**
- * 读取当前光标在 **Markdown 源码**里的偏移。
- *
- * 用于状态栏行列号与"划词评论"取选区。做法与 selectByMarkdownOffset 相反：
- * 先找光标所在块，累加之前块的源码长度，再加上块内偏移（可见 → 源码的近似）。
- */
+/* ------------------------------------------------------------------ *
+ * 对外：DOM 光标 → 源码偏移
+ * ------------------------------------------------------------------ */
+
+/** 读取当前光标在 Markdown 源码里的偏移（状态栏 / 划词评论 / 格式命令） */
 export function readMarkdownOffset(root: HTMLElement): number | null {
   const sel = window.getSelection()
   if (!sel || sel.rangeCount === 0) return null
   const range = sel.getRangeAt(0)
   if (!root.contains(range.startContainer)) return null
 
-  // 找到光标所在的顶层块
-  let node: Node | null = range.startContainer
-  let block: Element | null = null
-  while (node && node !== root) {
-    if (node.nodeType === Node.ELEMENT_NODE && (node as Element).parentNode === root) {
-      block = node as Element
-      break
-    }
-    node = node.parentNode
-  }
-  if (!block) return null
-
-  // 累加前面所有块的源码长度（含块间空行）
-  let acc = 0
-  for (const el of Array.from(root.children)) {
-    if (el === block) break
-    acc += blockMdLength(el) + 2
-  }
-
-  // 块内偏移：先算可见偏移，再换算回源码偏移
-  const pre = range.cloneRange()
-  pre.selectNodeContents(block)
-  pre.setEnd(range.startContainer, range.startOffset)
-  const visibleBefore = pre.toString().length
-
+  const info = locateBlockForCaret(root)
+  if (!info) return null
+  const { block, blockStart } = info
   const md = blockMdOf(block)
-  const srcIdx = sourceOffsetForVisible(md, visibleBefore)
+  const lines = md.split('\n')
+  const tag = block.tagName.toLowerCase()
 
-  return acc + srcIdx
+  // 代码块：字面文本，围栏偏移 + 可见偏移
+  if (tag === 'pre') {
+    const code = (block.querySelector('code') ?? block) as HTMLElement
+    const bodyStart = preFenceLen(lines[0] ?? '') + 1
+    return blockStart + bodyStart + caretVisibleOffset(code)
+  }
+
+  const map = blockLineMap(block)
+  if (!map) {
+    // 段落 / 标题 / 表格：整块行内换算（<br> 计入可见长度）
+    return blockStart + sourceOffsetForVisible(md, caretVisibleOffset(block))
+  }
+
+  const entry = findLineEntry(map, range.startContainer)
+  if (!entry) {
+    return blockStart + sourceOffsetForVisible(md, caretVisibleOffset(block))
+  }
+  const line = lines[entry.lineIndex] ?? ''
+  const visible = caretVisibleOffset(entry.host)
+  const srcInLine = entry.prefixLen + sourceOffsetForVisible(line.slice(entry.prefixLen), visible)
+  return blockStart + lineStartOffset(lines, entry.lineIndex) + srcInLine
+}
+
+/* ------------------------------------------------------------------ *
+ * 对外：斜杠命令检测
+ * ------------------------------------------------------------------ */
+
+/**
+ * 检测光标前的斜杠命令片段（`/` 位于行首或空白之后）。
+ * 与 textarea 版 detectSlashToken 同一套正则；返回 Markdown 源码偏移。
+ * 复用按行定位，保证列表 / 引用里的偏移与 readMarkdownOffset 一致。
+ */
+export function detectSlashInRoot(
+  root: HTMLElement,
+): { start: number; end: number; query: string } | null {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return null
+  const range = sel.getRangeAt(0)
+
+  const info = locateBlockForCaret(root)
+  if (!info) return null
+  const { block, blockStart } = info
+  const md = blockMdOf(block)
+  const lines = md.split('\n')
+  const tag = block.tagName.toLowerCase()
+  if (tag === 'pre') return null
+
+  const map = blockLineMap(block)
+  let lineIndex = 0
+  let prefixLen = 0
+  let host: Element = block
+  if (map) {
+    const entry = findLineEntry(map, range.startContainer)
+    if (!entry) return null
+    lineIndex = entry.lineIndex
+    prefixLen = entry.prefixLen
+    host = entry.host
+  }
+
+  const line = lines[lineIndex] ?? ''
+  const visible = caretVisibleOffset(host)
+  const srcInLine = prefixLen + sourceOffsetForVisible(line.slice(prefixLen), visible)
+  const offset = blockStart + lineStartOffset(lines, lineIndex) + srcInLine
+
+  // 只在该行内匹配；行首块标记不参与命令判定
+  const prefix = line.slice(0, srcInLine)
+  const matched = /(?:^|\s)\/([^\s/]*)$/.exec(prefix)
+  if (!matched) return null
+  const query = matched[1]
+  return { start: offset - query.length - 1, end: offset, query }
 }

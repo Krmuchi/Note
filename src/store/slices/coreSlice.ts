@@ -4,6 +4,7 @@ import type { NotesStore } from '@/store/types'
 import { newId } from '@/store/storeUtils'
 import { pushAutoVersion } from '@/store/docVersions'
 import { loadAppStore, saveAppStore } from '@/services/storage'
+import { toast } from '@/services/toast'
 import { TRASH_RETENTION_DAYS } from '@/shared/constants'
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -184,11 +185,13 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
       })
 
       /*
-       * 便签：磁盘上的数据是"更权威"的一份（可能来自别的机器的备份），
-       * 用它与 localStorage 里的现状合并 —— 按 id 去重、保留较新的 updatedAt。
-       * 直接覆盖会丢掉本机最新的编辑；直接忽略则恢复备份后便签不回来。
+       * 便签：本机 localStorage 与磁盘 notes-data.json 各存一份，启动时双向合并。
+       * 必须**先读 localStorage 再并磁盘**：localStorage 可能比磁盘更新（上次写完小记
+       * 没编辑文档就关应用 / 崩溃 / 保存中断），顺序反了会用磁盘旧副本覆盖本机新编辑，
+       * 且 importQuickNotes 落盘后旧数据再也找不回来。合并保留较新 updatedAt、跳过墓碑。
        */
-      const { importQuickNotes } = get()
+      const { loadQuickNotes, importQuickNotes } = get()
+      loadQuickNotes()
       if (Array.isArray(loaded.quickNotes) && loaded.quickNotes.length > 0) {
         importQuickNotes(loaded.quickNotes)
       }
@@ -208,6 +211,11 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
           }
         })
       }
+
+      // 数据加载完成后清理失效标签引用。启动时 App 的 prune effect 早于本次异步加载，
+      // 那时 notebooks 还是空的（pruneOpenTabs 内有"未加载完成则跳过"的闸门），
+      // 所以必须在这里补一次，否则上次会话遗留的死引用永远清不掉。
+      get().pruneOpenTabs()
     } catch (error) {
       console.error('Failed to load notes:', error)
       // 加载失败时置标志，阻止后续自动保存用空状态覆盖磁盘上的有效数据
@@ -223,6 +231,9 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
     // 数据从未成功加载时不允许落盘，否则会用内存空状态销毁磁盘文件
     if (get().loadFailed) {
       console.warn('[saveNotes] 数据加载失败，已阻止自动保存以保护磁盘数据')
+      // 不能静默 return：用户点了「保存失败·重试」却毫无反馈，会以为按钮坏了。
+      // 明确告知原因并引导回恢复流程（LoadFailureDialog / 常驻横幅）。
+      toast.error('数据加载失败，已暂停保存以保护磁盘数据。请先完成数据恢复。')
       return
     }
     // 每次都从最新 state 取载荷：裁剪之后必须用裁剪过的数据重试，
@@ -336,6 +347,9 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
         // 用户后续输入会被 updateDoc 静默丢弃
       }
     })
+    // 删库会带走一批文档：立即清理指向它们的标签引用（不能只靠 activeDocId 变化的间接触发，
+    // 被删的不是当前文档时 activeDocId 不变，死引用会一直占着标签名额并写进 localStorage）
+    get().pruneOpenTabs()
   },
 
   createDoc: (notebookId, parentId, docData = {}) => {
@@ -444,6 +458,7 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
         }
       }
     })
+    get().pruneOpenTabs()
   },
 
   moveDocToTrash: (notebookId, docId) => {
@@ -471,6 +486,9 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
         state.activeDocId = ''
       }
     })
+    // 移入回收站的文档可能不是当前活动文档（activeDocId 不变），
+    // 不能依赖 UI 层 effect 的间接触发，这里直接清理失效标签引用
+    get().pruneOpenTabs()
   },
 
   moveDocToNotebook: (sourceNotebookId, docId, targetNotebookId) => {
@@ -495,6 +513,8 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
         state.activeNotebookId = targetNotebookId
       }
     })
+    // 文档换了知识库：旧标签引用（原 notebookId + docId）已失效，立即清理
+    get().pruneOpenTabs()
   },
 
   restoreFromTrash: (docId) => {

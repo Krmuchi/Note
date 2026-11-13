@@ -14,6 +14,15 @@ interface DocHistory {
 
 export interface UndoRedoSlice {
   history: Record<string, DocHistory>
+  /**
+   * 撤销/重做执行序号：每次真正 pop 快照时递增。
+   *
+   * 富文本编辑器的内容同步 effect 靠它识别"这次内容变化来自撤销/重做"：
+   * 撤销与打字都走 updateDoc，编辑器无法从内容本身区分；而 lastWrittenRef
+   * 会让"重做回到刚写出的值"被误判为无需重建（Ctrl+Z 后 Ctrl+Y 静默无效）。
+   * 序号放在 store 里，任何入口（全局键盘 / 工具栏 / 未来新入口）都能触发重建。
+   */
+  undoRedoSeq: number
   pushUndoSnapshot: (docId: string, snapshot: DocSnapshot, limit: number) => void
   popUndoSnapshot: (docId: string) => DocSnapshot | null
   pushRedoSnapshot: (docId: string, snapshot: DocSnapshot) => void
@@ -32,6 +41,7 @@ type UndoRedoSliceCreator = StateCreator<
 
 export const createUndoRedoSlice: UndoRedoSliceCreator = (set, get) => ({
   history: {},
+  undoRedoSeq: 0,
 
   pushUndoSnapshot: (docId, snapshot, limit) => {
     set((state) => {
@@ -53,6 +63,7 @@ export const createUndoRedoSlice: UndoRedoSliceCreator = (set, get) => ({
     const snapshot = h.past[h.past.length - 1]
     set((state) => {
       state.history[docId].past.pop()
+      state.undoRedoSeq += 1
     })
     return snapshot
   },
@@ -72,6 +83,7 @@ export const createUndoRedoSlice: UndoRedoSliceCreator = (set, get) => ({
     const snapshot = h.future[h.future.length - 1]
     set((state) => {
       state.history[docId].future.pop()
+      state.undoRedoSeq += 1
     })
     return snapshot
   },

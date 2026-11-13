@@ -97,11 +97,30 @@ describe('presetToFormPatch - 应用预设后的表单补丁', () => {
     expect(presetToFormPatch(preset).baseUrl).toBe(preset.baseUrl)
   })
 
-  it('maxTokensParam 仅在预设声明时才带入', () => {
+  it('maxTokensParam 恒有值：声明时用预设值，未声明时回写 max_tokens（防切换残留）', () => {
     const deepseek = PROVIDER_PRESETS.find((item) => item.id === 'deepseek')
     const xiaomi = PROVIDER_PRESETS.find((item) => item.id === 'xiaomi-mimo')
-    expect(deepseek && presetToFormPatch(deepseek)).not.toHaveProperty('maxTokensParam')
+    expect(deepseek && presetToFormPatch(deepseek).maxTokensParam).toBe('max_tokens')
     expect(xiaomi && presetToFormPatch(xiaomi).maxTokensParam).toBe('max_completion_tokens')
+  })
+
+  it('所有预设的补丁都带 maxTokensParam，且能通过主进程校验', () => {
+    for (const preset of PROVIDER_PRESETS) {
+      const patch = presetToFormPatch(preset)
+      expect(MAX_TOKENS_PARAMS, `预设 ${preset.id} 的补丁缺少合法 maxTokensParam`).toContain(
+        patch.maxTokensParam,
+      )
+      expect(() => assertAiConfigPayload({ maxTokensParam: patch.maxTokensParam })).not.toThrow()
+    }
+  })
+
+  it('从 MiMo 切回其他服务商不残留 max_completion_tokens（模拟连续应用预设）', () => {
+    const xiaomi = PROVIDER_PRESETS.find((item) => item.id === 'xiaomi-mimo')
+    const deepseek = PROVIDER_PRESETS.find((item) => item.id === 'deepseek')
+    if (!xiaomi || !deepseek) throw new Error('缺少预设')
+    // 表单依次合并两个补丁，等价于用户先选 MiMo 再切 DeepSeek
+    const form = { ...presetToFormPatch(xiaomi), ...presetToFormPatch(deepseek) }
+    expect(form.maxTokensParam).toBe('max_tokens')
   })
 
   it('返回新对象，不修改预设本身（预设的 model 仍作为示例提示保留）', () => {

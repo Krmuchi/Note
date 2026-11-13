@@ -1,7 +1,12 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { CommentsPanel } from '@/components/comments/CommentsPanel'
 import type { Comment } from '@/types'
+
+// 删除评论现在走全局 danger 确认（缺陷 5）：mock 掉确认发射器，捕获配置后手动触发 onConfirm
+vi.mock('@/hooks/useConfirmAction', () => ({ confirmAction: vi.fn() }))
+import { confirmAction } from '@/hooks/useConfirmAction'
+const mockedConfirm = confirmAction as unknown as ReturnType<typeof vi.fn>
 
 const mockComments: Comment[] = [
   {
@@ -19,6 +24,10 @@ const mockComments: Comment[] = [
     createdAt: new Date(Date.now() - 86400000).toISOString(),
   },
 ]
+
+beforeEach(() => {
+  mockedConfirm.mockClear()
+})
 
 describe('CommentsPanel', () => {
   it('should not render when isOpen is false', () => {
@@ -109,7 +118,7 @@ describe('CommentsPanel', () => {
     expect(screen.getByText(/选中正文中的文字可以就某段内容评论/)).not.toBeNull()
   })
 
-  it('should call onDeleteComment when delete button is clicked', () => {
+  it('删除评论先弹 danger 确认，确认后才真正删除（缺陷 5）', () => {
     const handleDelete = vi.fn()
     render(
       <CommentsPanel
@@ -125,6 +134,13 @@ describe('CommentsPanel', () => {
     const deleteButtons = screen.getAllByText('删除')
     fireEvent.click(deleteButtons[0])
 
+    // 未确认前不得删除
+    expect(handleDelete).not.toHaveBeenCalled()
+    expect(mockedConfirm).toHaveBeenCalledTimes(1)
+    const config = mockedConfirm.mock.calls[0][0] as { variant: string; onConfirm: () => void }
+    expect(config.variant).toBe('danger')
+
+    config.onConfirm()
     expect(handleDelete).toHaveBeenCalledTimes(1)
     expect(handleDelete).toHaveBeenCalledWith('doc1', 'c1')
   })

@@ -25,6 +25,7 @@ const {
   parseChatCompletion,
   parseModelsResponse,
   normalizeMarkdown,
+  normalizeBaseUrl,
   extractTitle,
   isStreamOptionsRejection,
   extractErrorDetail,
@@ -45,11 +46,18 @@ const STREAM_FLUSH_MS = 16;
 const TEST_MAX_TOKENS = 256;
 const FIRST_BYTE_TIMEOUT_CAP_MS = 20000;
 
-function makeCacheKey({ capability, model, temperature, maxTokens, maxTokensParam, messages }) {
+/**
+ * 缓存键必须包含全部影响输出的参数。baseUrl 决定实际出网目标：
+ * 换服务商但模型同名（兼容网关普遍同名）时，缺 baseUrl 会命中上一家的结果。
+ * 调用方传入的 baseUrl 需先经 normalizeBaseUrl 归一化，避免尾斜杠 / 缺 /v1 的
+ * 等价写法被当成不同键。
+ */
+function makeCacheKey({ capability, model, baseUrl, temperature, maxTokens, maxTokensParam, messages }) {
   const payload = JSON.stringify({
     v: TEMPLATE_VERSION,
     capability,
     model,
+    baseUrl,
     temperature,
     maxTokens,
     maxTokensParam,
@@ -80,9 +88,10 @@ function readHeader(response, name) {
 /** 组合超时与用户取消，用一个 controller 承载并记录中止原因 */
 function createAttemptSignal({ timeoutMs, userSignal }) {
   const controller = new AbortController();
-  const flags = { timedOut: false, userCancelled: false };
+  const flags = { timedOut: false, userCancelled: false, timedOutMs: null };
   const timer = setTimeout(() => {
     flags.timedOut = true;
+    flags.timedOutMs = timeoutMs;
     controller.abort();
   }, timeoutMs);
 
@@ -135,6 +144,14 @@ function createAiService(deps) {
 
   /** @type {Map<string, {userCancelled: boolean, abortCurrent: (() => void) | null}>} */
   const activeStreams = new Map();
+  /**
+   * 非流式在途请求登记：requestId → 取消入口。
+   * 渲染侧 CallOptions.signal / timeoutMs 到期后会 best-effort 调 ai:cancel(requestId)，
+   * 若不登记，cancel 只查 activeStreams 会返回 false，底层 fetch 继续跑完并计费。
+   * runBatch 的每个子项都经 runNonStream，因此天然逐项可取消。
+   * @type {Map<string, {userCancelled: boolean, abortCurrent: (() => void) | null}>}
+   */
+  const activeNonStream = new Map();
 
   const retryOptions = {
     maxAttempts: MAX_ATTEMPTS,
@@ -146,7 +163,10 @@ function createAiService(deps) {
   function toWrappedError(err, flags, timeoutMs) {
     if (err && err.aiError) return err;
     const code = classifyException(err, flags);
-    return aiErrorException(code, { n: Math.round(timeoutMs / 1000) });
+    // 超时文案按实际触发的计时段取值：流式首包段上限 20s，
+    // 不能一律报 config.timeoutMs（否则 20s 被杀却提示「已等待 60 秒」）
+    const waitedMs = flags && Number.isFinite(flags.timedOutMs) ? flags.timedOutMs : timeoutMs;
+    return aiErrorException(code, { n: Math.round(waitedMs / 1000) });
   }
 
   /** 取配置并构造请求上下文；未配置/未授权时抛 NOT_CONFIGURED */
@@ -224,12 +244,27 @@ function createAiService(deps) {
 
   /**
    * 非流式请求（带缓存 + 并发闸门 + 重试），始终返回信封。
+   * requestId 登记进 activeNonStream：ai:cancel 可中止在途 fetch（渲染侧
+   * CallOptions.signal / timeoutMs 到期后会 best-effort 调 ai:cancel）。
    * @param {object} normalized 已通过 assertAiRequestPayload 校验
    * @param {{bypassCache?: boolean, userSignal?: AbortSignal}} [options]
    */
   async function runNonStream(normalized, options = {}) {
     const start = now();
     let attemptsUsed = 0;
+
+    const entry = { userCancelled: false, abortCurrent: null, cancelSignal: null, onCancel: null };
+    // 退避 sleep 要能被取消立即打断：否则取消发生在重试等待期间时，
+    // 用户要等完整个退避延迟（Retry-After 可达 30s）才看到「已取消」。
+    entry.cancelSignal = new Promise((resolve) => {
+      entry.onCancel = resolve;
+    });
+    const requestId = normalized.requestId;
+    // 同 requestId 并发复用（缓存 in-flight 去重 / 渲染侧去重）时不覆盖先到的登记，
+    // 由先到者负责清理；否则后到者的 finally 会把先到的条目提前删掉。
+    const ownsEntry = !activeNonStream.has(requestId);
+    if (ownsEntry) activeNonStream.set(requestId, entry);
+    const registered = activeNonStream.get(requestId) || entry;
 
     try {
       const ctx = resolveContext(normalized);
@@ -239,6 +274,7 @@ function createAiService(deps) {
       const cacheKey = makeCacheKey({
         capability: normalized.capability,
         model: config.model,
+        baseUrl: normalizeBaseUrl(config.baseUrl),
         temperature: ctx.temperature,
         maxTokens: ctx.maxTokens,
         maxTokensParam: config.maxTokensParam,
@@ -247,7 +283,21 @@ function createAiService(deps) {
 
       const load = async () => {
         attemptsUsed += 1;
+        // 取消可能发生在闸门排队 / 重试退避期间：每次尝试前先看标志，
+        // 已取消就立即抛 ABORTED，不再发起新的上游请求。
+        if (registered.userCancelled || entry.userCancelled) {
+          throw aiErrorException(AI_ERROR_CODES.ABORTED);
+        }
         const attempt = createAttemptSignal({ timeoutMs: config.timeoutMs, userSignal: options.userSignal });
+        // 把本次尝试的中止入口挂到登记项上，ai:cancel 随时可触发
+        registered.abortCurrent = () => {
+          attempt.flags.userCancelled = true;
+          attempt.controller.abort();
+        };
+        if (registered.userCancelled || entry.userCancelled) {
+          attempt.flags.userCancelled = true;
+          attempt.controller.abort();
+        }
         try {
           return await requestOnce(ctx, {
             signal: attempt.controller.signal,
@@ -256,10 +306,23 @@ function createAiService(deps) {
           });
         } finally {
           attempt.dispose();
+          registered.abortCurrent = null;
         }
       };
 
-      const run = () => withRetry(load, retryOptions);
+      const run = () =>
+        withRetry(load, {
+          ...retryOptions,
+          canRetry: () => !registered.userCancelled && !entry.userCancelled,
+          // 退避等待与取消信号 race：取消发生在重试退避期间时立即打断，
+          // 不必等完整个延迟（Retry-After 可达 30s）。
+          sleep: (ms) => {
+            const base = retryOptions.sleep
+              ? retryOptions.sleep(ms)
+              : new Promise((resolve) => setTimeout(resolve, ms));
+            return Promise.race([base, registered.cancelSignal || entry.cancelSignal]);
+          },
+        });
 
       let value;
       let cached = false;
@@ -289,7 +352,14 @@ function createAiService(deps) {
       if (value.usage) response.usage = value.usage;
       return response;
     } catch (err) {
+      // 取消发生在重试退避期间时，withRetry 抛出的是上一次的错误；
+      // 对用户而言语义是「已取消」，统一归一成 ABORTED。
+      if (registered.userCancelled || entry.userCancelled) {
+        return { ok: false, error: aiError(AI_ERROR_CODES.ABORTED, { attempts: attemptsUsed }) };
+      }
       return { ok: false, error: toAiError(err, { attempts: attemptsUsed }) };
+    } finally {
+      if (ownsEntry) activeNonStream.delete(requestId);
     }
   }
 
@@ -301,7 +371,7 @@ function createAiService(deps) {
   }
 
   /** 单次流式请求：返回归一化后的完整结果 */
-  async function streamAttempt({ ctx, disableStreamOptions, signal, flags, timeoutMs, pushDelta }) {
+  async function streamAttempt({ ctx, disableStreamOptions, signal, flags, timeoutMs, pushDelta, onActivity }) {
     let response;
     try {
       response = await fetchImpl(ctx.url, {
@@ -370,7 +440,11 @@ function createAiService(deps) {
     // 中文每字符 3 字节几乎必然跨 TCP chunk 断裂，漏掉会产生 U+FFFD 乱码且偶发难复现；
     // 模块级共享实例会让并发流互相污染内部状态。
     const decoder = new TextDecoder('utf-8');
-    const parser = createSseParser({ warn: (message) => logger.warn('[ai]', message) });
+    const parser = createSseParser({
+      warn: (message) => logger.warn('[ai]', message),
+      // 任何 data 帧（含思维链）都重置首包/空闲计时：推理模型可能思考几十秒才出正文
+      onActivity,
+    });
     const reader = response.body.getReader();
 
     try {
@@ -513,7 +587,7 @@ function createAiService(deps) {
         async () => {
           attemptsUsed += 1;
           const controller = new AbortController();
-          const flags = { timedOut: false, userCancelled: false };
+          const flags = { timedOut: false, userCancelled: false, timedOutMs: null };
           entry.abortCurrent = () => {
             flags.userCancelled = true;
             controller.abort();
@@ -523,22 +597,19 @@ function createAiService(deps) {
             controller.abort();
           }
 
-          let firstTimer = setTimeout(() => {
+          const abortWithTimeout = (segmentMs) => {
             flags.timedOut = true;
+            flags.timedOutMs = segmentMs;
             controller.abort();
-          }, firstByteTimeoutMs);
+          };
+
+          let firstTimer = setTimeout(() => abortWithTimeout(firstByteTimeoutMs), firstByteTimeoutMs);
           let idleTimer = null;
-          const totalTimer = setTimeout(() => {
-            flags.timedOut = true;
-            controller.abort();
-          }, totalTimeoutMs);
+          const totalTimer = setTimeout(() => abortWithTimeout(totalTimeoutMs), totalTimeoutMs);
 
           const resetIdle = () => {
             if (idleTimer) clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => {
-              flags.timedOut = true;
-              controller.abort();
-            }, idleTimeoutMs);
+            idleTimer = setTimeout(() => abortWithTimeout(idleTimeoutMs), idleTimeoutMs);
           };
           timers = {
             onFirstDelta() {
@@ -550,6 +621,12 @@ function createAiService(deps) {
             },
             resetIdle,
           };
+          // 上游活跃（含只有 reasoning_content 的帧）即视为「首包已到」：
+          // 清掉首包计时、进入空闲计时。正文是否到达仍由 pushDelta/emittedChunk 决定，
+          // 「已发 chunk 不重试」的守卫不受影响。
+          const onActivity = () => {
+            if (timers) timers.onFirstDelta();
+          };
 
           try {
             return await streamAttempt({
@@ -559,6 +636,7 @@ function createAiService(deps) {
               flags,
               timeoutMs: config.timeoutMs,
               pushDelta,
+              onActivity,
             });
           } finally {
             if (firstTimer) clearTimeout(firstTimer);
@@ -653,12 +731,25 @@ function createAiService(deps) {
     return { ok: true, requestId };
   }
 
-  /** @returns {boolean} 是否有在途流被取消 */
+  /**
+   * @returns {boolean} 是否有在途请求（流式或非流式）被取消。
+   * 非流式也要查：渲染侧 CallOptions.signal / timeoutMs 到期后调 ai:cancel，
+   * 只查 activeStreams 会漏掉非流式请求，底层 fetch 继续跑完并计费。
+   */
   function cancel(requestId) {
-    const entry = activeStreams.get(requestId);
-    if (!entry) return false;
-    entry.userCancelled = true;
-    if (typeof entry.abortCurrent === 'function') entry.abortCurrent();
+    const streamEntry = activeStreams.get(requestId);
+    const nonStreamEntry = activeNonStream.get(requestId);
+    if (!streamEntry && !nonStreamEntry) return false;
+    if (streamEntry) {
+      streamEntry.userCancelled = true;
+      if (typeof streamEntry.abortCurrent === 'function') streamEntry.abortCurrent();
+    }
+    if (nonStreamEntry) {
+      nonStreamEntry.userCancelled = true;
+      // 打断可能正在进行的退避等待
+      if (typeof nonStreamEntry.onCancel === 'function') nonStreamEntry.onCancel();
+      if (typeof nonStreamEntry.abortCurrent === 'function') nonStreamEntry.abortCurrent();
+    }
     return true;
   }
 

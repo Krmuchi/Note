@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNotesStore } from '@/store';
 import { formatKeyLabel } from '@/utils/shortcuts';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface ShortcutHelpProps {
   isOpen: boolean;
@@ -36,6 +37,8 @@ const PANEL_NAV_GROUPS: HelpGroup[] = [
 
 export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps): JSX.Element | null {
   const overlayRef = useRef<HTMLDivElement>(null);
+  // 焦点陷阱：Tab 在面板内循环，关闭后归还焦点（A2）
+  const trapRef = useFocusTrap<HTMLDivElement>();
   // 键位单一数据源：来自 keyboardSlice（含用户自定义覆盖），避免与编辑器实现漂移
   const shortcuts = useNotesStore((s) => s.shortcuts);
 
@@ -62,10 +65,17 @@ export default function ShortcutHelp({ isOpen, onClose }: ShortcutHelpProps): JS
 
   return (
     <div className="shortcut-help-overlay" ref={overlayRef} onClick={onClose}>
-      <div className="shortcut-help-panel" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={trapRef}
+        className="shortcut-help-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="快捷键"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="shortcut-help-header">
           <h2 className="shortcut-help-title">⌨️ 快捷键</h2>
-          <button className="shortcut-help-close" onClick={onClose}>×</button>
+          <button className="shortcut-help-close" onClick={onClose} aria-label="关闭">×</button>
         </div>
         <div className="shortcut-help-body">
           {groups.map(group => (

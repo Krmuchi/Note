@@ -26,31 +26,52 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
+      // 演示期间全局 useKeyboard 仍然挂载：本层处理过的键必须在 capture 阶段拦下，
+      // 否则 Ctrl+Alt+←/→ 会同时触发「翻页」与全局「上一篇/下一篇」，演示文档被整个换掉；
+      // Esc 也会连带关掉背后开着的面板。
+      const handled = (): void => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        e.stopPropagation();
+      };
+
       if (e.key === 'Escape') {
+        handled();
         onClose();
-      } else if (e.key === 'ArrowRight' || e.key === ' ') {
-        e.preventDefault();
+        return;
+      }
+
+      // 翻页键必须排除修饰键组合：Ctrl+Alt+←/→ 是全局切文档快捷键，不是翻页
+      const noModifier = !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (noModifier && (e.key === 'ArrowRight' || e.key === ' ')) {
+        handled();
         setCurrentPage(p => Math.min(p + 1, pages.length - 1));
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
+        return;
+      }
+      if (noModifier && e.key === 'ArrowLeft') {
+        handled();
         setCurrentPage(p => Math.max(p - 1, 0));
-      } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        return;
+      }
+
+      if (noModifier) {
         // 单字母快捷键须排除修饰键组合，否则 Ctrl+S 等系统快捷键会误触演示功能
         if (e.key === 's') {
-          e.preventDefault();
+          handled();
           setIsSpeakerMode(sp => !sp);
         } else if (e.key === 'l') {
-          e.preventDefault();
+          handled();
           setShowLaser(l => !l);
         } else if (e.key === 't') {
-          e.preventDefault();
+          handled();
           setIsTimerRunning(t => !t);
         }
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    // capture：先于 window 上的 bubble 监听器（useKeyboard）执行
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [pages.length, onClose]);
 
   useEffect(() => {

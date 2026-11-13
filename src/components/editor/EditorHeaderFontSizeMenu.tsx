@@ -25,7 +25,7 @@ export const EditorHeaderFontSizeMenu: React.FC<EditorHeaderFontSizeMenuProps> =
   <div className="eh-dropdown" ref={menuRef}>
     <button
       className="eh-icon-btn eh-btn-text"
-      onClick={() => setOpen(!open)}
+      data-eh-menu-trigger onClick={() => setOpen(!open)}
       title="字号"
     >
       {fontSize.replace('px', '')}

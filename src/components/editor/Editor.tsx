@@ -4,7 +4,7 @@ import { FindMatchGutter } from './FindMatchGutter';
 import type { FindMatch } from '@/utils/findInText';
 import BacklinksBar from './BacklinksBar';
 import { resolveWikiLink } from '@/utils/wikiLinks';
-import { requestDocOpen } from '@/utils/docNavigation';
+import { requestDocOpen, subscribeDocOpen } from '@/utils/docNavigation';
 import { toast } from '@/components/common/Toast';
 import { consumeSearchJump, subscribeSearchJump } from '@/utils/searchJump';
 import {
@@ -398,6 +398,13 @@ export const Editor: React.FC<EditorProps> = ({
     apply: applyAiResult,
   } = useAiSelectionAction({
     textareaRef,
+    /*
+     * 富文本内核（默认开启）下 textareaRef 为 null，划词 AI 必须走端口分支，
+     * 否则 open() 直接 return false —— 按钮点了没反应。端口即 RichEditorHandle
+     * 的结构子集；内容用 ref 即时读取，避免闭包里的旧 activeDoc。
+     */
+    richEditorRef,
+    getRichContent: () => activeDocRef.current?.content ?? '',
     updateDocContent,
     activeDocId,
     enabled: previewMode !== 'preview',
@@ -408,20 +415,26 @@ export const Editor: React.FC<EditorProps> = ({
   }, [openAiSelection]);
 
   /**
-   * 在富文本内核的**光标处**插入 Markdown。
+   * 在富文本内核的**光标处**插入 Markdown（有选区时替换选区）。
    *
    * 旧实现把图片/附件/粘贴内容追加到文档末尾（`content + md`）—— 用户把光标
    * 放在段落中间插图，图片却跑到全文最后，这是实打实的功能错误。
    * 这里按当前选区偏移拼接，并把光标恢复到插入内容之后。
+   *
+   * 缺陷6：必须**替换选区**而不是只在选区末尾拼接。旧实现用 range.end 作插入点、
+   * after 从同一位置切，选中文字后粘贴会得到"旧文字 + 新内容"两份。
+   * 现在 before 切到 range.start、after 从 range.end 切，与纯文本粘贴的
+   * deleteContents 语义一致。
    */
   const insertMarkdownAtCursor = useCallback((md: string) => {
     const current = activeDocRef.current;
     if (!current || !md) return;
     const content = current.content ?? '';
     const range = richEditorRef.current?.getSelectionRange();
-    const at = Math.max(0, Math.min(range?.end ?? content.length, content.length));
-    const before = content.slice(0, at);
-    const after = content.slice(at);
+    const start = Math.max(0, Math.min(range?.start ?? content.length, content.length));
+    const end = Math.max(start, Math.min(range?.end ?? start, content.length));
+    const before = content.slice(0, start);
+    const after = content.slice(end);
 
     // 图片/表格/多行内容按块插入（前后留空行），行内文本直接接上
     const isBlock = md.includes('\n') || /^!\[[^\]]*\]\(/.test(md);
@@ -433,7 +446,7 @@ export const Editor: React.FC<EditorProps> = ({
       : '';
 
     updateDocContent({ content: before + lead + md + tail + after });
-    const caret = at + lead.length + md.length;
+    const caret = start + lead.length + md.length;
     requestAnimationFrame(() => {
       richEditorRef.current?.focus();
       richEditorRef.current?.selectRange(caret, caret);
@@ -523,13 +536,59 @@ export const Editor: React.FC<EditorProps> = ({
     [richEditorEnabled, activeDoc?.content, updateDocContent, applyFormatLegacy, pickImage, handleOpenLinkDialog],
   );
 
-  // 格式刷：复制 / 套用行内格式
+  /**
+   * 批量应用多个行内格式（格式刷用，缺陷5）。
+   *
+   * 为什么不能 forEach 连调 applyFormat：每次 applyFormat 读的是渲染闭包里的
+   * activeDoc.content，第一次回写后 React 尚未重渲染，第二次仍读到旧内容，
+   * 于是后一个格式整体覆盖前一个 —— 复制了"加粗+斜体"刷出去只剩斜体。
+   * 这里在**同一份演进中的源码**上串行折叠所有格式，算完一次性回写、恢复一次选区。
+   * 内容用 activeDocRef 即时读取，避免闭包旧值。
+   */
+  const applyFormats = useCallback(
+    (types: FormatType[], options?: { color?: string; size?: string }) => {
+      if (!richEditorEnabled) {
+        // 旧内核 wrapSelection 直接改 ta.value 并同步回写，连续调用天然读到新值
+        types.forEach((t) => applyFormatLegacy(t, options));
+        return;
+      }
+      const range = richEditorRef.current?.getSelectionRange();
+      if (!range) return;
+      let content = activeDocRef.current?.content ?? '';
+      let start = range.start;
+      let end = range.end;
+      let changed = false;
+      for (const type of types) {
+        const result = applyMarkdownFormat(content, start, end, type, options);
+        if (!result) continue;
+        content = result.content;
+        start = result.start;
+        end = result.end;
+        changed = true;
+      }
+      if (!changed || content === (activeDocRef.current?.content ?? '')) return;
+      updateDocContent({ content });
+      requestAnimationFrame(() => {
+        richEditorRef.current?.focus();
+        richEditorRef.current?.selectRange(start, end);
+      });
+    },
+    [richEditorEnabled, applyFormatLegacy, updateDocContent],
+  );
+
+  // 格式刷：复制 / 套用行内格式。
+  // activeFormats 必须按内核取：富文本下旧内核的 activeFormats 读 textarea（null）恒为空，
+  // 复制不到任何格式；要用 richActiveFormats（来自 getActiveFormats 的 DOM 祖先链）。
   const { painterFormats, handleFormatPainter, cancelFormatPainter } = useFormatPainter({
-    activeFormats,
+    activeFormats: richEditorEnabled ? richActiveFormats : activeFormats,
     applyFormat,
+    applyFormats,
   });
 
-  // 斜杠命令：仅输入可唤出面板；光标移动只用于同步关闭，避免光标落在已有 "/xxx" 上也弹面板
+  // 斜杠命令：仅输入可唤出面板；光标移动用于同步/关闭（缺陷4）。
+  // cursor 源来自 RichEditor 的 selectionchange：token 仍在则更新位置（打字时
+  // 光标移动不能关菜单），token 消失（光标点到别处）才关闭，避免菜单残留后
+  // 在 window 捕获阶段拦截 Enter、把命令执行到旧位置。
   const handleSlashChange = useCallback((next: SlashTriggerState | null, source: 'input' | 'cursor') => {
     slashRangeRef.current = next ? { start: next.start, end: next.end } : null;
     setSlashState((prev) => {
@@ -811,6 +870,28 @@ export const Editor: React.FC<EditorProps> = ({
     applyJump();
     return subscribeSearchJump(applyJump);
   }, [activeDoc?.id]);
+
+  /**
+   * 经 requestDocOpen 通道打开文档后把焦点还给编辑器（搜索审计缺陷9）。
+   *
+   * QuickOpen（Ctrl+P）回车打开文档后焦点落回 body，键盘用户直接打字无反应。
+   * 只订阅"经通道打开"这一事件，**不**对每次 activeDocId 变化抢焦点 ——
+   * 用户可能正在别的输入框里。目标就是当前文档时聚焦；切到别的文档时等其
+   * 挂载完成（activeDocId 变化触发的下一帧）再聚焦。rAF 确保 DOM 已就绪。
+   */
+  useEffect(() => {
+    const focusEditor = (): void => {
+      requestAnimationFrame(() => {
+        if (richEditorEnabled) richEditorRef.current?.focus();
+        else textareaRef.current?.focus();
+      });
+    };
+    return subscribeDocOpen(({ docId }) => {
+      // 打开的就是当前文档：立即聚焦；否则等切换完成后的下一帧
+      if (docId === activeDocRef.current?.id) focusEditor();
+      else requestAnimationFrame(focusEditor);
+    });
+  }, [richEditorEnabled]);
 
   /**
    * 预览里点击 [[双链]]（K1）：先在本知识库内按标题找，再跨库找。
@@ -1102,6 +1183,11 @@ export const Editor: React.FC<EditorProps> = ({
                 : undefined
             }
             onRegisterJump={registerFindJump}
+            /* 关闭查找栏后把焦点还给编辑器（缺陷9）：富文本下 textareaRef 为 null */
+            onFocusEditor={() => {
+              if (richEditorEnabled) richEditorRef.current?.focus();
+              else textareaRef.current?.focus();
+            }}
             /* 旧内核是 React.lazy，查找栏可能先于编辑器出现 —— 就绪后需重新定位 */
             editorReady={richEditorEnabled ? !!richEditorNode : !!textareaNode}
           />
@@ -1139,6 +1225,8 @@ export const Editor: React.FC<EditorProps> = ({
                     onInsertMarkdown={insertMarkdownAtCursor}
                     resolveShortcut={resolveShortcut}
                     onFormatShortcut={applyFormat}
+                    /* 缺陷4：菜单打开期间 RichEditor 监听 selectionchange，光标移开即关闭 */
+                    slashActive={!!slashState}
                   />
                 </>
               ) : (

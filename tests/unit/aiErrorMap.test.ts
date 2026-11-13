@@ -139,6 +139,12 @@ describe('日志脱敏', () => {
     expect(redacted).toContain('***')
   })
 
+  it('遮蔽非 sk- 前缀的密钥（小米 MiMo 用 tp-）', () => {
+    const redacted = redactSecrets('request failed with key tp-abcdefgh12345678')
+    expect(redacted).not.toContain('tp-abcdefgh12345678')
+    expect(redacted).toContain('***')
+  })
+
   it('非字符串输入安全返回空串', () => {
     expect(redactSecrets(undefined as unknown as string)).toBe('')
   })

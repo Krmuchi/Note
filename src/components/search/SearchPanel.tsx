@@ -7,8 +7,9 @@ import { useShallow } from "zustand/react/shallow";
 import { useNotesStore } from "@/store";
 import type { SearchFilter, SearchResult, SearchSuggestion } from "@/types";
 import { debounce } from "@/utils/debounce";
-import { getPrimarySearchTerm } from "@/store/slices/searchSlice";
+import { getPrimarySearchTerm, sortSearchHistory } from "@/store/slices/searchSlice";
 import { requestSearchJump } from "@/utils/searchJump";
+import { requestDocOpen } from "@/utils/docNavigation";
 import SearchFilters from "./SearchFilters";
 import SearchSuggestions from "./SearchSuggestions";
 import SearchHistory from "./SearchHistory";
@@ -37,7 +38,6 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
     tags,
     searchHistory,
     setActiveNotebookId,
-    setActiveDocId,
   } = useNotesStore(useShallow((s) => ({
     search: s.search,
     getSearchSuggestions: s.getSearchSuggestions,
@@ -48,7 +48,6 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
     tags: s.tags,
     searchHistory: s.searchHistory,
     setActiveNotebookId: s.setActiveNotebookId,
-    setActiveDocId: s.setActiveDocId,
   })));
 
   const [query, setQuery] = useState('');
@@ -181,7 +180,10 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
   /**
    * 键盘事件处理
    */
-  const totalItems = showResults ? results.length : (query.length === 0 ? searchHistory.length : suggestions.length);
+  // 历史列表的渲染顺序与 Enter 取词顺序必须一致：统一用置顶优先排序后的数组。
+  // store 写入路径已保证置顶在前，这里再排一次以兼容旧的未排序持久化数据。
+  const orderedHistory = useMemo(() => sortSearchHistory(searchHistory), [searchHistory]);
+  const totalItems = showResults ? results.length : (query.length === 0 ? orderedHistory.length : suggestions.length);
 
   const scrollActiveIntoView = useCallback((index: number) => {
     if (!listRef.current || index < 0) return;
@@ -207,8 +209,8 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
       if (activeIndex >= 0) {
         if (showResults && results[activeIndex]) {
           handleResultClick(results[activeIndex]);
-        } else if (!showResults && query.length === 0 && searchHistory[activeIndex]) {
-          const historyQuery = searchHistory[activeIndex].query;
+        } else if (!showResults && query.length === 0 && orderedHistory[activeIndex]) {
+          const historyQuery = orderedHistory[activeIndex].query;
           handleQueryChange(historyQuery);
           handleSearch(historyQuery);
         } else if (!showResults && suggestions[activeIndex]) {
@@ -218,6 +220,9 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
         handleSearch();
       }
     } else if (e.key === 'Escape') {
+      // 阻断冒泡：面板自关后不再交给全局 Escape 链，
+      // 否则 App 的 onEscape 读到已关闭的开关，会顺手关掉下一层面板（一次 Esc 关两层）
+      e.stopPropagation();
       onClose();
     }
   };
@@ -233,6 +238,10 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
 
   /**
    * 点击搜索结果
+   *
+   * 必须走 requestDocOpen 通道（与 QuickOpen 一致）：App 的 handleViewDoc 订阅该通道，
+   * 负责记录最近浏览并切回文档视图。旧实现只改 store 的 active id，
+   * 在开始/小记/标签/最近/回收站页点结果后视图不切换 —— 面板关了却"什么都没打开"。
    */
   const handleResultClick = (result: SearchResult): void => {
     if (result.type === 'notebook') {
@@ -241,18 +250,17 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
       // 订阅它会让整个搜索面板跟着编辑重渲染（面板里还有建议/结果列表要维护）
       const notebook = useNotesStore.getState().notebooks.find(nb => nb.id === result.id);
       if (notebook && notebook.docs.length > 0) {
-        setActiveDocId(notebook.docs[0].id);
+        requestDocOpen({ notebookId: notebook.id, docId: notebook.docs[0].id });
       }
     } else {
       if (result.notebookId) {
-        setActiveNotebookId(result.notebookId);
-      }
-      setActiveDocId(result.id);
-      // S1：跳转后由编辑器打开查找栏并定位到首个命中 —— 否则"搜得到、打开后找不到"，
-      // 用户还得自己再想一遍刚才搜的是什么词
-      const term = getPrimarySearchTerm(query);
-      if (term) {
-        requestSearchJump({ docId: result.id, notebookId: result.notebookId, query: term });
+        requestDocOpen({ notebookId: result.notebookId, docId: result.id });
+        // S1：跳转后由编辑器打开查找栏并定位到首个命中 —— 否则"搜得到、打开后找不到"，
+        // 用户还得自己再想一遍刚才搜的是什么词
+        const term = getPrimarySearchTerm(query);
+        if (term) {
+          requestSearchJump({ docId: result.id, notebookId: result.notebookId, query: term });
+        }
       }
     }
     onClose();
@@ -374,9 +382,9 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
         )}
 
         {/* 搜索历史 */}
-        {showSuggestions && query.length === 0 && !showResults && searchHistory.length > 0 && (
+        {showSuggestions && query.length === 0 && !showResults && orderedHistory.length > 0 && (
           <SearchHistory
-            searchHistory={searchHistory}
+            searchHistory={orderedHistory}
             activeIndex={activeIndex}
             onQueryChange={handleQueryChange}
             onSearch={handleSearch}

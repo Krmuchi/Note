@@ -35,13 +35,10 @@ export default function SearchHistory({
           清空
         </button>
       </div>
-      {[...searchHistory]
-        .sort((a, b) => {
-          if (a.pinned && !b.pinned) return -1
-          if (!a.pinned && b.pinned) return 1
-          return 0
-        })
-        .map((history, index) => (
+      {/* 顺序由调用方保证（store 写入路径 + SearchPanel 的 sortSearchHistory）：
+          置顶在前、其余保持时间序。这里不再本地排序 —— 渲染顺序必须与
+          SearchPanel 键盘 Enter 的取词下标完全一致，两处各排一次极易漂移。 */}
+      {searchHistory.map((history, index) => (
         <div key={history.id} className={`history-item ${activeIndex === index ? 'active' : ''} ${history.pinned ? 'pinned' : ''}`} data-search-item>
           <button 
             className="history-pin"

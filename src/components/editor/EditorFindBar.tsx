@@ -21,6 +21,12 @@ interface EditorFindBarProps {
   selectRangeInRichEditor?: (start: number, end: number) => boolean
   onReplaceContent: (next: string) => void
   onClose: () => void
+  /**
+   * 关闭后把焦点还给编辑器（缺陷9）。
+   * 富文本内核下 textareaRef 为 null，`textareaRef.current?.focus()` 静默跳过，
+   * 焦点落到 body，用户接着打字毫无反应。由 Editor 注入对应内核的聚焦函数。
+   */
+  onFocusEditor?: () => void
   /** 由 Ctrl+H 打开时直接展开替换行 */
   initialShowReplace?: boolean
   /** 预填关键词：搜索面板跳转过来时直接定位到首个命中（S1） */
@@ -59,6 +65,7 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
   selectRangeInRichEditor,
   onReplaceContent,
   onClose,
+  onFocusEditor,
   initialShowReplace = false,
   initialQuery = '',
   onMatchesChange,
@@ -159,8 +166,11 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
 
   const handleClose = useCallback(() => {
     onClose()
-    textareaRef.current?.focus()
-  }, [onClose, textareaRef])
+    // 缺陷9：富文本内核下 textareaRef 为 null，必须走注入的聚焦回调，
+    // 否则焦点落到 body，用户关闭查找栏后接着打字毫无反应。
+    if (onFocusEditor) onFocusEditor()
+    else textareaRef.current?.focus()
+  }, [onClose, onFocusEditor, textareaRef])
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'Enter') {

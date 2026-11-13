@@ -511,6 +511,122 @@ check(
   `顶部栏输入框=${titleOccurrences.hasTopInput} 正文标题=${JSON.stringify(titleOccurrences.bodyTitleText)}`,
 )
 
+// 19. 键盘 Ctrl+Z → Ctrl+Y（曾经：全局键盘重做提示"已重做"但 DOM 纹丝不动，
+//     因为 App 的 undo/redo 不经过 Editor 的 forceRender 包装；现由 undoRedoSeq 驱动重建）
+await page.evaluate(() => {
+  const root = document.querySelector('.rich-editor')
+  if (root) root.innerHTML = '<p><br></p>'
+})
+await page.locator('.rich-editor').click()
+await page.waitForTimeout(300)
+await page.keyboard.type('UNDOTEST', { delay: 15 })
+await page.waitForTimeout(500)
+
+await page.keyboard.press('Control+z')
+await page.waitForTimeout(600)
+const afterUndo = await page.evaluate(
+  () => document.querySelector('.rich-editor')?.textContent ?? '',
+)
+check('键盘 Ctrl+Z 撤销生效（DOM 真的变了）', !afterUndo.includes('UNDOTEST'), `尾=${JSON.stringify(afterUndo.slice(-40))}`)
+
+await page.keyboard.press('Control+y')
+await page.waitForTimeout(600)
+const afterRedo = await page.evaluate(
+  () => document.querySelector('.rich-editor')?.textContent ?? '',
+)
+check('键盘 Ctrl+Y 重做生效（不再静默无效）', afterRedo.includes('UNDOTEST'), `尾=${JSON.stringify(afterRedo.slice(-40))}`)
+
+// 20. 列表第二项选区加粗（曾经：偏移按整块换算，粗体落到第一项上）
+await page.evaluate(() => {
+  const root = document.querySelector('.rich-editor')
+  if (root) root.innerHTML = '<p><br></p>'
+})
+await page.locator('.rich-editor').click()
+await page.waitForTimeout(300)
+await page.keyboard.type('- aa', { delay: 15 })
+await page.keyboard.press('Enter')
+await page.waitForTimeout(150)
+await page.keyboard.type('bb', { delay: 15 })
+await page.waitForTimeout(500)
+
+// 用真实 DOM Range 选中第二个 li 的 "bb"
+const selOk = await page.evaluate(() => {
+  const root = document.querySelector('.rich-editor')
+  const items = root?.querySelectorAll('ul > li')
+  if (!items || items.length < 2) return false
+  const textNode = items[1].firstChild
+  if (!textNode) return false
+  const range = document.createRange()
+  range.selectNodeContents(textNode)
+  const sel = window.getSelection()
+  sel?.removeAllRanges()
+  sel?.addRange(range)
+  return sel?.toString() === 'bb'
+})
+check('列表第二项选区已建立', selOk)
+
+if (selOk) {
+  await page.keyboard.press('Control+b')
+  await page.waitForTimeout(700)
+  const listBold = await page.evaluate(() => {
+    const root = document.querySelector('.rich-editor')
+    const ul = root?.querySelector('ul')
+    const items = ul?.querySelectorAll('li') ?? []
+    return {
+      md: ul?.getAttribute('data-md') ?? '(无)',
+      firstHasStrong: items[0]?.querySelector('strong') !== null && items[0]?.querySelector('strong') !== undefined,
+      secondStrongText: items[1]?.querySelector('strong')?.textContent ?? null,
+    }
+  })
+  console.log('  [诊断] 列表 data-md:', JSON.stringify(listBold.md))
+  check(
+    '列表第二项加粗落在正确位置（第一项不受影响）',
+    listBold.secondStrongText === 'bb' && !listBold.firstHasStrong && listBold.md.includes('- aa\n- **bb**'),
+    `md=${JSON.stringify(listBold.md)}`,
+  )
+}
+
+// 21. IME 组合守卫（曾经：拼音回车的 Enter 被续列表分支吃掉，词条被拆行）
+//     合成 isComposing=true 的 Enter：守卫必须放行（不 preventDefault、不新建 li）；
+//     随后的真实 Enter 仍必须正常续列表（守卫不能误伤正常路径）。
+const imeGuard = await page.evaluate(() => {
+  const root = document.querySelector('.rich-editor')
+  const items = root?.querySelectorAll('ul > li')
+  const last = items?.[items.length - 1]
+  if (!last) return { dispatched: false }
+  const before = items.length
+  const ev = new KeyboardEvent('keydown', {
+    key: 'Enter',
+    bubbles: true,
+    cancelable: true,
+    isComposing: true,
+  })
+  last.dispatchEvent(ev)
+  return {
+    dispatched: true,
+    prevented: ev.defaultPrevented,
+    before,
+    after: root.querySelectorAll('ul > li').length,
+  }
+})
+check(
+  '输入法组合态的 Enter 不被拦截（不拆断拼音）',
+  imeGuard.dispatched && !imeGuard.prevented && imeGuard.after === imeGuard.before,
+  JSON.stringify(imeGuard),
+)
+
+// 对照：真实 Enter（非组合态）仍正常续列表
+const lastLiBox = await page.locator('.rich-editor ul > li').last().boundingBox()
+if (lastLiBox) {
+  await page.mouse.click(lastLiBox.x + lastLiBox.width - 10, lastLiBox.y + lastLiBox.height / 2)
+  await page.waitForTimeout(200)
+  const liBefore = await page.evaluate(() => document.querySelectorAll('.rich-editor ul > li').length)
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(400)
+  const liAfter = await page.evaluate(() => document.querySelectorAll('.rich-editor ul > li').length)
+  check('正常 Enter 仍续列表（IME 守卫未误伤）', liAfter === liBefore + 1, `${liBefore} → ${liAfter}`)
+}
+
 // 14. 控制台无报错
 const fatal = errors.filter((e) => !/favicon|DevTools|Download the React/.test(e))
 check('无控制台错误', fatal.length === 0, fatal.slice(0, 3).join(' | '))

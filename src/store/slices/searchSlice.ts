@@ -47,6 +47,15 @@ export const getPrimarySearchTerm = (query: string): string => {
   return ''
 }
 
+/**
+ * 置顶优先的稳定排序：搜索历史的**渲染顺序**与键盘 Enter 的**取词顺序**必须一致。
+ * 旧实现只在 SearchHistory 组件里排序，而 SearchPanel 的 Enter 仍按原始数组下标取词，
+ * 有置顶项时"回车搜的不是高亮那条"。这里提供唯一排序来源，store 写入与面板共用。
+ * Array.prototype.sort 在现代 V8 是稳定排序：同置顶状态下保持原有相对顺序。
+ */
+export const sortSearchHistory = (history: SearchHistory[]): SearchHistory[] =>
+  [...history].sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false))
+
 export interface SearchSlice {
   searchHistory: SearchHistory[]
   search: (query: string, filters?: SearchFilter, limit?: number) => SearchResult[]
@@ -347,12 +356,16 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
       return queryTokens.every(token => lower.includes(token))
     }
 
-    tags.forEach(tag => {
-      if (matchesChinese(tag.name)) {
+    /*
+     * 输出顺序必须与 SearchSuggestions 的分组渲染顺序一致（history → title → tag）：
+     * 面板的 ↑↓/Enter 用 suggestions 的原始下标取词，而分组只改视觉不改下标；
+     * 数据顺序若与视觉顺序不同，方向键就会"跳着走"（先高亮最末组的标签项）。
+     */
+    searchHistory.forEach(history => {
+      if (history.query.toLowerCase().includes(lowerQuery)) {
         suggestions.push({
-          text: tag.name,
-          type: 'tag',
-          tagId: tag.id,
+          text: history.query,
+          type: 'history',
         })
       }
     })
@@ -369,11 +382,12 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
       })
     })
 
-    searchHistory.forEach(history => {
-      if (history.query.toLowerCase().includes(lowerQuery)) {
+    tags.forEach(tag => {
+      if (matchesChinese(tag.name)) {
         suggestions.push({
-          text: history.query,
-          type: 'history',
+          text: tag.name,
+          type: 'tag',
+          tagId: tag.id,
         })
       }
     })
@@ -406,6 +420,8 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
           state.searchHistory = [...pinned, ...unpinned.slice(0, 20 - pinned.length)]
         }
       }
+      // 置顶项恒在前：渲染顺序与键盘取词顺序共用这一份数组
+      state.searchHistory = sortSearchHistory(state.searchHistory)
     })
   },
 
@@ -426,6 +442,9 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
       const item = state.searchHistory.find(h => h.id === id)
       if (item) {
         item.pinned = !item.pinned
+        // 置顶/取消置顶后立即重排：否则置顶项仍留在原位置，
+        // 列表"置顶优先"的视觉顺序与数组下标（键盘 Enter 取词）错位
+        state.searchHistory = sortSearchHistory(state.searchHistory)
       }
     })
   },

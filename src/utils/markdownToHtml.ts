@@ -510,8 +510,17 @@ export function refreshBlockDataMd(root: HTMLElement, md: string): void {
      */
     const tag = el.tagName.toLowerCase()
     const isSelfContained = tag === 'hr' || tag === 'img' || tag === 'pre' || tag === 'table'
+    /*
+     * 引用块 / 提示块即使可见文本为空也**自带源码**（`> ` / `> [!tip]`）：
+     * parseMarkdownBlocks 会为它们产出块，必须消费一个解析结果。
+     * 若当成空块跳过（bi 不前进），后续所有块的 data-md 会整体错位一格 ——
+     * 与 hr 是同一类坑（缺陷8）。空引用块由输入 `> ` 即时转换产生，真实存在。
+     */
+    const alwaysHasSource =
+      tag === 'blockquote' || (tag === 'div' && el.classList.contains('md-callout'))
     const isEmpty =
-      !isSelfContained && (el.textContent ?? '').trim() === '' && !el.querySelector('img')
+      !isSelfContained && !alwaysHasSource &&
+      (el.textContent ?? '').trim() === '' && !el.querySelector('img')
     if (isEmpty) {
       if (el.getAttribute('data-md') !== '') el.setAttribute('data-md', '')
       continue

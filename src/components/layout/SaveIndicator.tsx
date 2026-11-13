@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNotesStore } from '@/store';
 import type { SaveStatus } from '@/store';
+import { setLoadFailureMinimized } from '@/services/loadFailureUi';
 
 /**
  * 侧栏底部的全局保存状态指示器。
@@ -33,6 +34,7 @@ interface SaveIndicatorProps {
 export const SaveIndicator: React.FC<SaveIndicatorProps> = ({ collapsed }) => {
   const status = useNotesStore((s) => s.saveStatus);
   const lastSavedAt = useNotesStore((s) => s.lastSavedAt);
+  const loadFailed = useNotesStore((s) => s.loadFailed);
 
   // idle 表示本次启动还没有任何变更，不需要占位
   if (status === 'idle') return null;
@@ -43,9 +45,13 @@ export const SaveIndicator: React.FC<SaveIndicatorProps> = ({ collapsed }) => {
       ? `上次保存 ${time}`
       : STATUS_TEXT[status];
 
+  // 加载失败是特殊态：saveNotes 被守卫拦截（保护磁盘数据），点「重试」不会有结果。
+  // 此时指示器的职责是把用户带回恢复流程（LoadFailureDialog 可能被最小化了）。
   const title =
     status === 'error'
-      ? '保存失败：请在编辑器标题栏点击重试，或检查磁盘空间'
+      ? loadFailed
+        ? '数据加载失败，自动保存已暂停：点击打开恢复引导'
+        : '保存失败：点击重试，或检查磁盘空间'
       : detail;
 
   const className = `save-indicator save-indicator-${status}${collapsed ? ' save-indicator-collapsed' : ''}`;
@@ -59,11 +65,19 @@ export const SaveIndicator: React.FC<SaveIndicatorProps> = ({ collapsed }) => {
         title={title}
         aria-label={title}
         onClick={() => {
+          if (loadFailed) {
+            setLoadFailureMinimized(false);
+            return;
+          }
           void useNotesStore.getState().saveNotes();
         }}
       >
         <span className="save-indicator-dot" aria-hidden="true" />
-        {!collapsed && <span className="save-indicator-text">保存失败 · 重试</span>}
+        {!collapsed && (
+          <span className="save-indicator-text">
+            {loadFailed ? '数据加载失败 · 去处理' : '保存失败 · 重试'}
+          </span>
+        )}
       </button>
     );
   }

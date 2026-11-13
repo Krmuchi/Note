@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
 import type { Template } from '@/types/templates';
 
@@ -16,6 +16,20 @@ export default function CustomTemplateModal({ isOpen, onClose, onSave, editTempl
   const [category, setCategory] = useState(editTemplate?.category || 'custom');
   const [icon, setIcon] = useState(editTemplate?.icon || '📝');
   const [tags, setTags] = useState(editTemplate?.tags?.join(', ') || '');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      // capture 阶段拦截并阻断全局 Escape：只关本弹窗，
+      // 不能连带关掉背后的模板中心（填了一半的模板内容会丢）
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [isOpen, onClose]);
 
   const handleSave = useCallback(() => {
     if (!name.trim() || !content.trim()) return;
@@ -39,11 +53,11 @@ export default function CustomTemplateModal({ isOpen, onClose, onSave, editTempl
   if (!isOpen) return null;
 
   return (
-    <div className="custom-template-overlay" onClick={onClose}>
+    <div className="custom-template-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={editTemplate ? '编辑模板' : '创建自定义模板'}>
       <div className="custom-template-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{editTemplate ? '编辑模板' : '创建自定义模板'}</h3>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
         </div>
 
         <div className="modal-body">

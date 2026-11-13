@@ -18,7 +18,7 @@ export const EditorHeaderAlignMenu: React.FC<EditorHeaderAlignMenuProps> = ({
   <div className="eh-dropdown" ref={menuRef}>
     <button
       className="eh-icon-btn eh-btn-text"
-      onClick={() => setOpen(!open)}
+      data-eh-menu-trigger onClick={() => setOpen(!open)}
       title="对齐方式"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import type { JSX } from 'react'
 import type { FavoriteDocItem } from '@/types'
 import { useNotesStore, selectActiveDoc } from '@/store'
 import { useFavoriteDocs } from '@/hooks/useFavoriteDocs'
 import { uiActions, useUIState } from '@/hooks/useUIState'
+import { recordRecentView } from '@/services/recentViews'
 import { Editor } from '@/components/editor/Editor'
 import { EmptyState } from '@/components/common/EmptyState'
 import { IconStar } from '@/components/common/Icon'
@@ -19,6 +20,10 @@ type GroupType = 'none' | 'notebook'
  */
 interface FavoriteViewProps {
   activeDocId: string
+  /**
+   * 保留以兼容 MainContent 传参。视图内打开文档**不走它**：
+   * App.handleViewDoc 会强制切回 notebooks 视图，把同屏的收藏列表替换掉。
+   */
   onViewDoc: (notebookId: string, docId: string) => void
   activeNotebookId: string
   /** 空态引导：跳到文档树去收藏第一篇（空态必须给出下一步动作） */
@@ -27,13 +32,27 @@ interface FavoriteViewProps {
 
 export default function FavoriteView({
   activeDocId,
-  onViewDoc,
   activeNotebookId,
   onGoToDocs,
 }: FavoriteViewProps): JSX.Element {
   const { fontSize, showOutlinePanel, showCommentsPanel } = useUIState()
   const { setFontSize, toggleShowOutlinePanel, toggleShowCommentsPanel, setShowVersionHistory, setShowSharePanel } = uiActions
   const activeDoc = useNotesStore(selectActiveDoc)
+  const setActiveNotebookId = useNotesStore((s) => s.setActiveNotebookId)
+  const setActiveDocId = useNotesStore((s) => s.setActiveDocId)
+
+  /**
+   * 收藏视图本地打开：只切换活动文档，不切视图。
+   * 本视图是"左列表右编辑器"同屏布局；旧实现点列表项走 onViewDoc（App.handleViewDoc），
+   * 会把 activeView 强制切回 notebooks —— 收藏列表瞬间消失，连续翻阅的动线被打断。
+   */
+  const handleOpenFavorite = useCallback((notebookId: string, docId: string): void => {
+    // 记录最近浏览：与 App.handleViewDoc 共用同一份服务，
+    // 否则在收藏里翻阅的文档不会进「最近」列表（视图不切换 ≠ 不算浏览）
+    recordRecentView(notebookId, docId)
+    setActiveNotebookId(notebookId)
+    setActiveDocId(docId)
+  }, [setActiveNotebookId, setActiveDocId])
   // 收藏列表订阅 notebooks（每次击键都会变），所以只在本视图里订阅，
   // 不能让 App 外壳代算 —— 否则整棵外壳跟着输入重渲染
   const favoriteDocs = useFavoriteDocs()
@@ -179,7 +198,7 @@ export default function FavoriteView({
                   <div
                     key={doc.id}
                     className={`favorite-item ${activeDocId === doc.id ? "active" : ""}`}
-                    onClick={() => onViewDoc(notebook.id, doc.id)}
+                    onClick={() => handleOpenFavorite(notebook.id, doc.id)}
                   >
                     <span className="favorite-item-name">{doc.title}</span>
                     {groupBy === 'none' && (
@@ -214,7 +233,7 @@ export default function FavoriteView({
         onToggleOutlinePanel={toggleShowOutlinePanel}
         showCommentsPanel={showCommentsPanel}
         onToggleCommentsPanel={toggleShowCommentsPanel}
-        onViewDoc={onViewDoc}
+        onViewDoc={handleOpenFavorite}
       />
     </>
   )

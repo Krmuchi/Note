@@ -291,6 +291,11 @@
   cursor: pointer;
 }
 
+.compare-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .compare-btn:hover {
   background: var(--primary-400);
 }

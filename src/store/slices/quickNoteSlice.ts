@@ -1,7 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { NotesStore } from '@/store/types'
 import { newId } from '@/store/storeUtils'
-import { debounce } from '@/utils/debounce'
 import type { QuickNoteData } from '@/types'
 
 export interface QuickNote {
@@ -14,16 +13,22 @@ export interface QuickNote {
 
 export interface QuickNoteSlice {
   quickNotes: QuickNote[]
+  /**
+   * 已删除小记的墓碑（id → 删除时间 ISO）。
+   * 小记同时存在于 localStorage 与 notes-data.json（备份副本）两处，
+   * 启动/恢复时按 id 合并；没有墓碑的话，本机刚删掉的小记会被磁盘旧副本"复活"。
+   */
+  quickNoteTombstones: Record<string, string>
   addQuickNote: (content: string, tags?: string[]) => void
   updateQuickNote: (id: string, content: string, tags?: string[]) => void
   deleteQuickNote: (id: string) => void
   loadQuickNotes: () => void
   saveQuickNotes: () => Promise<void>
-  /** 立即把待写入的便签刷入 localStorage（窗口关闭前调用） */
+  /** 立即把小记刷入 localStorage（保留接口兼容；现在每次变更都已同步落盘） */
   flushQuickNotes: () => void
   /** 导出用：把便签并入数据快照（导出/备份必须包含便签，否则用户以为备份全了） */
   withQuickNotesForExport: <T extends Record<string, unknown>>(payload: T) => T & { quickNotes: QuickNoteData[] }
-  /** 导入用：把备份里的便签合并进当前便签（按 id 去重，保留较新的 updatedAt） */
+  /** 导入用：把备份里的便签合并进当前便签（按 id 去重，保留较新的 updatedAt，跳过已删除） */
   importQuickNotes: (imported: QuickNoteData[] | undefined) => void
 }
 
@@ -35,28 +40,50 @@ type QuickNoteSliceCreator = StateCreator<
 >
 
 const QUICK_NOTES_KEY = 'notes-quick-notes'
-const PERSIST_DEBOUNCE_MS = 800
+const QUICK_NOTES_DELETED_KEY = 'notes-quick-notes-deleted'
+/** 墓碑保留时长：远超任何备份恢复窗口，过期清理避免无限增长 */
+const TOMBSTONE_TTL_MS = 90 * 24 * 60 * 60 * 1000
 
-// 测试中会多次创建 store，beforeunload 监听只注册一次，避免监听器堆积
-let beforeUnloadBound = false
+/** 读取并清理过期墓碑；损坏数据一律按空处理，绝不让面板崩 */
+function readTombstones(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(QUICK_NOTES_DELETED_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const now = Date.now()
+    const out: Record<string, string> = {}
+    for (const [id, at] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof at === 'string' && now - new Date(at).getTime() < TOMBSTONE_TTL_MS) {
+        out[id] = at
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
 
 export const createQuickNoteSlice: QuickNoteSliceCreator = (set, get) => {
-  const persist = debounce(() => {
+  /*
+   * 小记的每次变更都是离散的用户动作（新增 / 保存 / 删除），不是逐键输入，
+   * 因此**同步立即落盘**，不再使用 800ms 防抖。旧实现的防抖窗口有两个数据丢失路径：
+   * 1. 窗口内切换视图再回来，loadQuickNotes 用尚未落盘的旧 localStorage 覆盖内存；
+   * 2. 窗口内崩溃 / 关窗，最后一次编辑丢失。
+   * 立即落盘后这两个窗口都不复存在，beforeunload 兜底也不再需要。
+   */
+  const persistNow = (): void => {
     try {
       localStorage.setItem(QUICK_NOTES_KEY, JSON.stringify(get().quickNotes))
+      localStorage.setItem(QUICK_NOTES_DELETED_KEY, JSON.stringify(get().quickNoteTombstones))
     } catch {
       // 存储不可用时静默失败（与旧实现一致）
     }
-  }, PERSIST_DEBOUNCE_MS)
-
-  // 关闭窗口时把最后 800ms 内未落盘的编辑同步写出，避免丢字
-  if (!beforeUnloadBound && typeof window !== 'undefined') {
-    beforeUnloadBound = true
-    window.addEventListener('beforeunload', () => persist.flush())
   }
 
   return {
     quickNotes: [],
+    quickNoteTombstones: {},
 
     addQuickNote: (content, tags = []) => {
       const newNote: QuickNote = {
@@ -68,8 +95,10 @@ export const createQuickNoteSlice: QuickNoteSliceCreator = (set, get) => {
       }
       set((state) => {
         state.quickNotes.unshift(newNote)
+        // 触发自动保存，让小记也随全量保存进入 notes-data.json（备份副本）
+        state.lastMutationAt = Date.now()
       })
-      persist()
+      persistNow()
     },
 
     updateQuickNote: (id, content, tags) => {
@@ -79,47 +108,74 @@ export const createQuickNoteSlice: QuickNoteSliceCreator = (set, get) => {
           note.content = content
           if (tags !== undefined) note.tags = tags
           note.updatedAt = new Date().toISOString()
+          state.lastMutationAt = Date.now()
         }
       })
-      persist()
+      persistNow()
     },
 
     deleteQuickNote: (id) => {
       set((state) => {
         state.quickNotes = state.quickNotes.filter(n => n.id !== id)
+        state.quickNoteTombstones[id] = new Date().toISOString()
+        state.lastMutationAt = Date.now()
       })
-      persist()
+      persistNow()
     },
 
     loadQuickNotes: () => {
       try {
+        const tombstones = readTombstones()
         const raw = localStorage.getItem(QUICK_NOTES_KEY)
+        let local: QuickNote[] = []
         if (raw) {
-          const notes = JSON.parse(raw)
+          const parsed: unknown = JSON.parse(raw)
           // 结构校验：localStorage 数据损坏（非数组）会让面板渲染崩溃
-          if (!Array.isArray(notes)) return
-          set((state) => {
-            state.quickNotes = notes
-          })
+          if (Array.isArray(parsed)) {
+            local = parsed.filter(
+              (n): n is QuickNote =>
+                Boolean(n) && typeof n.id === 'string' && typeof n.content === 'string' && !tombstones[n.id],
+            )
+          }
         }
+        /*
+         * 合并而非覆盖：内存里可能已有更新的一份（启动时从磁盘导入 / 备份恢复）。
+         * 旧实现直接 `state.quickNotes = notes` 覆盖，会丢掉内存里较新的编辑。
+         * 这里按 id 保留 updatedAt 较新者，与 importQuickNotes 的合并语义一致。
+         */
+        set((state) => {
+          state.quickNoteTombstones = { ...state.quickNoteTombstones, ...tombstones }
+          const byId = new Map(state.quickNotes.map(n => [n.id, n]))
+          for (const incoming of local) {
+            const existing = byId.get(incoming.id)
+            if (!existing || (incoming.updatedAt || '') > (existing.updatedAt || '')) {
+              byId.set(incoming.id, {
+                ...incoming,
+                tags: Array.isArray(incoming.tags) ? incoming.tags : [],
+              })
+            }
+          }
+          state.quickNotes = [...byId.values()]
+        })
+        persistNow()
       } catch {
         // ignore
       }
     },
 
-    // 保留显式异步保存接口（兼容既有调用），内部取消挂起的防抖后立即写一次
+    // 保留显式异步保存接口（兼容既有调用）；现在变更已同步落盘，这里只是再写一次兜底
     saveQuickNotes: async () => {
-      persist.flush()
+      persistNow()
     },
 
     flushQuickNotes: () => {
-      persist.flush()
+      persistNow()
     },
 
     /**
      * 把便签并入要导出的数据快照。
      *
-     * 便签平时不在 notes-data.json 里（它们是高频编辑的轻量数据），
+     * 便签平时存在独立的 localStorage 键里（高频编辑的轻量数据），
      * 但「导出全部 / 本地备份」必须包含它们 —— 否则用户以为备份全了，
      * 换机恢复时才发现所有便签都没了。
      */
@@ -129,9 +185,9 @@ export const createQuickNoteSlice: QuickNoteSliceCreator = (set, get) => {
     }),
 
     /**
-     * 从备份恢复便签。
+     * 从备份 / 磁盘恢复便签。
      * 按 id 去重并保留 updatedAt 较新的那一条：用户可能已经在本机改过同一条便签，
-     * 直接用备份覆盖会丢掉较新的编辑。
+     * 直接用备份覆盖会丢掉较新的编辑。本机已删除（墓碑）的小记不被旧副本复活。
      */
     importQuickNotes: (imported) => {
       if (!Array.isArray(imported) || imported.length === 0) return
@@ -140,6 +196,7 @@ export const createQuickNoteSlice: QuickNoteSliceCreator = (set, get) => {
         const byId = new Map(state.quickNotes.map(n => [n.id, n]))
         for (const incoming of imported) {
           if (!incoming || typeof incoming.id !== 'string' || typeof incoming.content !== 'string') continue
+          if (state.quickNoteTombstones[incoming.id]) continue
           const existing = byId.get(incoming.id)
           if (!existing) {
             byId.set(incoming.id, {
@@ -160,7 +217,7 @@ export const createQuickNoteSlice: QuickNoteSliceCreator = (set, get) => {
         }
         state.quickNotes = [...byId.values()]
       })
-      persist.flush()
+      persistNow()
     },
   }
 }

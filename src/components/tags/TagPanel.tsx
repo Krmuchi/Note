@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { IconSearch } from "@/components/common/Icon";
 import { TAG_DEFAULT_COLORS, TAG_DEFAULT_ICONS } from "@/shared/constants";
 import { confirmAction } from "@/hooks/useConfirmAction";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 /**
  * 标签面板组件属性接口
@@ -19,9 +20,17 @@ interface TagPanelProps {
   isOpen: boolean;       // 面板是否打开
   /** 关闭回调。作为视图嵌在 MainContent 里时不需要（侧栏切走即关闭），故可选 */
   onClose?: () => void;
+  /**
+   * 嵌入形态（侧栏「标签」视图）：不渲染全屏遮罩与关闭按钮，直接填满内容区。
+   * 旧实现嵌入时也套 .tag-panel-overlay（fixed 全屏），把侧栏整个盖住，
+   * 而嵌入模式没有 onClose，× 与遮罩点击全是死的，用户被锁死在标签页。
+   */
+  embedded?: boolean;
 }
 
-export default function TagPanel({ isOpen, onClose }: TagPanelProps): JSX.Element | null {
+export default function TagPanel({ isOpen, onClose, embedded = false }: TagPanelProps): JSX.Element | null {
+  // 焦点陷阱只在弹窗形态启用：嵌入视图是普通页面内容，不该循环 Tab
+  const trapRef = useFocusTrap<HTMLDivElement>(!embedded);
   const {
     tags,
     createTag,
@@ -195,130 +204,150 @@ export default function TagPanel({ isOpen, onClose }: TagPanelProps): JSX.Elemen
   // 如果面板未打开，返回 null
   if (!isOpen) return null;
 
+  const panelBody = (
+    <>
+      {/* 头部：嵌入形态没有关闭按钮（侧栏切走即离开，渲染死按钮只会误导） */}
+      <div className="tag-panel-header">
+        <h3 className="tag-panel-title">标签管理</h3>
+        {!embedded && (
+          <button className="tag-panel-close" onClick={onClose} aria-label="关闭">×</button>
+        )}
+      </div>
+
+      {/* 工具栏 */}
+      <div className="tag-panel-toolbar">
+        <button 
+          className="tag-toolbar-btn"
+          onClick={() => setShowCreateModal(true)}
+        >
+          + 新建标签
+        </button>
+        <button 
+          className="tag-toolbar-btn"
+          onClick={() => setShowStats(!showStats)}
+        >
+          📊 {showStats ? '返回列表' : '统计分析'}
+        </button>
+        {selectedTags.length > 0 && (
+          <>
+            <span className="tag-selection-info">已选择 {selectedTags.length} 个标签</span>
+            <button 
+              className="tag-toolbar-btn secondary"
+              onClick={handleBatchUpdate}
+            >
+              批量修改
+            </button>
+            <button 
+              className="tag-toolbar-btn danger"
+              onClick={handleBatchDelete}
+            >
+              批量删除
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* 搜索 */}
+      <div className="tag-panel-search">
+        <input
+          type="text"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          placeholder="搜索标签..."
+          className="tag-search-input"
+        />
+      </div>
+
+      <div className="tag-panel-body">
+        {showStats ? (
+          <TagStatsPanel stats={stats} />
+        ) : (
+          <div className="tag-list">
+            <div className="tag-list-header">
+              <button 
+                className="tag-select-all"
+                onClick={selectAllTags}
+              >
+                {selectedTags.length === filteredTags.length && filteredTags.length > 0 ? '✓' : ''}
+                全选
+              </button>
+              <span className="tag-list-count">共 {filteredTags.length} 个标签</span>
+            </div>
+            
+            {filteredTags.length === 0 ? (
+              /*
+               * 区分"搜索没结果"与"真的还没标签"：
+               * 前者给"清除搜索"，后者给"新建标签" —— 空态必须能告诉用户下一步做什么。
+               */
+              searchText.trim() ? (
+                <EmptyState
+                  icon={<IconSearch size={32} />}
+                  title="没有匹配的标签"
+                  description={`没有标签名包含「${searchText.trim()}」`}
+                  actions={[
+                    { label: '清除搜索', icon: '✕', variant: 'secondary', onClick: () => setSearchText('') },
+                  ]}
+                />
+              ) : (
+                <EmptyState
+                  icon="🏷️"
+                  title="还没有标签"
+                  description="用标签给文档分类，之后可以按标签过滤文档树"
+                  actions={[
+                    {
+                      label: '新建标签',
+                      icon: '＋',
+                      variant: 'primary',
+                      onClick: () => setShowCreateModal(true),
+                    },
+                  ]}
+                />
+              )
+            ) : (
+              renderTagTree(visibleHierarchy)
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 新建标签模态框 */}
+      {showCreateModal && (
+        <TagEditModal
+          onClose={() => setShowCreateModal(false)}
+          onCreate={handleCreateTag}
+          availableTags={tags}
+        />
+      )}
+
+      {/* 编辑标签模态框 */}
+      {editTag && (
+        <TagEditModal
+          key={editTag.id}
+          onClose={() => setEditTag(null)}
+          tag={editTag}
+          onUpdate={(updates) => handleUpdateTag(editTag.id, updates)}
+          availableTags={tags.filter(t => t.id !== editTag.id)}
+        />
+      )}
+    </>
+  );
+
+  // 嵌入形态：普通页面内容，无遮罩、无焦点陷阱，侧栏保持可点
+  if (embedded) {
+    return <div className="tag-panel tag-panel-embedded">{panelBody}</div>;
+  }
+
   return (
     <div className="tag-panel-overlay" onClick={onClose}>
-      <div className="tag-panel" onClick={(e) => e.stopPropagation()}>
-        {/* 头部 */}
-        <div className="tag-panel-header">
-          <h3 className="tag-panel-title">标签管理</h3>
-          <button className="tag-panel-close" onClick={onClose}>×</button>
-        </div>
-
-        {/* 工具栏 */}
-        <div className="tag-panel-toolbar">
-          <button 
-            className="tag-toolbar-btn"
-            onClick={() => setShowCreateModal(true)}
-          >
-            + 新建标签
-          </button>
-          <button 
-            className="tag-toolbar-btn"
-            onClick={() => setShowStats(!showStats)}
-          >
-            📊 {showStats ? '返回列表' : '统计分析'}
-          </button>
-          {selectedTags.length > 0 && (
-            <>
-              <span className="tag-selection-info">已选择 {selectedTags.length} 个标签</span>
-              <button 
-                className="tag-toolbar-btn secondary"
-                onClick={handleBatchUpdate}
-              >
-                批量修改
-              </button>
-              <button 
-                className="tag-toolbar-btn danger"
-                onClick={handleBatchDelete}
-              >
-                批量删除
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* 搜索 */}
-        <div className="tag-panel-search">
-          <input
-            type="text"
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder="搜索标签..."
-            className="tag-search-input"
-          />
-        </div>
-
-        <div className="tag-panel-body">
-          {showStats ? (
-            <TagStatsPanel stats={stats} />
-          ) : (
-            <div className="tag-list">
-              <div className="tag-list-header">
-                <button 
-                  className="tag-select-all"
-                  onClick={selectAllTags}
-                >
-                  {selectedTags.length === filteredTags.length && filteredTags.length > 0 ? '✓' : ''}
-                  全选
-                </button>
-                <span className="tag-list-count">共 {filteredTags.length} 个标签</span>
-              </div>
-              
-              {filteredTags.length === 0 ? (
-                /*
-                 * 区分"搜索没结果"与"真的还没标签"：
-                 * 前者给"清除搜索"，后者给"新建标签" —— 空态必须能告诉用户下一步做什么。
-                 */
-                searchText.trim() ? (
-                  <EmptyState
-                    icon={<IconSearch size={32} />}
-                    title="没有匹配的标签"
-                    description={`没有标签名包含「${searchText.trim()}」`}
-                    actions={[
-                      { label: '清除搜索', icon: '✕', variant: 'secondary', onClick: () => setSearchText('') },
-                    ]}
-                  />
-                ) : (
-                  <EmptyState
-                    icon="🏷️"
-                    title="还没有标签"
-                    description="用标签给文档分类，之后可以按标签过滤文档树"
-                    actions={[
-                      {
-                        label: '新建标签',
-                        icon: '＋',
-                        variant: 'primary',
-                        onClick: () => setShowCreateModal(true),
-                      },
-                    ]}
-                  />
-                )
-              ) : (
-                renderTagTree(visibleHierarchy)
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* 新建标签模态框 */}
-        {showCreateModal && (
-          <TagEditModal
-            onClose={() => setShowCreateModal(false)}
-            onCreate={handleCreateTag}
-            availableTags={tags}
-          />
-        )}
-
-        {/* 编辑标签模态框 */}
-        {editTag && (
-          <TagEditModal
-            key={editTag.id}
-            onClose={() => setEditTag(null)}
-            tag={editTag}
-            onUpdate={(updates) => handleUpdateTag(editTag.id, updates)}
-            availableTags={tags.filter(t => t.id !== editTag.id)}
-          />
-        )}
+      <div
+        ref={trapRef}
+        className="tag-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="标签管理"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {panelBody}
       </div>
     </div>
   );

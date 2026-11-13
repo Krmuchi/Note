@@ -1,7 +1,21 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
+import { render, fireEvent, act } from '@testing-library/react'
 import { RichEditor } from '@/components/editor/RichEditor'
+import { useNotesStore } from '@/store'
 import type { NoteDoc } from '@/types'
+
+/*
+ * jsdom 未实现 Range.getBoundingClientRect（syncSlash 用它取光标屏幕坐标）。
+ * 真实浏览器里该方法存在；这里只在本文件内补零矩形桩，不动共享 tests/setup.ts。
+ */
+beforeAll(() => {
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+    writable: true,
+    configurable: true,
+    value: (): DOMRect =>
+      ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
+  })
+})
 
 /**
  * RichEditor 的行为测试。
@@ -235,5 +249,248 @@ describe('RichEditor 粘贴', () => {
 
     // 不应出现外部带来的 b 标签
     expect(root.querySelector('b')).toBeNull()
+  })
+})
+
+/* ---------------- 缺陷2/3/7 的回归 ---------------- */
+
+/** 把光标放到元素文本末尾 */
+function caretToEnd(el: Element): void {
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(false)
+  const sel = window.getSelection()!
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
+describe('RichEditor 撤销/重做强制重建（缺陷2）', () => {
+  it('seq 变化时即使内容等于 lastWrittenRef 也重建 DOM（Ctrl+Z 后 Ctrl+Y）', () => {
+    const onChange = vi.fn()
+    const doc = makeDoc('abc')
+    const utils = render(
+      <RichEditor activeDoc={doc} updateDocContent={onChange} fontSize="15px" />,
+    )
+    const root = utils.container.querySelector('.rich-editor') as HTMLElement
+
+    // 打字 abcX → commit，lastWrittenRef='abcX'
+    const p = root.querySelector('p')!
+    p.textContent = 'abcX'
+    caretToEnd(p)
+    fireEvent.input(root)
+    expect(onChange).toHaveBeenCalledWith({ content: 'abcX' })
+
+    // store 回流 abcX（== lastWrittenRef → 不重建，保光标）
+    utils.rerender(
+      <RichEditor activeDoc={{ ...doc, content: 'abcX' }} updateDocContent={onChange} fontSize="15px" />,
+    )
+    expect(root.textContent).toBe('abcX')
+
+    // 模拟"撤销重建了 DOM 但 lastWrittenRef 未清"的旧状态（App 全局键盘路径）
+    root.innerHTML = '<p><br></p>'
+
+    // 重做：bump undoRedoSeq，内容仍等于 lastWrittenRef('abcX')
+    act(() => {
+      const { pushRedoSnapshot, popRedoSnapshot } = useNotesStore.getState()
+      pushRedoSnapshot('doc-1', { title: '', content: 'abcX', tags: [] })
+      popRedoSnapshot('doc-1')
+    })
+    utils.rerender(
+      <RichEditor activeDoc={{ ...doc, content: 'abcX' }} updateDocContent={onChange} fontSize="15px" />,
+    )
+    // 必须重建：旧实现会因 lastWrittenRef===content 跳过，DOM 停在空段落
+    expect(root.textContent).toBe('abcX')
+  })
+})
+
+describe('RichEditor 输入法守卫（缺陷3）', () => {
+  it('isComposing=true 的 Enter 不触发续列表', () => {
+    const { root } = renderEditor('- 甲')
+    caretToEnd(root.querySelector('li')!)
+    fireEvent.keyDown(root, { key: 'Enter', isComposing: true })
+    expect(root.querySelectorAll('li')).toHaveLength(1)
+  })
+
+  it('keyCode=229 的 Enter 不触发续列表', () => {
+    const { root } = renderEditor('- 甲')
+    caretToEnd(root.querySelector('li')!)
+    fireEvent.keyDown(root, { key: 'Enter', keyCode: 229 })
+    expect(root.querySelectorAll('li')).toHaveLength(1)
+  })
+
+  it('组合期间 input 不回写，compositionend 后补跑一次', () => {
+    const { root, onChange } = renderEditor('')
+    fireEvent.compositionStart(root)
+    const p = root.querySelector('p')!
+    p.textContent = 'nihao'
+    caretToEnd(p)
+    fireEvent.input(root)
+    // 拼音未确认：不应回写脏快照
+    expect(onChange).not.toHaveBeenCalled()
+    fireEvent.compositionEnd(root)
+    expect(onChange).toHaveBeenCalledWith({ content: 'nihao' })
+  })
+})
+
+describe('RichEditor 快捷键置位-消费与插行（缺陷7）', () => {
+  const resolveBy = (map: Record<string, string>) => (combo: string[]): string | null =>
+    map[combo.join('+')] ?? null
+
+  it('Ctrl+Enter 在当前块下方插入空块', () => {
+    const utils = render(
+      <RichEditor
+        activeDoc={makeDoc('第一段')}
+        updateDocContent={vi.fn()}
+        fontSize="15px"
+        resolveShortcut={resolveBy({ 'ctrl+enter': 'insertLineBelow' })}
+      />,
+    )
+    const root = utils.container.querySelector('.rich-editor') as HTMLElement
+    caretToEnd(root.querySelector('p')!)
+    fireEvent.keyDown(root, { key: 'Enter', ctrlKey: true })
+    expect(root.querySelectorAll('p')).toHaveLength(2)
+  })
+
+  it('Ctrl+Shift+Enter 在当前块上方插入空块', () => {
+    const utils = render(
+      <RichEditor
+        activeDoc={makeDoc('第一段')}
+        updateDocContent={vi.fn()}
+        fontSize="15px"
+        resolveShortcut={resolveBy({ 'ctrl+shift+enter': 'insertLineAbove' })}
+      />,
+    )
+    const root = utils.container.querySelector('.rich-editor') as HTMLElement
+    caretToEnd(root.querySelector('p')!)
+    fireEvent.keyDown(root, { key: 'Enter', ctrlKey: true, shiftKey: true })
+    const ps = root.querySelectorAll('p')
+    expect(ps).toHaveLength(2)
+    // 新空块在上方
+    expect(ps[0].textContent).toBe('')
+  })
+
+  it('Ctrl+Shift+V 后粘贴走纯文本，不带入 HTML 格式', () => {
+    const onInsertMarkdown = vi.fn()
+    const utils = render(
+      <RichEditor
+        activeDoc={makeDoc('')}
+        updateDocContent={vi.fn()}
+        fontSize="15px"
+        resolveShortcut={resolveBy({ 'ctrl+shift+v': 'plainTextPaste' })}
+        onInsertMarkdown={onInsertMarkdown}
+      />,
+    )
+    const root = utils.container.querySelector('.rich-editor') as HTMLElement
+    caretToEnd(root.querySelector('p')!)
+    fireEvent.keyDown(root, { key: 'v', ctrlKey: true, shiftKey: true })
+    fireEvent.paste(root, {
+      clipboardData: {
+        items: [],
+        getData: (t: string) => (t === 'text/plain' ? '纯文本' : '<b>富文本</b>'),
+      },
+    })
+    // 不应走 HTML→Markdown 分支
+    expect(onInsertMarkdown).not.toHaveBeenCalled()
+    expect(root.textContent).toContain('纯文本')
+    expect(root.querySelector('b')).toBeNull()
+  })
+
+  it('Ctrl+Alt+C 复制选区的 Markdown 源码', () => {
+    const utils = render(
+      <RichEditor
+        activeDoc={makeDoc('甲乙丙丁')}
+        updateDocContent={vi.fn()}
+        fontSize="15px"
+        resolveShortcut={resolveBy({ 'ctrl+alt+c': 'copyAsMarkdown' })}
+      />,
+    )
+    const root = utils.container.querySelector('.rich-editor') as HTMLElement
+    const textNode = root.querySelector('p')!.firstChild!
+    const range = document.createRange()
+    range.setStart(textNode, 1)
+    range.setEnd(textNode, 3)
+    const sel = window.getSelection()!
+    sel.removeAllRanges()
+    sel.addRange(range)
+
+    fireEvent.keyDown(root, { key: 'c', ctrlKey: true, altKey: true })
+    const setData = vi.fn()
+    fireEvent.copy(root, { clipboardData: { setData } })
+    expect(setData).toHaveBeenCalledWith('text/plain', '乙丙')
+  })
+})
+
+/*
+ * 缺陷4：斜杠菜单残留。菜单打开（slashActive）期间监听 selectionchange，
+ * 光标离开 token 即上报 null（'cursor' 源）让 Editor 关闭菜单。
+ * 旧实现只在 input 时同步，点到别处不触发 input，菜单残留并劫持 Enter。
+ */
+describe('RichEditor 斜杠菜单 selectionchange 同步（缺陷4）', () => {
+  /** 派发 selectionchange 并等待 rAF（effect 用 rAF 合并） */
+  async function flushSelectionChange(): Promise<void> {
+    await act(async () => {
+      document.dispatchEvent(new Event('selectionchange'))
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    })
+  }
+
+  it('光标离开 token 后上报 null（cursor 源）以关闭菜单', async () => {
+    const onSlashChange = vi.fn()
+    const doc = makeDoc('')
+    const utils = render(
+      <RichEditor
+        activeDoc={doc}
+        updateDocContent={vi.fn()}
+        fontSize="15px"
+        onSlashChange={onSlashChange}
+        slashActive={false}
+      />,
+    )
+    const root = utils.container.querySelector('.rich-editor') as HTMLElement
+
+    // 输入 '/' 唤出（input 源）
+    const p = root.querySelector('p')!
+    p.textContent = '/'
+    caretToEnd(p)
+    fireEvent.input(root)
+    expect(onSlashChange).toHaveBeenCalledWith(expect.objectContaining({ query: '' }), 'input')
+
+    // Editor 打开菜单 → slashActive=true，挂上 selectionchange 监听
+    utils.rerender(
+      <RichEditor
+        activeDoc={doc}
+        updateDocContent={vi.fn()}
+        fontSize="15px"
+        onSlashChange={onSlashChange}
+        slashActive={true}
+      />,
+    )
+
+    // 光标移到另一个没有斜杠的段落
+    const p2 = document.createElement('p')
+    p2.textContent = '别处'
+    root.appendChild(p2)
+    caretToEnd(p2)
+    onSlashChange.mockClear()
+    await flushSelectionChange()
+
+    // 必须上报 null + 'cursor'，Editor 据此关闭菜单
+    expect(onSlashChange).toHaveBeenCalledWith(null, 'cursor')
+  })
+
+  it('slashActive=false 时不挂监听（打字零开销）', async () => {
+    const onSlashChange = vi.fn()
+    render(
+      <RichEditor
+        activeDoc={makeDoc('')}
+        updateDocContent={vi.fn()}
+        fontSize="15px"
+        onSlashChange={onSlashChange}
+        slashActive={false}
+      />,
+    )
+    onSlashChange.mockClear()
+    await flushSelectionChange()
+    expect(onSlashChange).not.toHaveBeenCalled()
   })
 })

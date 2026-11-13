@@ -1,5 +1,13 @@
 import { test, expect } from '@playwright/test';
 
+/**
+ * 核心流程 E2E。
+ *
+ * 注意：应用默认使用富文本内核（.rich-editor），标题在正文（.editor-doc-title），
+ * 主题切换收进「更多」菜单。旧断言（.editor-textarea / .eh-title-input /
+ * 工具栏主题按钮）针对的是已非默认的 textarea 内核，2026-11-13 已更新。
+ */
+
 test.describe('笔记应用核心功能', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
@@ -20,19 +28,23 @@ test.describe('笔记应用核心功能', () => {
     // 先建知识库（文档需要挂在知识库下）
     await page.locator('.btn-add-notebook').click();
     await expect(page.locator('.notebook-name').first()).toBeVisible();
-    // 再建文档
+    // 再建文档：默认富文本内核，标题在正文
     await page.getByRole('button', { name: '新建文档' }).first().click();
-    await expect(page.locator('.editor-textarea')).toBeVisible();
-    await expect(page.locator('.eh-title-input')).toBeVisible();
+    await expect(page.locator('.rich-editor')).toBeVisible();
+    await expect(page.locator('.editor-doc-title')).toBeVisible();
   });
 
   test('编辑笔记内容并显示同步状态', async ({ page }) => {
     await page.locator('.btn-add-notebook').click();
     await page.getByRole('button', { name: '新建文档' }).first().click();
-    const editor = page.locator('.editor-textarea');
-    await editor.fill('# 测试笔记\n这是测试内容');
-    await expect(page.locator('.eh-sync-status')).toBeVisible();
-    await expect(editor).toHaveValue('# 测试笔记\n这是测试内容');
+    const editor = page.locator('.rich-editor');
+    await expect(editor).toBeVisible();
+    await editor.click();
+    await page.keyboard.type('测试内容');
+    await expect(editor).toContainText('测试内容');
+    // 保存状态：saving 是瞬时态（3s 防抖 + IPC），稳定可见的是落定后的侧栏 SaveIndicator
+    await expect(page.locator('.save-indicator')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('.save-indicator')).toContainText(/已保存|保存/);
   });
 
   test('搜索面板', async ({ page }) => {
@@ -45,16 +57,7 @@ test.describe('笔记应用核心功能', () => {
     await expect(page.locator('.search-results')).toBeVisible();
   });
 
-  test('主题切换', async ({ page }) => {
-    // 需要编辑器头部（主题按钮在编辑器工具栏）
-    await page.locator('.btn-add-notebook').click();
-    await page.getByRole('button', { name: '新建文档' }).first().click();
-    await expect(page.locator('.eh-header')).toBeVisible();
-    await page.getByTitle('切换到夜间模式').click();
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-    await page.getByTitle('切换到日间模式').click();
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  });
+  // 主题切换已拆到 tests/e2e/theme.spec.ts（需要更多菜单交互细节）
 
   test('收藏文档', async ({ page }) => {
     await page.locator('.btn-add-notebook').click();
@@ -68,13 +71,16 @@ test.describe('笔记应用核心功能', () => {
   test('撤销重做', async ({ page }) => {
     await page.locator('.btn-add-notebook').click();
     await page.getByRole('button', { name: '新建文档' }).first().click();
-    const editor = page.locator('.editor-textarea');
-    await editor.fill('测试内容');
+    const editor = page.locator('.rich-editor');
+    await expect(editor).toBeVisible();
+    await editor.click();
+    await page.keyboard.type('测试内容');
+    await expect(editor).toContainText('测试内容');
     const undoBtn = page.getByTitle(/撤销/);
     await expect(undoBtn).toBeEnabled();
     await undoBtn.click();
-    await expect(editor).not.toHaveValue('测试内容');
+    await expect(editor).not.toContainText('测试内容');
     await page.getByTitle(/重做/).click();
-    await expect(editor).toHaveValue('测试内容');
+    await expect(editor).toContainText('测试内容');
   });
 });

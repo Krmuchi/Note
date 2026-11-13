@@ -1,12 +1,12 @@
-import { useCallback, useMemo, useState, useEffect } from "react"
+import { useCallback, useMemo, useState, useEffect, useSyncExternalStore } from "react"
 import type { JSX } from "react"
 import { useShallow } from "zustand/react/shallow"
-import type { RecentView, NoteDoc } from "@/types"
+import type { NoteDoc } from "@/types"
 import { useNotesStore } from "@/store"
 import { useAutoSave } from "@/hooks/useAutoSave"
 import { useKeyboard } from "@/hooks/useKeyboard"
 import { useUIState, uiActions, getUIState } from "@/hooks/useUIState"
-import { useConfirmAction } from "@/hooks/useConfirmAction"
+import { useConfirmAction, confirmAction } from "@/hooks/useConfirmAction"
 import { useAppInit } from "@/hooks/useAppInit"
 import { useDraftSync } from "@/hooks/useDraftSync"
 import { useUndoRedo } from "@/hooks/useUndoRedo"
@@ -25,7 +25,9 @@ import { OnboardingDialog } from "@/components/onboarding/OnboardingDialog"
 import QuickOpenPanel from "@/components/search/QuickOpenPanel"
 import HelpDialog from "@/components/help/HelpDialog"
 import { findAdjacentDoc, flattenDocs, subscribeDocOpen } from "@/utils/docNavigation"
-import { RECENT_VIEWS_KEY, shouldShowOnboarding, subscribeOnboardingRequest } from "@/utils/onboarding"
+import { resolveTargetNotebookId } from "@/utils/targetNotebook"
+import { shouldShowOnboarding, subscribeOnboardingRequest } from "@/utils/onboarding"
+import { getRecentViews, recordRecentView, subscribeRecentViews } from "@/services/recentViews"
 import { useFileDropImport } from "@/hooks/useFileDropImport"
 import { onAppAction, updateRecents } from "@/services/storage"
 import { markPerf } from "@/utils/perfMarks"
@@ -33,8 +35,6 @@ import { RecoveryDialog } from "@/components/dialogs/RecoveryDialog"
 import { MainContent } from "@/components/app/MainContent"
 import { AppPanels } from "@/components/app/AppPanels"
 import "@/App.css"
-
-const MAX_RECENT_VIEWS = 50
 
 function App(): JSX.Element {
   const {
@@ -115,15 +115,9 @@ function App(): JSX.Element {
     setSidebarCollapsed,
   } = useResizableLayout()
 
-  // 从 localStorage 加载最近浏览记录
-  const [recentViews, setRecentViews] = useState<RecentView[]>(() => {
-    try {
-      const saved = localStorage.getItem(RECENT_VIEWS_KEY)
-      return saved ? JSON.parse(saved) : []
-    } catch {
-      return []
-    }
-  })
+  // 最近浏览记录：模块级外部 store（services/recentViews），任何打开入口都能记录，
+  // 不必强制切回 notebooks 视图 —— 收藏视图的同屏翻阅因此也能进「最近」
+  const recentViews = useSyncExternalStore(subscribeRecentViews, getRecentViews)
 
   // 启动度量（F1）：应用外壳挂载完成
   useEffect(() => {
@@ -161,14 +155,7 @@ function App(): JSX.Element {
     void updateRecents(payload)
   }, [recentViews])
 
-  // 持久化最近浏览记录
-  useEffect(() => {
-    try {
-      localStorage.setItem(RECENT_VIEWS_KEY, JSON.stringify(recentViews))
-    } catch {
-      // storage unavailable
-    }
-  }, [recentViews])
+  // 持久化由 services/recentViews 在记录时同步完成，这里不再重复写 localStorage
 
   // 拖 .md 文件到窗口＝导入成新文档（P6）；编辑器内的拖放由 useEditorPasteDrop 负责，两者互不抢
   const handleImportDroppedFiles = useCallback((docs: { title: string; content: string }[]) => {
@@ -211,10 +198,7 @@ function App(): JSX.Element {
   )
 
   const handleViewDoc = useCallback((notebookId: string, docId: string) => {
-    setRecentViews((prev) => {
-      const filtered = prev.filter((v) => !(v.docId === docId && v.notebookId === notebookId))
-      return [{ docId, notebookId, viewedAt: new Date().toISOString() }, ...filtered].slice(0, MAX_RECENT_VIEWS)
-    })
+    recordRecentView(notebookId, docId)
     setActiveNotebookId(notebookId)
     setActiveDocId(docId)
     setActiveView("notebooks")
@@ -229,6 +213,22 @@ function App(): JSX.Element {
     return docId
   }, [createDoc, handleViewDoc])
 
+  // 关闭设置面板：AI 设置页有未保存草稿/密钥输入时先确认，避免 Esc 静默丢掉填了一半的配置。
+  // aiSettingsDirty 由 useUIState 暴露（AI 设置页维护）；字段缺失时按 false 兜底。
+  const requestCloseSettings = useCallback(() => {
+    if (getUIState().aiSettingsDirty) {
+      confirmAction({
+        title: '放弃未保存的 AI 配置？',
+        message: 'AI 设置页有未保存的修改，关闭将丢失。',
+        confirmText: '放弃并关闭',
+        variant: 'danger',
+        onConfirm: () => uiActions.setShowSettings(false),
+      })
+    } else {
+      uiActions.setShowSettings(false)
+    }
+  }, [])
+
   useKeyboard({
     onSearch: () => uiActions.setShowSearchPanel(true),
     onSave: () => saveNotes(),
@@ -241,7 +241,9 @@ function App(): JSX.Element {
       else toast.warning('没有可重做的操作', 1500)
     },
     onNewDoc: () => {
-      if (activeNotebookId) handleCreateDoc(activeNotebookId, null)
+      // 空库兜底：与侧栏 + / StartPage 共用目标知识库解析，无库时自动建「我的知识库」
+      const targetNotebookId = resolveTargetNotebookId(useNotesStore.getState())
+      if (targetNotebookId) handleCreateDoc(targetNotebookId, null)
     },
     onNewNotebook: () => createNotebook("新建知识库"),
     onToggleSidebar: toggleSidebarCollapse,
@@ -261,7 +263,9 @@ function App(): JSX.Element {
       else if (ui.showSharePanel) uiActions.setShowSharePanel(false)
       else if (ui.showTagPanel) uiActions.setShowTagPanel(false)
       else if (ui.showVersionHistory) uiActions.setShowVersionHistory(false)
-      else if (ui.showSettings) uiActions.setShowSettings(false)
+      else if (ui.showCommentsPanel) uiActions.setShowCommentsPanel(false)
+      else if (ui.showOutlinePanel) uiActions.setShowOutlinePanel(false)
+      else if (ui.showSettings) requestCloseSettings()
     },
     onShortcutHelp: () => uiActions.setShowShortcutHelp(!getUIState().showShortcutHelp),
     onQuickOpen: () => setShowQuickOpen(true),

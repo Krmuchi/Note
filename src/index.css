@@ -733,6 +733,47 @@ a:hover {
   background: var(--primary-600);
 }
 
+/* 加载失败「稍后处理」后的常驻横幅：恢复入口永不消失。
+   z-index 低于 ConfirmDialog(10002)，高于普通面板，确保随时可见可点。 */
+.load-failure-banner {
+  position: fixed;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(680px, calc(100vw - 32px));
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--danger-300, #f3b4b4);
+  border-radius: var(--border-radius-md, 8px);
+  background: var(--danger-50, #fdf0f0);
+  color: var(--danger-700, #a33);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.12));
+  font-size: 13px;
+}
+
+.load-failure-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.load-failure-banner-action {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: none;
+  border-radius: var(--border-radius-md, 8px);
+  background: var(--danger-600, #c0392b);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.load-failure-banner-action:hover {
+  background: var(--danger-700, #a33);
+}
+
 /* ===== 无障碍：晕动症豁免 =====
    系统开启"减少动态效果"时，禁用全部动画与过渡（保留最终视觉状态） */
 @media (prefers-reduced-motion: reduce) {

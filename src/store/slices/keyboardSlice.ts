@@ -6,12 +6,20 @@ export interface KeyboardShortcut {
   name: string
   keys: string[]
   category: string
+  /**
+   * 固定键位：该动作在当前编辑器内核下由硬编码分支处理，不读注册表。
+   * 允许用户改这些键位只会得到「改了没反应」的死设置，因此 UI 不提供录制入口。
+   * （find/replace 由 Editor 的 capture 分支硬编码；行编辑类在富文本内核内硬编码。）
+   */
+  fixed?: boolean
 }
 
 export interface KeyboardSlice {
   shortcuts: KeyboardShortcut[]
   customShortcuts: Record<string, string[]>
   updateShortcut: (id: string, keys: string[]) => void
+  /** 恢复单个快捷键为默认键位（只清该项的自定义覆盖，不影响其它项） */
+  resetShortcut: (id: string) => void
   resetShortcuts: () => void
   loadCustomShortcuts: () => void
   saveCustomShortcuts: () => void
@@ -38,8 +46,8 @@ const DEFAULT_SHORTCUTS: KeyboardShortcut[] = [
   { id: 'undo', name: '撤销', keys: ['Ctrl', 'Z'], category: '编辑' },
   { id: 'redo', name: '重做', keys: ['Ctrl', 'Y'], category: '编辑' },
   // 文档内查找/替换：由 Editor 的 capture 阶段监听实现（全局 useKeyboard 会拦截未识别按键）
-  { id: 'find', name: '文档内查找', keys: ['Ctrl', 'F'], category: '编辑' },
-  { id: 'replace', name: '文档内替换', keys: ['Ctrl', 'H'], category: '编辑' },
+  { id: 'find', name: '文档内查找', keys: ['Ctrl', 'F'], category: '编辑', fixed: true },
+  { id: 'replace', name: '文档内替换', keys: ['Ctrl', 'H'], category: '编辑', fixed: true },
   // 上一篇/下一篇：Alt+↑/↓ 已被"移动行"占用，改用 Ctrl+Alt+←/→
   { id: 'prevDoc', name: '上一篇文档', keys: ['Ctrl', 'Alt', 'ArrowLeft'], category: '编辑' },
   { id: 'nextDoc', name: '下一篇文档', keys: ['Ctrl', 'Alt', 'ArrowRight'], category: '编辑' },
@@ -64,10 +72,10 @@ const DEFAULT_SHORTCUTS: KeyboardShortcut[] = [
   { id: 'link', name: '插入链接', keys: ['Ctrl', 'Shift', 'L'], category: '编辑' },
   { id: 'plainTextPaste', name: '纯文本粘贴', keys: ['Ctrl', 'Shift', 'V'], category: '编辑' },
   { id: 'copyAsMarkdown', name: '复制为 Markdown', keys: ['Ctrl', 'Alt', 'C'], category: '编辑' },
-  { id: 'duplicateLine', name: '复制当前行', keys: ['Ctrl', 'D'], category: '编辑' },
-  { id: 'moveLineUp', name: '上移当前行', keys: ['Alt', 'ArrowUp'], category: '编辑' },
-  { id: 'moveLineDown', name: '下移当前行', keys: ['Alt', 'ArrowDown'], category: '编辑' },
-  { id: 'deleteLine', name: '删除当前行', keys: ['Ctrl', 'Shift', 'K'], category: '编辑' },
+  { id: 'duplicateLine', name: '复制当前行', keys: ['Ctrl', 'D'], category: '编辑', fixed: true },
+  { id: 'moveLineUp', name: '上移当前行', keys: ['Alt', 'ArrowUp'], category: '编辑', fixed: true },
+  { id: 'moveLineDown', name: '下移当前行', keys: ['Alt', 'ArrowDown'], category: '编辑', fixed: true },
+  { id: 'deleteLine', name: '删除当前行', keys: ['Ctrl', 'Shift', 'K'], category: '编辑', fixed: true },
   { id: 'indent', name: '增加缩进', keys: ['Ctrl', ']'], category: '编辑' },
   { id: 'outdent', name: '减少缩进', keys: ['Ctrl', '['], category: '编辑' },
   { id: 'insertLineBelow', name: '下方插入行', keys: ['Ctrl', 'Enter'], category: '编辑' },
@@ -88,6 +96,17 @@ export const createKeyboardSlice: KeyboardSliceCreator = (set, get) => ({
       if (shortcut) {
         shortcut.keys = keys
       }
+    })
+    get().saveCustomShortcuts()
+  },
+
+  resetShortcut: (id) => {
+    const fallback = DEFAULT_SHORTCUTS.find(s => s.id === id)
+    if (!fallback) return
+    set((state) => {
+      delete state.customShortcuts[id]
+      const shortcut = state.shortcuts.find(s => s.id === id)
+      if (shortcut) shortcut.keys = [...fallback.keys]
     })
     get().saveCustomShortcuts()
   },

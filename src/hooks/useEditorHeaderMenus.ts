@@ -59,8 +59,21 @@ export const useEditorHeaderMenus = (
   const codeLangMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    /*
+     * 外部点击关闭。
+     *
+     * 为什么用 mousedown 而不是 click：mousedown 更早，能在浏览器把焦点移走、
+     * 正文选区塌陷之前关闭菜单（工具栏按钮都 preventDefault 以保住选区）。
+     *
+     * 但 mousedown 早于按钮自身的 onClick，若同一事件里既关闭又由 onClick 取反，
+     * 会出现「点过菜单项后再次点触发按钮打不开」的竞态。因此这里跳过
+     * 落在本 hook 管理的触发按钮上的 mousedown —— 让按钮的 onClick 独占切换语义。
+     */
     const handleClickOutside = (e: MouseEvent): void => {
       const target = e.target as Node;
+      // 点在某个菜单的触发按钮上：交给该按钮的 onClick 处理，这里不做关闭
+      if (target instanceof Element && target.closest('[data-eh-menu-trigger]')) return;
+
       const insideColorTrigger = colorTriggerRefs.current.some(el => el && el.contains(target));
       if (headingMenuRef.current && !headingMenuRef.current.contains(target)) setShowHeadingMenu(false);
       if (fontSizeMenuRef.current && !fontSizeMenuRef.current.contains(target)) setShowFontSizeMenu(false);

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import type { NoteDoc, Notebook } from '@/types';
+import type { DocSortMode } from '@/utils/docSort';
 import { toast } from '@/services/toast';
 
 export type DragPosition = 'before' | 'after' | 'inside';
@@ -22,6 +23,8 @@ interface UseDocTreeDragOptions {
   activeNotebookId: string | null;
   updateDoc: (notebookId: string, docId: string, updates: Partial<NoteDoc>) => void;
   reorderDocs: (notebookId: string, fromIndex: number, toIndex: number, parentId?: string | null) => void;
+  /** 当前排序模式：非手动排序时禁用同级 before/after 落点（与右键菜单"上移/下移"闸门一致） */
+  sortMode: DocSortMode;
   onExpandDoc: (docId: string) => void;
 }
 
@@ -30,6 +33,7 @@ export function useDocTreeDrag({
   activeNotebookId,
   updateDoc,
   reorderDocs,
+  sortMode,
   onExpandDoc,
 }: UseDocTreeDragOptions): {
   dragOverDocId: string | null;
@@ -61,9 +65,6 @@ export function useDocTreeDrag({
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent, docId: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const y = e.clientY - rect.top;
     const height = rect.height;
@@ -77,9 +78,30 @@ export function useDocTreeDrag({
       position = 'inside';
     }
 
+    /*
+     * 排序闸门（与右键菜单"上移/下移"一致）：非手动排序时，同级 before/after
+     * 只是改数组顺序，渲染会按排序规则重排 —— 视觉上纹丝不动却提示"已移动"。
+     * 这类落点直接不显示指示线、不允许放下。跨父级 before/after 是改父级（可见），
+     * inside 也是改父级，两者不受此闸门限制。
+     */
+    if (position !== 'inside' && sortMode !== 'manual') {
+      const sourceDocId = draggedDocIdRef.current;
+      const sourceDoc = sourceDocId ? activeNotebook?.docs.find(d => d.id === sourceDocId) : undefined;
+      const targetDoc = activeNotebook?.docs.find(d => d.id === docId);
+      if (sourceDoc && targetDoc && (sourceDoc.parentId ?? null) === (targetDoc.parentId ?? null)) {
+        setDragOverDocId(null);
+        setDragOverPosition(null);
+        e.dataTransfer.dropEffect = 'none';
+        // 不 preventDefault：浏览器不会在此处触发 drop
+        return;
+      }
+    }
+
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
     setDragOverDocId(docId);
     setDragOverPosition(position);
-  }, []);
+  }, [activeNotebook, sortMode]);
 
   const handleDragLeave = useCallback(() => {
     setDragOverDocId(null);
@@ -98,6 +120,21 @@ export function useDocTreeDrag({
     const sourceDoc = activeNotebook.docs.find(d => d.id === sourceDocId);
     const targetDoc = activeNotebook.docs.find(d => d.id === targetDocId);
     if (!sourceDoc || !targetDoc) return;
+
+    /*
+     * 排序闸门兜底（dragOver 已拦，这里是第二道保险）：非手动排序时，
+     * 同级 before/after 只改数组顺序、渲染会重排，视觉无变化却会误报"已移动"。
+     * 跨父级（改 parentId）与 inside 不受此限。
+     */
+    if (
+      dragOverPosition !== 'inside' &&
+      sortMode !== 'manual' &&
+      (sourceDoc.parentId ?? null) === (targetDoc.parentId ?? null)
+    ) {
+      setDragOverDocId(null);
+      setDragOverPosition(null);
+      return;
+    }
 
     // 祖先环防御：不能把文档拖入自身或其后代（inside 直接成环；
     // before/after 落到后代同级也等于把目标父级设为后代，同样成环）
@@ -151,7 +188,7 @@ export function useDocTreeDrag({
     setDragOverDocId(null);
     setDragOverPosition(null);
     draggedDocIdRef.current = null;
-  }, [activeNotebook, activeNotebookId, dragOverPosition, updateDoc, reorderDocs, onExpandDoc]);
+  }, [activeNotebook, activeNotebookId, dragOverPosition, sortMode, updateDoc, reorderDocs, onExpandDoc]);
 
   return {
     dragOverDocId,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, type Mock } from 'vitest'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { createIntegrationHandlers } from '../../electron/ipc/handlers-integration.cjs'
@@ -21,7 +21,14 @@ import { formatCrashEntry } from '../../electron/crash-log.cjs'
  */
 
 /** 记录注册了哪些通道，并返回可调用它们的桩 */
-function makeHarness(overrides: Record<string, unknown> = {}) {
+function makeHarness(overrides: Record<string, unknown> = {}): {
+  handlers: Map<string, (...args: unknown[]) => unknown>
+  appSettings: {
+    read: () => object
+    write: Mock<(patch: unknown) => { ok: boolean; settings: object }>
+  }
+  settingsWrites: unknown[]
+} {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const ipcMain = {
     handle: vi.fn((channel: string, fn: (...args: unknown[]) => unknown) => {

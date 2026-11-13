@@ -25,7 +25,7 @@ export const EditorHeaderAddMenu: React.FC<EditorHeaderAddMenuProps> = ({
       <button
         className="eh-add-btn"
         title="添加内容"
-        onClick={() => setOpen(!open)}
+        data-eh-menu-trigger onClick={() => setOpen(!open)}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <line x1="12" y1="5" x2="12" y2="19" />

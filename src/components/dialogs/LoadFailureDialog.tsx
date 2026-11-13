@@ -1,11 +1,16 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { BackupInfo } from '@/types'
 import { useNotesStore } from '@/store'
 import { getAppInfo, listLocalBackups, openDataDir, restoreLocalBackup } from '@/services/storage'
 import { toast } from '@/components/common/Toast'
-import { confirmAction } from '@/hooks/useConfirmAction'
+import { confirmAction, hasPendingConfirm } from '@/hooks/useConfirmAction'
 import { copyToClipboard } from '@/utils/clipboard'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
+import {
+  isLoadFailureMinimized,
+  setLoadFailureMinimized,
+  subscribeLoadFailureUi,
+} from '@/services/loadFailureUi'
 
 interface LoadFailureDialogProps {
   /** 加载失败原因（来自 coreSlice.loadError） */
@@ -21,12 +26,14 @@ interface LoadFailureDialogProps {
  *
  * 本弹窗是该失败状态唯一的出口：重试 / 从备份恢复 / 打开数据目录 / 复制诊断信息。
  * 刻意不允许点击遮罩关闭，避免用户随手点掉后再也想不起来处理。
+ * 「稍后处理」只是**最小化**为一条常驻横幅（不是销毁）：横幅与侧栏 SaveIndicator
+ * 都能随时重新展开本弹窗，恢复入口永远不会丢。
  */
 export const LoadFailureDialog: React.FC<LoadFailureDialogProps> = ({ message }) => {
   const [showBackups, setShowBackups] = useState(false)
   const [backups, setBackups] = useState<BackupInfo[] | null>(null)
   const [busy, setBusy] = useState(false)
-  const [dismissed, setDismissed] = useState(false)
+  const minimized = useSyncExternalStore(subscribeLoadFailureUi, isLoadFailureMinimized)
 
   const loadNotes = useNotesStore((s) => s.loadNotes)
   const trapRef = useFocusTrap<HTMLDivElement>()
@@ -99,10 +106,13 @@ export const LoadFailureDialog: React.FC<LoadFailureDialogProps> = ({ message })
     toast.success('诊断信息已复制')
   }, [message, backups])
 
-  // Esc 只拦截不关闭：数据尚未加载，弹窗是唯一出口
+  // Esc 只拦截不关闭：数据尚未加载，弹窗是唯一出口。
+  // 但「从备份恢复」会叠一个 ConfirmDialog —— 那时 Esc 必须交给确认框（取消），
+  // 否则 stopImmediatePropagation 会把确认框的 Esc 一起吃掉，用户无法取消恢复。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return
+      if (hasPendingConfirm()) return
       e.preventDefault()
       e.stopImmediatePropagation()
     }
@@ -110,7 +120,24 @@ export const LoadFailureDialog: React.FC<LoadFailureDialogProps> = ({ message })
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [])
 
-  if (dismissed) return null
+  // 最小化：不销毁，只收起为常驻横幅。恢复入口永远保留（横幅 + SaveIndicator）。
+  if (minimized) {
+    return (
+      <div className="load-failure-banner" role="alert">
+        <span className="load-failure-banner-icon" aria-hidden="true">⚠️</span>
+        <span className="load-failure-banner-text">
+          数据加载失败，自动保存已暂停 —— 本次打开后的编辑不会保存
+        </span>
+        <button
+          type="button"
+          className="load-failure-banner-action"
+          onClick={() => setLoadFailureMinimized(false)}
+        >
+          去处理
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -177,7 +204,7 @@ export const LoadFailureDialog: React.FC<LoadFailureDialogProps> = ({ message })
           <button type="button" onClick={handleCopyDiagnostics}>
             复制诊断信息
           </button>
-          <button type="button" className="load-failure-dismiss" onClick={() => setDismissed(true)}>
+          <button type="button" className="load-failure-dismiss" onClick={() => setLoadFailureMinimized(true)}>
             稍后处理
           </button>
         </div>

@@ -386,12 +386,12 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 
 ### 7.1 请求缓存（以主进程为权威）
 
-- **缓存键**：`sha256(JSON.stringify({ v: TEMPLATE_VERSION, capability, model, temperature, maxTokens, maxTokensParam, messages }))`。messages 构造顺序固定，`JSON.stringify` 即稳定。
+- **缓存键**：`sha256(JSON.stringify({ v: TEMPLATE_VERSION, capability, model, baseUrl, temperature, maxTokens, maxTokensParam, messages }))`。messages 构造顺序固定，`JSON.stringify` 即稳定。**baseUrl 必须参与**：它决定实际出网目标，换服务商但模型同名（兼容网关普遍同名）时缺它会命中上一家的结果；入键前先经 `normalizeBaseUrl` 归一化，尾斜杠 / 缺省 `/v1` 的等价写法命中同一键。
 - **容量**：100 条、TTL 10 分钟、单条 ≤ 256KB（超限不写入），总内存上界约 8MB。
 - **LRU 实现**：`Map` 插入顺序即使用顺序，命中时 `delete + set` 移到末尾，超容时删最旧。
 - **TTL 惰性判定**：不引入 `setInterval`（主进程里的定时器难以彻底清理，是常见泄漏来源）。
 - 命中时返回 `cached: true`，UI 标「来自缓存」。
-- **`stream` 请求默认不读写缓存**（流式要逐块推送）。
+- **`stream` 请求默认不读写缓存**（流式要逐块推送）。因此设置里保持默认「流式输出」时，连点两次相同润色**不会**命中缓存；只有显式关闭流式（走非流式路径）才有缓存命中。
 - **`temperature > 0` 时结果不唯一**：「重新生成」应带 `bypassCache: true`（跳过读缓存，但仍写缓存）。流式路径天然不走缓存，重新生成即直接请求模型。
 
 ### 7.2 in-flight 去重
@@ -539,7 +539,7 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 这是服务商的真实返回，本应用**不做过滤** —— 按 id 猜测哪些不能用于对话会隐藏合法模型。输入框支持边输入边过滤，直接输入前缀即可缩小范围。
 
 **Q：原文明明没变，为什么点了两次「润色」结果一样？**
-第二次命中了主进程缓存（10 分钟内相同输入）。这是预期行为，用于节省配额；需要不同结果时用「重新生成」（流式路径天然绕过缓存，或走非流式时带 `bypassCache: true`）。
+仅在**关闭了「流式输出」**（走非流式路径）时才会命中主进程缓存（10 分钟内相同输入），用于节省配额；需要不同结果时用「重新生成」（带 `bypassCache: true`）。**默认开启流式时不读写缓存**，连点两次都会真实请求模型——若两次结果相同，那是模型在低 temperature 下的稳定输出，不是缓存。
 
 **Q：如何验证走了缓存？**
 `AiSuccess.cached === true`，UI 会显示「来自缓存」徽标，且 `latencyMs` 通常小于 5ms。
@@ -567,6 +567,7 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 | 1.0.2 | 服务商预设下拉只显示服务商名；模型名称改为可从服务商实时拉取（`GET {baseUrl}/models`）并支持下拉选择 + 手动输入；新增 `ai:models:list` 通道与 `aiClient.config.listModels()`；`parseModelsResponse` 兼容三种响应形状 |
 | 1.0.3 | 修复推理型模型（小米 MiMo 思考模式、DeepSeek-R1 等）被误判为连接失败：新增 `AI_ERR_REASONING_ONLY` 错误码（与 `EMPTY_CONTENT` 区分）；连通性测试输出预算 32 → 256，且可见正文为空时改为「连通成功 + 说明」而非报错；设置页错误提示统一带上错误码与 HTTP 状态便于排查 |
 | 1.0.4 | 应用服务商预设时**不再自动填入默认模型**，模型必须从实时列表显式选择；模型名为空时禁用「测试连接」「保存配置」并给出提示（避免主进程不接受空模型名导致旧模型被静默沿用）；预设的 `model` 改为仅作输入框示例提示；新增 `presetToFormPatch` 纯函数与回归测试 |
+| 1.0.5 | 审计修复批次：① 缓存键加入归一化 `baseUrl`（换服务商同名模型不再串缓存）；② `presetToFormPatch` 恒返回 `maxTokensParam`（MiMo 切回其他服务商不残留 `max_completion_tokens`）；③ SSE 任何 data 帧（含 `reasoning_content`）触发活跃信号，重置流式首包/空闲计时，修复推理模型思考 >20s 被误判超时；超时文案按实际计时段取值；④ AI 设置首字段编辑不再重置其余配置（含 consent）；⑤ AI 错误条对配置类错误提供「去设置」直达 AI 页签；⑥ 设置页关闭前对未保存 AI 配置弹确认、清除密钥走 danger 确认、面板接入焦点陷阱；⑦ 非流式请求登记 requestId，`ai:cancel` 可中止在途 fetch |
 
 ### TEMPLATE_VERSION 递增规则
 
@@ -581,4 +582,4 @@ window.notesApi.aiStreamStart({ ...payload, requestId }) // ② 再启动
 
 **无需递增**：纯代码重构、注释调整、日志改动。
 
-递增后旧缓存自然失效（键不同），无需手动清缓存。当前值：`1.0.0`。
+递增后旧缓存自然失效（键不同），无需手动清缓存。当前值：`1.0.1`（buildMessages 开始消费 instructions 时递增；本批审计修复未改模板文案/映射，故不再递增）。

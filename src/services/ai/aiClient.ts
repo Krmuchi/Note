@@ -27,7 +27,7 @@ import type {
   TransformInput,
 } from '@/types/ai'
 
-import { createAbortedError, isAiFailure, normalizeAiError } from './errors'
+import { createAbortedError, fallbackMessage, isAiFailure, normalizeAiError } from './errors'
 import { createRequestId, openStreamSession } from './stream'
 
 export type AiTaskSpec =
@@ -121,27 +121,84 @@ function dedupeKey(task: AiTaskSpec, bypassCache: boolean): string {
   ])
 }
 
-async function invokeNonStream(task: AiTaskSpec, bypassCache: boolean): Promise<AiResponse> {
+/**
+ * 非流式调用。
+ *
+ * CallOptions 契约（旧实现把 signal/timeoutMs 静默丢弃，调用方以为能取消/限时，实际不能）：
+ * - signal：已 abort 直接返回 ABORTED；在途 abort 立即以 ABORTED 结算，不再等待底层请求；
+ * - timeoutMs：等待超过该时长立即以 TIMEOUT 结算；
+ * - 两者触发时都会 best-effort 发 ai:cancel(requestId) 通知主进程中止底层 fetch
+ *   （主进程对未登记的 requestId 返回 cancelled:false，无副作用）。
+ * - 带 signal/timeoutMs 的请求**不参与同 key 去重**：一个调用方的取消/超时
+ *   不能把复用同一 Promise 的其他调用方一起结算掉。
+ */
+async function invokeNonStream(task: AiTaskSpec, options?: CallOptions): Promise<AiResponse> {
   const api = getApi()
   if (!api) return NOT_AVAILABLE
 
-  const key = dedupeKey(task, bypassCache)
-  const pending = inFlight.get(key)
-  if (pending) return pending
+  const signal = options?.signal
+  const timeoutMs = options?.timeoutMs !== undefined && options.timeoutMs > 0 ? options.timeoutMs : null
+  const bypassCache = options?.bypassCache === true
 
-  const promise = (async (): Promise<AiResponse> => {
+  if (signal?.aborted) return failure(createAbortedError())
+
+  const dedupe = !signal && timeoutMs === null
+  const key = dedupeKey(task, bypassCache)
+  if (dedupe) {
+    const pending = inFlight.get(key)
+    if (pending) return pending
+  }
+
+  const requestId = createRequestId()
+  const request = (async (): Promise<AiResponse> => {
     try {
-      const result = await api.aiGenerate({ ...buildPayload(task, createRequestId()), bypassCache })
+      const result = await api.aiGenerate({ ...buildPayload(task, requestId), bypassCache })
       return isAiFailure(result) ? failure(result.error) : result
     } catch (err) {
       return failure(err)
     } finally {
-      inFlight.delete(key)
+      if (dedupe) inFlight.delete(key)
     }
   })()
 
-  inFlight.set(key, promise)
-  return promise
+  if (dedupe) {
+    inFlight.set(key, request)
+    return request
+  }
+
+  // 取消/超时与底层请求赛跑：先结算者生效，后到的结果被忽略
+  return new Promise<AiResponse>((resolve) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const finish = (response: AiResponse): void => {
+      if (settled) return
+      settled = true
+      if (timer !== null) clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      resolve(response)
+    }
+    const cancelUnderlying = (): void => {
+      if (typeof api.aiCancel === 'function') {
+        void api.aiCancel(requestId).catch(() => {
+          /* best-effort：通道异常不影响本地已结算的结果 */
+        })
+      }
+    }
+    const onAbort = (): void => {
+      cancelUnderlying()
+      finish(failure(createAbortedError()))
+    }
+
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (timeoutMs !== null) {
+      timer = setTimeout(() => {
+        cancelUnderlying()
+        finish(failure({ code: 'AI_ERR_TIMEOUT', message: fallbackMessage('AI_ERR_TIMEOUT'), retryable: true }))
+      }, timeoutMs)
+    }
+    void request.then(finish)
+  })
 }
 
 async function getConfig(): Promise<AiConfigView | AiFailure> {
@@ -277,18 +334,15 @@ async function batch(tasks: AiTaskSpec[], options?: BatchOptions): Promise<AiRes
 
 export const aiClient = {
   generate(input: GenerateInput, options?: CallOptions): Promise<AiResponse> {
-    return invokeNonStream(
-      { capability: 'generate', ...input },
-      options?.bypassCache === true,
-    )
+    return invokeNonStream({ capability: 'generate', ...input }, options)
   },
 
   optimize(input: OptimizeInput, options?: CallOptions): Promise<AiResponse> {
-    return invokeNonStream({ capability: 'optimize', ...input }, options?.bypassCache === true)
+    return invokeNonStream({ capability: 'optimize', ...input }, options)
   },
 
   transform(input: TransformInput, options?: CallOptions): Promise<AiResponse> {
-    return invokeNonStream({ capability: 'transform', ...input }, options?.bypassCache === true)
+    return invokeNonStream({ capability: 'transform', ...input }, options)
   },
 
   stream,

@@ -4,7 +4,16 @@ import type { JSX } from 'react';
 import type { WritingLength, WritingStyle } from '@/types/ai';
 import { INSTRUCTIONS_MAX_LENGTH, WRITING_LENGTHS, WRITING_STYLES, shouldOfferRetry } from '@/services/ai';
 import { useAiWriter } from '@/hooks/useAiWriter';
+import { uiActions } from '@/hooks/useUIState';
 import { IconSparkle } from '@/components/common/Icon';
+
+/** 这些错误靠重试解决不了，必须给用户一条「去设置」的出路 */
+const SETTINGS_ERROR_CODES = new Set([
+  'AI_ERR_NOT_CONFIGURED',
+  'AI_ERR_AUTH',
+  'AI_ERR_FORBIDDEN',
+  'AI_ERR_NOT_FOUND',
+]);
 
 interface AiWriterProps {
   isOpen: boolean;
@@ -222,6 +231,14 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps): 
                   <span className="ai-error-text">{error.message}</span>
                   {typeof error.attempts === 'number' && error.attempts > 1 && (
                     <span className="ai-error-attempts">已尝试 {error.attempts} 次</span>
+                  )}
+                  {SETTINGS_ERROR_CODES.has(error.code) && (
+                    <button
+                      className="action-btn secondary"
+                      onClick={() => uiActions.openSettings('ai')}
+                    >
+                      去设置
+                    </button>
                   )}
                 </div>
               )}

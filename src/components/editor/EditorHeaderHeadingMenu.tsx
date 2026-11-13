@@ -57,7 +57,7 @@ export const EditorHeaderHeadingMenu: React.FC<EditorHeaderHeadingMenuProps> = (
     <div className="eh-dropdown" ref={menuRef}>
       <button
         className={`eh-icon-btn eh-btn-text ${currentHeading() !== 'paragraph' ? 'active' : ''}`}
-        onClick={() => setOpen(!open)}
+        data-eh-menu-trigger onClick={() => setOpen(!open)}
         title="段落样式"
       >
         {headingLabel()}

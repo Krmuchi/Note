@@ -5,6 +5,8 @@ import type { ShareLink } from "@/types";
 import { useNotesStore } from "@/store";
 import { exportHtmlDoc } from "@/services/storage";
 import { toast } from "@/components/common/Toast";
+import { confirmAction } from "@/hooks/useConfirmAction";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 /**
  * 分享面板组件属性接口
@@ -56,7 +58,12 @@ export default function SharePanel({
   onDeleteLink,
   onCopyLink,
 }: SharePanelProps): JSX.Element | null {
+  // 弹窗焦点陷阱：Tab 在面板内循环，关闭后归还焦点（A2）
+  const trapRef = useFocusTrap<HTMLDivElement>();
   const [selectedPermission, setSelectedPermission] = useState('view');
+  // 密码保护用独立布尔态，而不是往 password 里塞空格占位 ——
+  // 旧实现勾选即 setPassword(' ')，不输入就生成会得到一条「单空格密码」的链接
+  const [passwordEnabled, setPasswordEnabled] = useState(false);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [expireOption, setExpireOption] = useState<string | null>(null);
@@ -71,7 +78,9 @@ export default function SharePanel({
   }, [isOpen]);
 
   /**
-   * 处理生成分享链接
+   * 处理生成分享链接。
+   * 只有「启用密码保护且密码非空白」才真正带密码；勾选了但没填，按无密码生成并提示，
+   * 避免落库一条用户以为有锁、实际密码是空白的链接。
    */
   const handleGenerate = (): void => {
     let expiresAt: string | null = null;
@@ -81,8 +90,14 @@ export default function SharePanel({
       expireDate.setDate(expireDate.getDate() + days);
       expiresAt = expireDate.toISOString();
     }
-    onGenerateLink(selectedPermission, password, expiresAt);
+    const effectivePassword = passwordEnabled ? password.trim() : '';
+    if (passwordEnabled && !effectivePassword) {
+      toast.warning('未填写密码，已按无密码保护生成链接');
+    }
+    onGenerateLink(selectedPermission, effectivePassword, expiresAt);
     setPassword('');
+    setPasswordEnabled(false);
+    setShowPassword(false);
     setExpireOption(null);
   };
 
@@ -119,6 +134,20 @@ export default function SharePanel({
     setCopiedUrl(url);
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     copiedTimerRef.current = window.setTimeout(() => setCopiedUrl(null), 2000);
+  };
+
+  /**
+   * 删除分享链接是破坏性操作（链接与其访问记录一并移除），走全局 danger 确认，
+   * 与全站其它删除交互保持一致，避免误点即丢。
+   */
+  const handleDeleteLink = (linkId: string): void => {
+    confirmAction({
+      title: '删除分享链接',
+      message: '确定要删除这条分享链接吗？删除后该链接及其访问记录将一并移除，此操作无法撤销。',
+      confirmText: '删除',
+      variant: 'danger',
+      onConfirm: () => onDeleteLink(linkId),
+    });
   };
 
   /**
@@ -169,11 +198,18 @@ export default function SharePanel({
 
   return (
     <div className="share-panel-overlay" onClick={onClose}>
-      <div className="share-panel" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={trapRef}
+        className="share-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="分享文档"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* 头部 */}
         <div className="share-panel-header">
           <h3 className="share-panel-title">分享文档</h3>
-          <button className="share-panel-close" onClick={onClose}>×</button>
+          <button className="share-panel-close" onClick={onClose} aria-label="关闭">×</button>
         </div>
 
         <div className="share-panel-body">
@@ -214,24 +250,24 @@ export default function SharePanel({
                 <label className="share-form-label">
                   <input
                     type="checkbox"
-                    checked={!!password}
+                    checked={passwordEnabled}
                     onChange={(e) => {
-                      if (!e.target.checked) {
+                      const enabled = e.target.checked;
+                      setPasswordEnabled(enabled);
+                      if (!enabled) {
                         setPassword('');
                         setShowPassword(false);
-                      } else {
-                        setPassword(' ');
                       }
                     }}
                     className="share-checkbox"
                   />
                   设置密码保护
                 </label>
-                {password !== '' && (
+                {passwordEnabled && (
                   <div className="share-password-wrapper">
                     <input
                       type={showPassword ? 'text' : 'password'}
-                      value={password.trim()}
+                      value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="请输入密码"
                       className="share-password-input"
@@ -323,7 +359,7 @@ export default function SharePanel({
                     </div>
                     <button
                       className="share-delete-btn"
-                      onClick={() => onDeleteLink(link.id)}
+                      onClick={() => handleDeleteLink(link.id)}
                     >
                       删除
                     </button>

@@ -18,13 +18,16 @@ vi.mock('@/hooks/useConfirmAction', () => ({
 }))
 
 import BackupPanel from '@/components/settings/BackupPanel'
-import { listLocalBackups, restoreLocalBackup, openDataDir } from '@/services/storage'
+import { listLocalBackups, restoreLocalBackup, openDataDir, loadAppStore } from '@/services/storage'
 import { confirmAction } from '@/hooks/useConfirmAction'
+import { toast } from '@/services/toast'
+import { useNotesStore } from '@/store'
 
 const mockedList = listLocalBackups as unknown as ReturnType<typeof vi.fn>
 const mockedRestore = restoreLocalBackup as unknown as ReturnType<typeof vi.fn>
 const mockedOpenDir = openDataDir as unknown as ReturnType<typeof vi.fn>
 const mockedConfirm = confirmAction as unknown as ReturnType<typeof vi.fn>
+const mockedLoad = loadAppStore as unknown as ReturnType<typeof vi.fn>
 
 const backups = [
   { name: 'backup-2026-10-01.json', size: 2048, createdAt: '2026-10-01T10:00:00.000Z', auto: true },
@@ -37,6 +40,7 @@ beforeEach(() => {
   mockedList.mockResolvedValue({ ok: true, backups })
   mockedRestore.mockResolvedValue({ ok: true, restoredAt: '2026-10-01T12:00:00.000Z' })
   mockedOpenDir.mockResolvedValue({ ok: true })
+  useNotesStore.setState({ loadFailed: false, loadError: null })
 })
 
 describe('BackupPanel', () => {
@@ -76,6 +80,23 @@ describe('BackupPanel', () => {
     await config.onConfirm()
     expect(mockedRestore).toHaveBeenCalledWith('backup-2026-10-01.json')
     expect(mockedList).toHaveBeenCalledTimes(2) // 初始加载 + 恢复后刷新
+  })
+
+  it('恢复后重载仍失败：按 loadFailed 分支提示，不谎报「已恢复」（缺陷 14）', async () => {
+    mockedLoad.mockResolvedValueOnce({ ok: false, error: '磁盘文件损坏' })
+    const errorSpy = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    const successSpy = vi.spyOn(toast, 'success').mockImplementation(() => '')
+
+    const { container } = render(<BackupPanel />)
+    await waitFor(() => expect(screen.getByText('共 2 份')).toBeInTheDocument())
+    fireEvent.click(container.querySelectorAll('.backup-item')[0])
+    const config = mockedConfirm.mock.calls[0][0] as { onConfirm: () => Promise<void> }
+    await config.onConfirm()
+
+    expect(errorSpy).toHaveBeenCalledWith('已覆盖数据文件，但仍无法读取，请复制诊断信息后手工处理')
+    expect(successSpy).not.toHaveBeenCalledWith('已从备份恢复数据')
+    errorSpy.mockRestore()
+    successSpy.mockRestore()
   })
 
   it('打开数据目录', async () => {

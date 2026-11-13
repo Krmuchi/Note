@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNotesStore } from '@/store';
 import { modKey } from '@/utils/platform';
 import { IconBook } from '@/components/common/Icon';
+import { resolveTargetNotebookId } from '@/utils/targetNotebook';
 
 interface SidebarHeaderProps {
   searchText: string;
@@ -20,7 +21,6 @@ export const SidebarHeader: React.FC<SidebarHeaderProps> = ({
   searchText,
   onSearchChange,
   onSearchPanelOpen,
-  activeNotebookId,
   onOpenDoc,
   showMenuButton = false,
   menuOpen = false,
@@ -95,10 +95,13 @@ export const SidebarHeader: React.FC<SidebarHeaderProps> = ({
         <button
           className="sidebar-add-btn"
           onClick={() => {
-            if (activeNotebookId) {
-              const docId = useNotesStore.getState().createDoc(activeNotebookId, null);
-              if (docId) onOpenDoc?.(activeNotebookId, docId);
-            }
+            // 空库兜底：与 StartPage / Ctrl+N 共用同一套目标知识库解析，
+            // 一个知识库都没有时自动创建「我的知识库」，而不是点了毫无反应
+            const state = useNotesStore.getState();
+            const notebookId = resolveTargetNotebookId(state);
+            if (!notebookId) return;
+            const docId = state.createDoc(notebookId, null);
+            if (docId) onOpenDoc?.(notebookId, docId);
           }}
           title="新建文档"
           aria-label="新建文档"

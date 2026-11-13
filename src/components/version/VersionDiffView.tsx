@@ -25,10 +25,41 @@ export default function VersionDiffView({
   onCompare,
 }: VersionDiffViewProps): JSX.Element {
   /**
-   * 渲染版本对比内容
+   * 渲染版本对比内容。
+   * 缺任一侧时给出明确的引导空态，而不是一片空白 ——
+   * 用户需要知道"还差哪一步"才能看到 diff。
    */
-  const renderDiff = (): JSX.Element | null => {
-    if (!selectedVersion || !compareVersion) return null;
+  const renderDiff = (): JSX.Element => {
+    if (!selectedVersion && !compareVersion) {
+      return (
+        <div className="version-empty">
+          <span className="version-empty-icon">🔍</span>
+          <span className="version-empty-text">
+            先在左侧列表选一个版本，点「设为对比基准」，再选另一个版本即可对比
+          </span>
+        </div>
+      );
+    }
+    if (!compareVersion) {
+      return (
+        <div className="version-empty">
+          <span className="version-empty-icon">🔍</span>
+          <span className="version-empty-text">
+            已选当前版本，请在上方下拉选择要对比的历史版本（或点「设为对比基准」固定当前版本）
+          </span>
+        </div>
+      );
+    }
+    if (!selectedVersion) {
+      return (
+        <div className="version-empty">
+          <span className="version-empty-icon">🔍</span>
+          <span className="version-empty-text">
+            已固定对比基准，请在左侧列表选择另一个版本作为当前版本
+          </span>
+        </div>
+      );
+    }
 
     const currentContent = selectedVersion.content.split('\n');
     const compareContent = compareVersion.content.split('\n');
@@ -96,8 +127,17 @@ export default function VersionDiffView({
             </option>
           ))}
         </select>
-        <button className="compare-btn" onClick={onCompare}>
-          对比
+        <button
+          className="compare-btn"
+          onClick={onCompare}
+          disabled={!selectedVersion}
+          title={
+            selectedVersion
+              ? '把当前选中的版本固定为对比基准，再在列表选另一个版本即可看差异'
+              : '请先在左侧列表选择一个版本'
+          }
+        >
+          设为对比基准
         </button>
       </div>
       {renderDiff()}

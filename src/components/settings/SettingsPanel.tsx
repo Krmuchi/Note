@@ -1,10 +1,7 @@
 import '@/styles/settings.css';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
 import { useTheme, THEME_OPTIONS, useFont, FONT_OPTIONS, applyCustomPrimaryColor } from '@/shared/hooks';
-import { useNotesStore } from '@/store';
-import { modKey } from '@/utils/platform';
-import { formatKeyLabel } from '@/utils/shortcuts';
 import { aiClient } from '@/services/ai';
 // 别名导入：本地 state setter 也叫 setAppSettings，直接用会互相遮蔽
 import { getAppInfo, getAppSettings, openDataDir, setAppSettings as saveAppSettings } from '@/services/storage';
@@ -24,16 +21,17 @@ import {
   relaunchApp,
 } from '@/services/storage';
 import { confirmAction } from '@/hooks/useConfirmAction';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { CrashLogResult, FileAssociationState, UpdateCheckResult } from '@/types';
 import { copyToClipboard } from '@/utils/clipboard';
 import { requestOnboarding } from '@/utils/onboarding';
 import { setRichEditorEnabled, useRichEditorEnabled } from '@/utils/richEditorFlag';
-import { uiActions, useUIState } from '@/hooks/useUIState';
+import { uiActions, useUIState, useUIStateSelector } from '@/hooks/useUIState';
+import type { SettingsTabId } from '@/hooks/useUIState';
 import { toast } from '@/services/toast';
 import type { AiConfigView, AiFailure } from '@/types/ai';
 import AiSettingsTab from './AiSettingsTab';
-
-type SettingsTabId = 'general' | 'editor' | 'ai' | 'shortcuts';
+import ShortcutsTab from './ShortcutsTab';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -60,7 +58,15 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
   const { setFontSize } = uiActions;
   /** 富文本内核开关：切换后编辑器立即生效，不需要刷新页面 */
   const richEditorEnabled = useRichEditorEnabled();
-  const [activeTab, setActiveTab] = useState<SettingsTabId>('general');
+  /**
+   * 页签以全局 UI store 为单一数据源：AI 错误条的「去设置」通过
+   * uiActions.openSettings('ai') 打开并定位页签，面板已打开时也能即时切换。
+   */
+  const activeTab = useUIStateSelector((s) => s.settingsTab);
+  /** AI 设置是否有未保存修改（AiSettingsTab 上报）：关闭前据此弹确认 */
+  const aiSettingsDirty = useUIStateSelector((s) => s.aiSettingsDirty);
+  /** 焦点陷阱：Tab 在面板内循环，关闭后归还焦点（A2） */
+  const panelRef = useFocusTrap<HTMLDivElement>(isOpen);
   /** 关于信息（版本 / 数据目录）：面板打开时读取一次 */
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   /** 错误日志（R3）：进入面板时读取一次，清空后同步刷新 */
@@ -79,16 +85,6 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
   const [fileAssociation, setFileAssociationState] = useState<FileAssociationState | null>(null);
   /** 平台集成能力（崩溃记录 / 检查更新）只在 Electron 下存在 */
   const isElectronMode = !isWebModeRaw;
-  // 键位单一数据源：读 keyboardSlice（含用户自定义覆盖），避免与编辑器/快捷键帮助漂移
-  const shortcuts = useNotesStore((s) => s.shortcuts);
-
-  const shortcutGroups = useMemo(() => {
-    const map = new Map<string, typeof shortcuts>();
-    shortcuts.forEach((s) => {
-      map.set(s.category, [...(map.get(s.category) ?? []), s]);
-    });
-    return [...map.entries()].map(([category, items]) => ({ category, items }));
-  }, [shortcuts]);
 
   useEffect(() => {
     if (!isOpen || appInfo) return;
@@ -264,14 +260,47 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
     toast.success('错误日志已清空');
   }, []);
 
-  const handleSelectTab = useCallback(
-    (tabId: SettingsTabId) => {
-      setActiveTab(tabId);
-      if (tabId !== 'ai' || aiConfig !== null) return;
-      void aiClient.config.get().then(setAiConfig);
-    },
-    [aiConfig],
-  );
+  const handleSelectTab = useCallback((tabId: SettingsTabId): void => {
+    uiActions.setSettingsTab(tabId);
+  }, []);
+
+  /**
+   * AI 配置在页签可见时加载：既覆盖手动点页签，也覆盖「去设置」直接以 ai 页签打开。
+   * 异步回调里 setState（与 appInfo/appSettings 同一模式），不在 effect 中同步 setState。
+   */
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'ai' || aiConfig !== null) return;
+    let alive = true;
+    void aiClient.config.get().then((result) => {
+      if (alive) setAiConfig(result);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [isOpen, activeTab, aiConfig]);
+
+  /**
+   * 关闭守卫：AI 页签有未保存修改（草稿或未保存的密钥）时先弹确认，
+   * 避免用户点遮罩/× 把填了一半的配置静默丢掉。全局 Esc 链由 App 层消费
+   * 同一个 aiSettingsDirty 标志，走同样的确认语义。
+   */
+  const requestClose = useCallback((): void => {
+    if (aiSettingsDirty) {
+      confirmAction({
+        title: '有未保存的 AI 配置',
+        message: 'AI 设置中还有未保存的修改（可能包含尚未保存的 API Key）。现在关闭会丢失这些修改，确定要关闭吗？',
+        confirmText: '放弃修改并关闭',
+        cancelText: '继续编辑',
+        variant: 'danger',
+        onConfirm: () => {
+          uiActions.setAiSettingsDirty(false);
+          onClose();
+        },
+      });
+      return;
+    }
+    onClose();
+  }, [aiSettingsDirty, onClose]);
   const [customColor, setCustomColor] = useState(() => {
     // 从 localStorage 加载自定义颜色
     try {
@@ -304,11 +333,11 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
   ];
 
   return (
-    <div className="settings-overlay" onClick={onClose}>
-      <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
+    <div className="settings-overlay" onClick={requestClose}>
+      <div className="settings-panel" ref={panelRef} onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
           <h2 className="settings-title">⚙️ 设置</h2>
-          <button className="settings-close" onClick={onClose}>×</button>
+          <button className="settings-close" onClick={requestClose}>×</button>
         </div>
 
         <div className="settings-tabs">
@@ -674,31 +703,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
 
           {activeTab === 'ai' && <AiSettingsTab initial={aiConfig} onViewChange={setAiConfig} />}
 
-          {activeTab === 'shortcuts' && (
-            <div className="settings-section">
-              <h3 className="settings-section-title">快捷键列表</h3>
-              <div className="settings-shortcuts-list">
-                {shortcutGroups.map(group => (
-                  <div key={group.category} className="settings-shortcut-group">
-                    <h4 className="settings-shortcut-group-title">{group.category}</h4>
-                    {group.items.map(item => (
-                      <div key={item.id} className="settings-shortcut-item">
-                        <span className="settings-shortcut-desc">{item.name}</span>
-                        <span className="settings-shortcut-keys">
-                          {item.keys.map((key, i) => (
-                            <span key={i}>
-                              <kbd>{key === 'ctrl' ? modKey : formatKeyLabel(key)}</kbd>
-                              {i < item.keys.length - 1 && <span>+</span>}
-                            </span>
-                          ))}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {activeTab === 'shortcuts' && <ShortcutsTab />}
         </div>
       </div>
     </div>

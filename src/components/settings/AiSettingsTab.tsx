@@ -9,12 +9,13 @@
  * 表单是「受控草稿」：draft 为 null 时直接从 view 派生，用户一旦编辑才落成草稿。
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { JSX } from 'react'
 
 import type { AiConfigPatch, AiConfigView, AiError, AiFailure, MaxTokensParam } from '@/types/ai'
 import { aiClient, isAiFailure, PROVIDER_PRESETS, presetToFormPatch } from '@/services/ai'
 import { confirmAction } from '@/hooks/useConfirmAction'
+import { uiActions } from '@/hooks/useUIState'
 
 interface AiFormState {
   baseUrl: string
@@ -120,6 +121,17 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
   const loadError = initial && isAiFailure(initial) ? initial.error : null
   const form = draft ?? (view ? toForm(view) : EMPTY_FORM)
 
+  /**
+   * 未保存修改上报到全局 UI store：设置面板关闭（遮罩 / × / 全局 Esc）前
+   * 据此弹「有未保存的 AI 配置」确认，避免草稿与未保存的密钥被静默丢弃。
+   * 写外部 store 而非本地 setState，不违反 set-state-in-effect 约束。
+   */
+  const dirty = draft !== null || apiKeyInput.trim() !== ''
+  useEffect(() => {
+    uiActions.setAiSettingsDirty(dirty)
+  }, [dirty])
+  useEffect(() => () => uiActions.setAiSettingsDirty(false), [])
+
   const applyView = useCallback(
     (next: AiConfigView): void => {
       setOverride(next)
@@ -129,10 +141,17 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
     [onViewChange],
   )
 
-  const patchForm = useCallback((changes: Partial<AiFormState>): void => {
-    setDraft((prev) => ({ ...(prev ?? EMPTY_FORM), ...changes }))
-    setStatus(null)
-  }, [])
+  const patchForm = useCallback(
+    (changes: Partial<AiFormState>): void => {
+      // 草稿基底必须是「当前展示的表单」而不是 EMPTY_FORM：
+      // 旧写法在首次编辑（prev === null）时把其余字段全部重置成默认值，
+      // 用户只改一个 temperature 就会丢掉 baseUrl/model，consent 也被打回 false，
+      // 保存后 AI 反而变成「未配置」。
+      setDraft((prev) => ({ ...(prev ?? (view ? toForm(view) : EMPTY_FORM)), ...changes }))
+      setStatus(null)
+    },
+    [view],
+  )
 
   const handleApplyPreset = useCallback(
     (presetId: string): void => {
@@ -225,15 +244,26 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
     setSaving(false)
   }, [form, apiKeyInput, applyView])
 
-  const handleClearKey = useCallback(async (): Promise<void> => {
-    const result = await aiClient.config.set({ apiKey: '' })
-    if (isAiFailure(result)) {
-      setStatus({ kind: 'error', text: result.error.message })
-    } else {
-      applyView(result)
-      setApiKeyInput('')
-      setStatus({ kind: 'success', text: 'API Key 已清除' })
-    }
+  const handleClearKey = useCallback((): void => {
+    // 破坏性操作：清除后 AI 功能立即不可用，必须二次确认（与「重置」同一套交互）
+    confirmAction({
+      title: '清除 API Key',
+      message: '清除后所有 AI 功能将不可用，需要重新填写密钥才能恢复。确定要清除吗？',
+      confirmText: '清除密钥',
+      variant: 'danger',
+      onConfirm: () => {
+        void (async () => {
+          const result = await aiClient.config.set({ apiKey: '' })
+          if (isAiFailure(result)) {
+            setStatus({ kind: 'error', text: result.error.message })
+          } else {
+            applyView(result)
+            setApiKeyInput('')
+            setStatus({ kind: 'success', text: 'API Key 已清除' })
+          }
+        })()
+      },
+    })
   }, [applyView])
 
   const handleReset = useCallback((): void => {

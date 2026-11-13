@@ -6,6 +6,7 @@ import { modKey } from '@/utils/platform';
 import { formatDateTime } from '@/utils/formatters';
 import { EmptyState } from '@/components/common/EmptyState';
 import { IconLightbulb } from '@/components/common/Icon';
+import { confirmAction } from '@/hooks/useConfirmAction';
 
 export default function QuickNotePanel(): JSX.Element {
   const tags = useNotesStore(s => s.tags);
@@ -19,6 +20,7 @@ export default function QuickNotePanel(): JSX.Element {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
+  const [editingTags, setEditingTags] = useState<string[]>([]);
 
   // 加载快捷笔记
   useEffect(() => {
@@ -32,21 +34,36 @@ export default function QuickNotePanel(): JSX.Element {
     setSelectedTags([]);
   }, [inputValue, selectedTags, addQuickNote]);
 
+  // 删除是不可撤销的破坏性操作（小记不进回收站）：必须确认，与全站其它删除交互一致
   const handleDelete = useCallback((id: string) => {
-    deleteQuickNote(id);
+    confirmAction({
+      title: '删除小记',
+      message: '删除后无法恢复，确定要删除这条小记吗？',
+      confirmText: '删除',
+      variant: 'danger',
+      onConfirm: () => deleteQuickNote(id),
+    });
   }, [deleteQuickNote]);
 
-  const handleStartEdit = useCallback((note: { id: string; content: string }) => {
+  const handleStartEdit = useCallback((note: { id: string; content: string; tags: string[] }) => {
     setEditingId(note.id);
     setEditingContent(note.content);
+    setEditingTags(note.tags);
   }, []);
 
   const handleSaveEdit = useCallback(() => {
     if (!editingId || !editingContent.trim()) return;
-    updateQuickNote(editingId, editingContent.trim());
+    updateQuickNote(editingId, editingContent.trim(), editingTags);
     setEditingId(null);
     setEditingContent('');
-  }, [editingId, editingContent, updateQuickNote]);
+    setEditingTags([]);
+  }, [editingId, editingContent, editingTags, updateQuickNote]);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingId(null);
+    setEditingContent('');
+    setEditingTags([]);
+  }, []);
 
   const toggleTag = useCallback((tagId: string) => {
     setSelectedTags(prev =>
@@ -54,8 +71,37 @@ export default function QuickNotePanel(): JSX.Element {
     );
   }, []);
 
+  const toggleEditingTag = useCallback((tagId: string) => {
+    setEditingTags(prev =>
+      prev.includes(tagId) ? prev.filter(t => t !== tagId) : [...prev, tagId]
+    );
+  }, []);
+
   const formatTime = (dateStr: string): string =>
     formatDateTime(dateStr, { prefixToday: true });
+
+  /** 标签选择器：新建与编辑共用。展示全部标签（容器限高滚动），不再截断前 8 个 */
+  const renderTagPicker = (selected: string[], onToggle: (id: string) => void): JSX.Element | null => {
+    if (tags.length === 0) return null;
+    return (
+      <div className="quick-note-tags-select" role="group" aria-label="选择标签">
+        {tags.map(tag => (
+          <button
+            key={tag.id}
+            type="button"
+            className={`quick-note-tag-chip ${selected.includes(tag.id) ? 'selected' : ''}`}
+            aria-pressed={selected.includes(tag.id)}
+            onClick={() => onToggle(tag.id)}
+            style={selected.includes(tag.id) ? { backgroundColor: tag.color + '30', borderColor: tag.color, color: tag.color } : undefined}
+          >
+            {tag.icon} {tag.name}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  const editEmpty = editingId !== null && !editingContent.trim();
 
   return (
     <div className="quick-note-panel">
@@ -79,18 +125,7 @@ export default function QuickNotePanel(): JSX.Element {
           rows={3}
         />
         <div className="quick-note-input-footer">
-          <div className="quick-note-tags-select">
-            {tags.slice(0, 8).map(tag => (
-              <button
-                key={tag.id}
-                className={`quick-note-tag-chip ${selectedTags.includes(tag.id) ? 'selected' : ''}`}
-                onClick={() => toggleTag(tag.id)}
-                style={selectedTags.includes(tag.id) ? { backgroundColor: tag.color + '30', borderColor: tag.color, color: tag.color } : undefined}
-              >
-                {tag.icon} {tag.name}
-              </button>
-            ))}
-          </div>
+          {renderTagPicker(selectedTags, toggleTag)}
           <button
             className="quick-note-add-btn"
             onClick={handleAdd}
@@ -123,15 +158,26 @@ export default function QuickNotePanel(): JSX.Element {
                         handleSaveEdit();
                       }
                       if (e.key === 'Escape') {
-                        setEditingId(null);
+                        handleCancelEdit();
                       }
                     }}
                     rows={3}
                     autoFocus
                   />
+                  {renderTagPicker(editingTags, toggleEditingTag)}
+                  {editEmpty && (
+                    <p className="quick-note-edit-hint">内容不能为空；如需移除请取消编辑后删除该小记</p>
+                  )}
                   <div className="quick-note-edit-actions">
-                    <button className="quick-note-edit-save" onClick={handleSaveEdit}>保存</button>
-                    <button className="quick-note-edit-cancel" onClick={() => setEditingId(null)}>取消</button>
+                    <button
+                      className="quick-note-edit-save"
+                      onClick={handleSaveEdit}
+                      disabled={editEmpty}
+                      title={editEmpty ? '内容不能为空' : undefined}
+                    >
+                      保存
+                    </button>
+                    <button className="quick-note-edit-cancel" onClick={handleCancelEdit}>取消</button>
                   </div>
                 </div>
               ) : (

@@ -12,7 +12,16 @@ import type { OptimizeAction, WritingStyle } from '@/types/ai'
 import { INSTRUCTIONS_MAX_LENGTH, OPTIMIZE_ACTIONS, WRITING_STYLES, shouldOfferRetry } from '@/services/ai'
 import { useAiTaskStream } from '@/hooks/useAiTaskStream'
 import type { AiTaskSpec } from '@/services/ai/aiClient'
+import { uiActions } from '@/hooks/useUIState'
 import { IconSparkle } from '@/components/common/Icon'
+
+/** 这些错误靠重试解决不了，必须给用户一条「去设置」的出路 */
+const SETTINGS_ERROR_CODES = new Set([
+  'AI_ERR_NOT_CONFIGURED',
+  'AI_ERR_AUTH',
+  'AI_ERR_FORBIDDEN',
+  'AI_ERR_NOT_FOUND',
+])
 
 interface AiSelectionMenuProps {
   selection: { start: number; end: number; text: string }
@@ -198,6 +207,19 @@ export default function AiSelectionMenu({ selection, position, onApply, onClose 
             <div className="ai-error-bar">
               <span className="ai-error-code">{error.code}</span>
               <span className="ai-error-text">{error.message}</span>
+              {SETTINGS_ERROR_CODES.has(error.code) && (
+                <button
+                  className="ai-selection-btn secondary"
+                  type="button"
+                  onClick={() => {
+                    uiActions.openSettings('ai')
+                    // 浮层让位给设置面板；选区快照随之失效，配置好后重新划词即可
+                    onClose()
+                  }}
+                >
+                  去设置
+                </button>
+              )}
             </div>
           )}
 

@@ -11,6 +11,7 @@ import { useNotesStore } from "@/store";
 import { formatDateTime } from "@/utils/formatters";
 import { getUpdatedTime } from "@/utils/docSort";
 import { applyTemplateVars } from "@/utils/templateVars";
+import { resolveTargetNotebookId } from "@/utils/targetNotebook";
 import type { NoteDoc, Notebook } from "@/types";
 import type { Template } from "@/types/templates";
 import TemplateCenter from "@/components/templates/TemplateCenter";
@@ -105,21 +106,8 @@ export default function StartPage({
 }: StartPageProps): JSX.Element {
   // 组件内自行订阅 notebooks，避免 App 顶层订阅整个 notebooks 导致每次击键全 App 重渲染
   const notebooks = useNotesStore((s) => s.notebooks);
-  const activeNotebookId = useNotesStore((s) => s.activeNotebookId);
   const recordTemplateUsage = useNotesStore((s) => s.recordTemplateUsage);
 
-  /**
-   * 新建内容该落到哪个知识库：优先"当前激活的知识库"（用户此刻的上下文），
-   * 其次第一个知识库；一个都没有时顺手建一个，
-   * 避免点了「新建文档」却毫无反应（旧实现固定取 notebooks[0] 且空库时静默无操作）。
-   */
-  const resolveTargetNotebookId = (): string | null => {
-    const active = notebooks.find((nb) => nb.id === activeNotebookId);
-    if (active) return active.id;
-    if (notebooks.length > 0) return notebooks[0].id;
-    const created = useNotesStore.getState().createNotebook('我的知识库');
-    return created || null;
-  };
   const [activeFilter, setActiveFilter] = useState<FilterType>("edited"); // 当前激活的过滤器
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showAiWriter, setShowAiWriter] = useState(false);
@@ -192,7 +180,7 @@ export default function StartPage({
   const handleActionClick = (actionId: string): void => {
     if (actionId === "new-doc") {
       // 新建文档：落到当前激活的知识库（空库时自动创建）
-      const targetNotebookId = resolveTargetNotebookId();
+      const targetNotebookId = resolveTargetNotebookId(useNotesStore.getState());
       if (targetNotebookId) {
         onCreateDoc(targetNotebookId, null, { title: "新建文档" });
       }
@@ -212,7 +200,7 @@ export default function StartPage({
    * 处理 AI 写作助手插入
    */
   const handleAiInsert = (title: string, content: string): void => {
-    const targetNotebookId = resolveTargetNotebookId();
+    const targetNotebookId = resolveTargetNotebookId(useNotesStore.getState());
     if (targetNotebookId) {
       onCreateDoc(targetNotebookId, null, { title, content });
     }
@@ -222,7 +210,7 @@ export default function StartPage({
    * 处理模板选择
    */
   const handleSelectTemplate = (template: Template): void => {
-    const targetNotebookId = resolveTargetNotebookId();
+    const targetNotebookId = resolveTargetNotebookId(useNotesStore.getState());
     if (targetNotebookId) {
       // 占位符替换统一走 utils/templateVars（文档树"从模板新建"共用同一份）
       const content = applyTemplateVars(template.content, { title: template.name });

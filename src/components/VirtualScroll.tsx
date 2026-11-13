@@ -1,4 +1,10 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react'
+
+/** 命令式句柄：供键盘导航等外部场景把指定项滚进可视区 */
+export interface VirtualScrollHandle {
+  /** 将第 index 项滚入可视区（block: nearest 语义：已可见则不动） */
+  scrollToIndex: (index: number) => void
+}
 
 export interface VirtualScrollProps<T> {
   items: T[]
@@ -15,6 +21,8 @@ export interface VirtualScrollProps<T> {
   className?: string
   /** 稳定 key 提取器；缺省用 index（行内状态会随排序/滚动串位，尽量提供） */
   getKey?: (item: T) => string
+  /** React 19 ref-as-prop：暴露命令式 scrollToIndex */
+  ref?: React.Ref<VirtualScrollHandle>
 }
 
 /**
@@ -30,7 +38,9 @@ export function VirtualScroll<T>({
   onScrollToBottom,
   className,
   getKey,
+  ref,
 }: VirtualScrollProps<T>): React.JSX.Element {
+  const containerRef = useRef<HTMLDivElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
 
   const totalHeight = items.length * itemHeight
@@ -54,8 +64,40 @@ export function VirtualScroll<T>({
     [onScrollToBottom],
   )
 
+  /*
+   * 命令式滚动到指定项。虚拟化下目标项可能根本不在 DOM 里，
+   * 外部 querySelector + scrollIntoView 会静默失效（键盘导航"焦点消失"）。
+   * 这里直接按行高计算 scrollTop 并同步渲染窗口：
+   * 真实浏览器里赋值 scrollTop 还会触发 scroll 事件再同步一次（同值，无额外渲染）；
+   * jsdom 不派发 scroll 事件，所以必须在这里显式 setScrollTop。
+   */
+  const scrollToIndex = useCallback(
+    (index: number) => {
+      const el = containerRef.current
+      if (!el || items.length === 0) return
+      const clamped = Math.max(0, Math.min(index, items.length - 1))
+      const itemTop = clamped * itemHeight
+      const itemBottom = itemTop + itemHeight
+      const viewTop = el.scrollTop
+      const viewBottom = viewTop + containerHeight
+
+      let next = viewTop
+      if (itemTop < viewTop) next = itemTop
+      else if (itemBottom > viewBottom) next = itemBottom - containerHeight
+
+      const maxScroll = Math.max(0, totalHeight - containerHeight)
+      next = Math.max(0, Math.min(next, maxScroll))
+      el.scrollTop = next
+      setScrollTop(next)
+    },
+    [items.length, itemHeight, containerHeight, totalHeight],
+  )
+
+  useImperativeHandle(ref, () => ({ scrollToIndex }), [scrollToIndex])
+
   return (
     <div
+      ref={containerRef}
       className={className}
       style={{ height: containerHeight, overflow: 'auto', position: 'relative' }}
       onScroll={handleScroll}

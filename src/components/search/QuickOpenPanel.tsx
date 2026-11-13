@@ -60,6 +60,8 @@ export default function QuickOpenPanel({ isOpen, onClose }: QuickOpenPanelProps)
       openItem(items[safeIndex])
     } else if (e.key === 'Escape') {
       e.preventDefault()
+      // 阻断冒泡：面板自关后不再交给全局 Escape 链，避免一次 Esc 连带关掉下一层面板
+      e.stopPropagation()
       onClose()
     }
   }

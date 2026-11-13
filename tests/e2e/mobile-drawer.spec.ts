@@ -48,15 +48,32 @@ test.describe('移动端文档列表', () => {
 
     // 抽屉会遮住主区，进入编辑器前先收起
     await page.keyboard.press('Escape');
+    /*
+     * 「开始」页不渲染 NotebooksView（MainContent 在 activeLeftMenu==='start' 时
+     * 直接返回 StartPage），因此必须点知识库条目切到 notebooks 视图。
+     * 新知识库还没有文档，编辑器区不会渲染 —— 先建一篇文档。
+     */
+    await page.locator('.mobile-nav-toggle').click();
+    await page.locator('.notebook-name').first().click();
     await page.getByRole('button', { name: '新建文档' }).first().click();
-    await expect(page.locator('.editor-textarea')).toBeVisible();
+    await expect(page.locator('.rich-editor')).toBeVisible();
 
-    const docsSidebar = page.locator('.docs-sidebar-mobile');
-    await expect(docsSidebar).toBeVisible();
+    /*
+     * 480px 下 isCompact 为 true 且 compactExpanded 初始为 false，
+     * DocsSidebar 走「紧凑收起」分支：渲染 .docs-sidebar-rail（一条窄条 +
+     * 「展开文档列表」按钮），此时不渲染搜索框与文档树。
+     *
+     * 注意：rail 的展开按钮只置 compactExpanded；搜索框由 showBody
+     * （!mobile || mobileExpanded）控制，而 mobileExpanded 此时仍为 false，
+     * 因此展开后出现的是文档头（排序下拉、新建文档入口），不是搜索框。
+     */
+    const rail = page.locator('.docs-sidebar-rail');
+    await expect(rail).toBeVisible();
     // 折叠态不渲染搜索框与文档树
-    await expect(docsSidebar.locator('.docs-search')).toHaveCount(0);
+    await expect(page.locator('.docs-search')).toHaveCount(0);
 
-    await docsSidebar.locator('.docs-mobile-toggle').click();
-    await expect(docsSidebar.locator('.docs-search')).toBeVisible();
+    await page.getByRole('button', { name: '展开文档列表' }).click();
+    await expect(rail).toBeHidden();
+    await expect(page.getByRole('combobox', { name: '文档排序方式' })).toBeVisible();
   });
 });

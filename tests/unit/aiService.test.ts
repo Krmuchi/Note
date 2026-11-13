@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { createAiService } from '../../electron/ai/ai-service.cjs'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { createAiService, makeCacheKey } from '../../electron/ai/ai-service.cjs'
 
 interface CapturedEvent {
   type: string
@@ -167,6 +167,31 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void
   throw new Error('等待流事件超时')
 }
 
+/** 可由测试手动投喂的 SSE 响应（配合假时钟模拟「思考很久才出正文」） */
+function controlledSseResponse(): {
+  response: Response
+  push: (chunk: string) => void
+} {
+  const encoder = new TextEncoder()
+  let ctrl!: ReadableStreamDefaultController<Uint8Array>
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      ctrl = controller
+    },
+  })
+  return {
+    response: new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+    push: (chunk: string) => ctrl.enqueue(encoder.encode(chunk)),
+  }
+}
+
+const sseReasoning = (text: string): string =>
+  `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: text } }] })}\n\n`
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('runNonStream - 非流式请求', () => {
   it('未配置（缺少 baseUrl）时返回 NOT_CONFIGURED 信封', async () => {
     const service = createAiService({
@@ -289,6 +314,49 @@ describe('runNonStream - 非流式请求', () => {
     await service.runNonStream(makeRequest('req-aaaaaaaa'))
     await service.runNonStream(makeRequest('req-bbbbbbbb', 'optimize'))
     expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('缓存键包含 baseUrl：换服务商但模型同名时不命中上一家的缓存', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ choices: [{ message: { content: '内容' } }] }))
+    const configStore = makeConfigStore()
+    const service = createAiService({ configStore, fetchImpl })
+
+    const first = await service.runNonStream(makeRequest('req-aaaaaaaa'))
+    expect(first.cached).toBe(false)
+
+    // 同模型名、同 prompt，仅换出网目标 —— 必须重新请求
+    configStore._config.baseUrl = 'https://api.other-provider.com'
+    const second = await service.runNonStream(makeRequest('req-bbbbbbbb'))
+    expect(second.cached).toBe(false)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('baseUrl 的等价写法（尾斜杠 / 缺省 /v1）归一化后命中同一缓存键', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ choices: [{ message: { content: '内容' } }] }))
+    const configStore = makeConfigStore({ baseUrl: 'https://api.example.com' })
+    const service = createAiService({ configStore, fetchImpl })
+
+    await service.runNonStream(makeRequest('req-aaaaaaaa'))
+    configStore._config.baseUrl = 'https://api.example.com/v1/'
+    const second = await service.runNonStream(makeRequest('req-bbbbbbbb'))
+    expect(second.cached).toBe(true)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('makeCacheKey：仅 baseUrl 不同即产生不同键', () => {
+    const base = {
+      capability: 'generate',
+      model: 'same-model',
+      temperature: 0.7,
+      maxTokens: 1600,
+      maxTokensParam: 'max_tokens',
+      messages: [{ role: 'user', content: 'x' }],
+    }
+    const a = makeCacheKey({ ...base, baseUrl: 'https://a.example.com/v1' })
+    const b = makeCacheKey({ ...base, baseUrl: 'https://b.example.com/v1' })
+    const a2 = makeCacheKey({ ...base, baseUrl: 'https://a.example.com/v1' })
+    expect(a).not.toBe(b)
+    expect(a).toBe(a2)
   })
 })
 
@@ -671,6 +739,154 @@ describe('流式请求', () => {
 
     await waitFor(() => events.some((event) => event.type === 'error'))
     expect(events.find((event) => event.type === 'error')?.error?.code).toBe('AI_ERR_EMPTY_CONTENT')
+  })
+
+  it('reasoning_content 持续 30s 后正文到达不被 abort（假时钟，首包上限 20s）', async () => {
+    vi.useFakeTimers()
+    const { response, push } = controlledSseResponse()
+    const fetchImpl = vi.fn().mockResolvedValue(response)
+    const service = createAiService({
+      // timeoutMs=60000 → 首包段 min(20000, 60000)=20000；思维链跨越 20s 仍应存活
+      configStore: makeConfigStore({ timeoutMs: 60000 }),
+      fetchImpl,
+      sleep: vi.fn().mockResolvedValue(undefined),
+    })
+    const events: CapturedEvent[] = []
+    service.startStream(makeRequest(), (event: CapturedEvent) => events.push(event))
+    await vi.advanceTimersByTimeAsync(0) // 让 fetch resolve、reader 开始读
+
+    // 每 5s 一帧思维链，持续到 30s（越过 20s 首包上限）
+    for (let t = 0; t < 6; t += 1) {
+      push(sseReasoning('思考中…'))
+      await vi.advanceTimersByTimeAsync(5000)
+    }
+    // 30s 时仍没有 error：每帧活跃信号都重置了首包/空闲计时
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+
+    push(sseDelta('# 标题\n正文到达'))
+    push('data: [DONE]\n\n')
+    await vi.advanceTimersByTimeAsync(50) // 冲刷 16ms 合流缓冲 + done
+
+    const done = events.find((event) => event.type === 'done')
+    expect(done).toBeTruthy()
+    expect(done?.text).toContain('正文到达')
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+  })
+
+  it('全程无数据帧时按首包段（20s）超时，文案报实际等待秒数而非 timeoutMs', async () => {
+    vi.useFakeTimers()
+    const fetchImpl = hangingFetch()
+    const service = createAiService({
+      configStore: makeConfigStore({ timeoutMs: 60000 }),
+      fetchImpl,
+      sleep: vi.fn().mockResolvedValue(undefined),
+    })
+    const events: CapturedEvent[] = []
+    service.startStream(makeRequest(), (event: CapturedEvent) => events.push(event))
+    // 3 次尝试 × 20s 首包超时（退避被注入为即时）
+    await vi.advanceTimersByTimeAsync(70000)
+
+    const error = events.find((event) => event.type === 'error')
+    expect(error?.error?.code).toBe('AI_ERR_TIMEOUT')
+    expect(error?.error?.message).toContain('20')
+    expect(error?.error?.message).not.toContain('60')
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('非流式取消（ai:cancel 对非流式 requestId）', () => {
+  /** 捕获 fetch 的 signal，便于断言底层确实被 abort */
+  function capturingHangingFetch(): { fetchImpl: ReturnType<typeof vi.fn>; getSignal: () => AbortSignal | null } {
+    let signal: AbortSignal | null = null
+    const fetchImpl = vi.fn((_url: string, init: { signal: AbortSignal }) => {
+      signal = init.signal
+      return new Promise<Response>((_resolve, reject) => {
+        const fail = (): void => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        if (init.signal.aborted) fail()
+        else init.signal.addEventListener('abort', fail)
+      })
+    })
+    return { fetchImpl, getSignal: () => signal }
+  }
+
+  it('cancel 返回 true 且底层 fetch 被 abort，结果为 ABORTED 不重试', async () => {
+    const { fetchImpl, getSignal } = capturingHangingFetch()
+    const service = createAiService({
+      configStore: makeConfigStore({ cacheEnabled: false }),
+      fetchImpl,
+      sleep: vi.fn().mockResolvedValue(undefined),
+    })
+    const promise = service.runNonStream(makeRequest('req-nonstream1'))
+    await tick() // 让请求到达 fetch
+
+    expect(service.cancel('req-nonstream1')).toBe(true)
+    const result = await promise
+
+    expect(result.ok).toBe(false)
+    expect(result.error.code).toBe('AI_ERR_ABORTED')
+    expect(result.error.retryable).toBe(false)
+    expect(getSignal()?.aborted).toBe(true)
+    expect(fetchImpl).toHaveBeenCalledTimes(1) // 取消后不重试
+  })
+
+  it('重试退避期间取消：信封归一为 ABORTED 而非上一次的错误', async () => {
+    let call = 0
+    let signal: AbortSignal | null = null
+    const fetchImpl = vi.fn((_url: string, init: { signal: AbortSignal }) => {
+      call += 1
+      signal = init.signal
+      if (call === 1) {
+        // 首次返回可重试的 503，进入退避
+        return Promise.resolve(jsonResponse({ error: { message: 'down' } }, { status: 503 }))
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        const fail = (): void => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        if (init.signal.aborted) fail()
+        else init.signal.addEventListener('abort', fail)
+      })
+    })
+    // 退避延迟拉长，给取消留出窗口
+    const sleep = vi.fn(() => new Promise<void>((resolve) => setTimeout(resolve, 5000)))
+    const service = createAiService({
+      configStore: makeConfigStore({ cacheEnabled: false }),
+      fetchImpl,
+      sleep,
+    })
+    const promise = service.runNonStream(makeRequest('req-backoff1'))
+    await tick() // 首次 503 已返回，进入退避 sleep
+    expect(service.cancel('req-backoff1')).toBe(true)
+
+    const result = await promise
+    expect(result.ok).toBe(false)
+    expect(result.error.code).toBe('AI_ERR_ABORTED')
+    // 退避被取消打断，不应再发起第二次上游请求
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    void signal
+  })
+
+  it('runBatch 的子项可单独取消，不影响其他项', async () => {
+    const { fetchImpl } = capturingHangingFetch()
+    const service = createAiService({
+      configStore: makeConfigStore({ cacheEnabled: false, concurrency: 3 }),
+      fetchImpl,
+      sleep: vi.fn().mockResolvedValue(undefined),
+    })
+    const promise = service.runBatch([makeRequest('req-batch-a'), makeRequest('req-batch-b')])
+    await tick()
+
+    expect(service.cancel('req-batch-a')).toBe(true)
+    // b 仍在途，手动取消以结束测试
+    expect(service.cancel('req-batch-b')).toBe(true)
+    const results = await promise
+
+    expect(results).toHaveLength(2)
+    expect(results[0].error.code).toBe('AI_ERR_ABORTED')
+    expect(results[1].error.code).toBe('AI_ERR_ABORTED')
+  })
+
+  it('取消不存在的非流式 requestId 仍返回 false', () => {
+    const service = createAiService({ configStore: makeConfigStore(), fetchImpl: vi.fn() })
+    expect(service.cancel('req-not-exist')).toBe(false)
   })
 })
 

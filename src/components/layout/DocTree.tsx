@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useNotesStore } from '@/store';
-import { VirtualScroll } from '@/components/VirtualScroll';
+import { VirtualScroll, type VirtualScrollHandle } from '@/components/VirtualScroll';
 import { EmptyState } from '@/components/common/EmptyState';
 import { IconDocument } from '@/components/common/Icon';
 import { useDocTreeDrag } from '@/hooks/useDocTreeDrag';
@@ -115,6 +115,8 @@ export const DocTree: React.FC<DocTreeProps> = ({
   // 重命名编辑状态提升到树层级：右键菜单"重命名"通过它驱动对应节点进入行内编辑
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const docsListRef = useRef<HTMLDivElement>(null);
+  /** 虚拟化列表的命令式句柄：键盘导航按行下标滚动（目标项可能不在 DOM 里） */
+  const virtualScrollRef = useRef<VirtualScrollHandle>(null);
   const [listHeight, setListHeight] = useState(480);
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
@@ -137,6 +139,7 @@ export const DocTree: React.FC<DocTreeProps> = ({
     activeNotebookId,
     updateDoc,
     reorderDocs,
+    sortMode,
     onExpandDoc: (docId) => setExpandedDocs(prev => new Set([...prev, docId])),
   });
 
@@ -415,8 +418,13 @@ export const DocTree: React.FC<DocTreeProps> = ({
     const clamped = Math.max(0, Math.min(index, flatDocList.length - 1));
     const docId = flatDocList[clamped].doc.id;
     setFocusedDocId(docId);
-    // 虚拟化列表与普通列表都支持 scrollIntoView
-    docsListRef.current?.querySelector(`[data-doc-id="${docId}"]`)?.scrollIntoView({ block: 'nearest' });
+    if (flatDocList.length > DOC_VIRTUALIZE_THRESHOLD) {
+      // 虚拟化下目标项可能不在 DOM 里，querySelector + scrollIntoView 会静默失效
+      // （键盘导航"焦点消失"）；必须走命令式 scrollToIndex 按行高计算滚动位置
+      virtualScrollRef.current?.scrollToIndex(clamped);
+    } else {
+      docsListRef.current?.querySelector(`[data-doc-id="${docId}"]`)?.scrollIntoView({ block: 'nearest' });
+    }
   }, [flatDocList]);
 
   const handleTreeKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -639,6 +647,7 @@ export const DocTree: React.FC<DocTreeProps> = ({
           />
         ) : flatDocList.length > DOC_VIRTUALIZE_THRESHOLD ? (
           <VirtualScroll
+            ref={virtualScrollRef}
             items={flatDocList}
             itemHeight={DOC_ITEM_HEIGHT}
             containerHeight={listHeight}

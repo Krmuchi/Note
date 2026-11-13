@@ -39,7 +39,7 @@ export const EditorHeaderCodeLangMenu: React.FC<EditorHeaderCodeLangMenuProps> =
   <div className="eh-dropdown" ref={menuRef}>
     <IconBtn
       title="代码块（可选择语言）"
-      onClick={() => setOpen(!open)}
+      data-eh-menu-trigger onClick={() => setOpen(!open)}
       active={activeFormats.has('codeblock') || open}
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

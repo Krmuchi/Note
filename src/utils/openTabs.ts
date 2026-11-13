@@ -45,21 +45,27 @@ export function closeTabInList(tabs: OpenTab[], tab: OpenTab): OpenTab[] {
  *
  * 规则：优先选**被关闭项之后**的那个（与浏览器一致，用户视觉上"下一个顶上来了"）；
  * 若关闭的是最后一个，则选前一个；列表空了返回 null。
+ *
+ * 注意：第一个参数必须是**关闭前**的原列表。旧实现接收的是已移除关闭项的
+ * remaining，closingTab 必然找不到（closingIndex 恒为 -1），于是永远回退到
+ * 列表末尾 —— 关闭中间标签时激活的不是相邻标签而是最右那个。
  */
 export function pickTabAfterClose(
   tabs: OpenTab[],
   closingTab: OpenTab,
   activeTab: OpenTab | null,
 ): OpenTab | null {
-  if (tabs.length === 0) return null
   const closingIndex = tabs.findIndex((t) => isSameTab(t, closingTab))
+  const remaining = closeTabInList(tabs, closingTab)
+  if (remaining.length === 0) return null
 
   // 关的不是当前标签：当前标签保持不动
   if (!activeTab || !isSameTab(activeTab, closingTab)) return activeTab
 
-  if (closingIndex < 0) return tabs[tabs.length - 1]
-  const next = tabs[closingIndex + 1] ?? tabs[closingIndex - 1]
-  return next ?? null
+  if (closingIndex < 0) return remaining[remaining.length - 1]
+  // 移除 closingTab 后，原 closingIndex 位置恰好就是"右边那个"；
+  // 关闭的是末尾时该位置越界，回退到左边一个
+  return remaining[closingIndex] ?? remaining[closingIndex - 1] ?? null
 }
 
 /**

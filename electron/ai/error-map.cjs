@@ -222,7 +222,8 @@ function classifyException(err, flags = {}) {
 function redactSecrets(text) {
   if (typeof text !== 'string') return '';
   return text
-    .replace(/sk-[A-Za-z0-9_-]{8,}/g, '***')
+    // sk- 是 OpenAI 系前缀；小米 MiMo 等用 tp-，同样必须脱敏
+    .replace(/(?:sk|tp)-[A-Za-z0-9_-]{8,}/g, '***')
     .replace(/Bearer\s+\S+/gi, 'Bearer ***')
     .replace(/"api_?key"\s*:\s*"[^"]*"/gi, '"apiKey":"***"');
 }

@@ -1,3 +1,22 @@
+/*
+ * 嵌入形态（侧栏「标签」视图）：普通页面内容，填满 .editor-panel 卡片。
+ * 全屏遮罩样式只属于弹窗形态（下方 .tag-panel-overlay）——嵌入时若也 fixed 全屏，
+ * 会把侧栏整个盖住，而嵌入模式没有 onClose，用户将被锁死在标签页。
+ */
+.tag-panel.tag-panel-embedded {
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+  background: transparent;
+}
+
 .tag-panel-overlay {
   position: fixed;
   top: 0;

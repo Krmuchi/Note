@@ -1,5 +1,5 @@
 // 导入 React hooks 和类型定义
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { JSX } from "react";
 import type { Tag } from "@/types";
 import { TAG_DEFAULT_COLORS, TAG_DEFAULT_ICONS } from "@/shared/constants";
@@ -9,7 +9,7 @@ import { toast } from "@/components/common/Toast";
  * 标签编辑模态框属性接口
  */
 interface TagEditModalProps {
-  onClose: () => void;                                                                 // 关闭回调
+  onClose: () => void;                                                                 // 关闭弹窗
   tag?: Tag;                                                                          // 编辑的标签（可选）
   onCreate?: (name: string, color: string, icon: string, parentId: string | null) => void; // 创建标签回调
   onUpdate?: (updates: Partial<Tag>) => void;                                         // 更新标签回调
@@ -29,6 +29,19 @@ export default function TagEditModal({
   const [icon, setIcon] = useState(tag?.icon ?? '🏷️');            // 标签图标
   const [parentId, setParentId] = useState<string | null>(tag?.parentId ?? null); // 父标签 ID
   const [description, setDescription] = useState(tag?.description ?? ''); // 标签描述
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      // capture 阶段拦截并阻断全局 useKeyboard 的 Escape：
+      // 只关本弹窗，不能连带关掉背后的标签面板（填了一半的表单会丢）
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [onClose]);
 
   /**
    * 处理表单提交
@@ -60,11 +73,11 @@ export default function TagEditModal({
   const parentTags = availableTags.filter(t => !forbiddenIds.has(t.id));
 
   return (
-    <div className="tag-modal-overlay" onClick={onClose}>
+    <div className="tag-modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={tag ? '编辑标签' : '新建标签'}>
       <div className="tag-modal" onClick={(e) => e.stopPropagation()}>
         <div className="tag-modal-header">
           <h4 className="tag-modal-title">{tag ? '编辑标签' : '新建标签'}</h4>
-          <button className="tag-modal-close" onClick={onClose}>×</button>
+          <button className="tag-modal-close" onClick={onClose} aria-label="关闭">×</button>
         </div>
 
         <div className="tag-modal-body">
@@ -77,6 +90,7 @@ export default function TagEditModal({
               onChange={(e) => setName(e.target.value)}
               placeholder="请输入标签名称"
               className="tag-form-input"
+              autoFocus
             />
           </div>
 

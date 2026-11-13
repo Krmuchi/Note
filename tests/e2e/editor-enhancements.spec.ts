@@ -1,7 +1,15 @@
 import { test, expect } from '@playwright/test';
 
+/**
+ * 行内标记自动补全 / 表格 / 代码块插入：断言 **Markdown 源码** 形态，
+ * 显式切到 textarea 内核（notes-rich-editor='0'）——自动配对是该内核的设计语义；
+ * 富文本内核走所见即所得，由 scripts/rich-editor-check.mjs 真机覆盖。
+ */
+
 async function openEditor(page: import('@playwright/test').Page): Promise<import('@playwright/test').Locator> {
   await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('notes-rich-editor', '0'));
+  await page.reload();
   await expect(page.locator('.app-shell')).toBeVisible();
   await page.locator('.btn-add-notebook').click();
   await expect(page.locator('.notebook-name').first()).toBeVisible();

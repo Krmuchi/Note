@@ -18,6 +18,14 @@ export function useSmartInput({ textareaRef, activeDoc, updateDocContent }: UseS
 } {
   /** 返回 true 表示本次按键已处理，调用方应停止后续快捷键分发 */
   const handleSmartInput = (e: ReactKeyboardEvent<HTMLTextAreaElement>): boolean => {
+    /*
+     * 输入法组合态（缺陷3）：拼音未确认时不消费任何按键。
+     * Chromium 用回车确认候选词会先派发 isComposing=true 的 Enter，
+     * 若被下面的块续写/Tab 缩进吃掉，拼音组合会被拆断、内容错乱。
+     * nativeEvent 可能不存在（测试替身），用可选链避免抛错。
+     */
+    if (e.nativeEvent?.isComposing || e.keyCode === 229) return false;
+
     // 块续写与缩进：不依赖 onFormatShortcut，优先于格式化快捷键处理
     const ta = textareaRef.current;
     if (!(ta && activeDoc && !e.ctrlKey && !e.metaKey && !e.altKey)) return false;

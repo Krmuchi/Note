@@ -75,6 +75,9 @@
   flex-wrap: wrap;
   gap: var(--space-1);
   flex: 1;
+  /* 标签多时限高滚动，不再截断前 8 个（旧实现 slice(0,8) 让后面的标签永远选不到） */
+  max-height: 88px;
+  overflow-y: auto;
 }
 
 .quick-note-tag-chip {
@@ -255,6 +258,17 @@
   display: flex;
   gap: var(--space-2);
   justify-content: flex-end;
+}
+
+.quick-note-edit-hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--danger-600, #c0392b);
+}
+
+.quick-note-edit-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .quick-note-edit-save {

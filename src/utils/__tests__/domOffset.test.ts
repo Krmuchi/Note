@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { selectByMarkdownOffset, readMarkdownOffset, detectSlashInRoot } from '@/utils/domOffset'
+import { selectByMarkdownOffset, readMarkdownOffset, detectSlashInRoot, rangeByMarkdownOffset } from '@/utils/domOffset'
 import { markdownToEditorHtml } from '@/utils/markdownToHtml'
+import { applyMarkdownFormat } from '@/utils/markdownFormat'
 
 /**
  * Markdown 偏移 ↔ 编辑器 DOM 的换算。
@@ -184,5 +185,181 @@ describe('detectSlashInRoot（斜杠命令检测）', () => {
     const root = mount('- 甲\n- 文字')
     caretAtEnd(root.querySelectorAll('li')[1])
     expect(detectSlashInRoot(root)).toBeNull()
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * 缺陷1：列表 / 引用 / 代码块内选区的按行换算
+ * 旧实现整块按可见字符近似，第二项起整体错位（给第二项加粗落到第一项）。
+ * ------------------------------------------------------------------ */
+
+/** 把光标放到元素文本末尾 */
+function caretAtEnd(el: Element): void {
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(false)
+  const sel = window.getSelection()!
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
+/** 选中某个元素的全部文本，返回 [start,end] 源码偏移 */
+function selectElement(el: Element): { start: number; end: number } {
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  const sel = window.getSelection()!
+  sel.removeAllRanges()
+  sel.addRange(range)
+  const start = readMarkdownOffsetForRangeStart()
+  // 终点：collapse 到末尾再读
+  const endRange = range.cloneRange()
+  endRange.collapse(false)
+  sel.removeAllRanges()
+  sel.addRange(endRange)
+  const end = readMarkdownOffsetForRangeStart()
+  return { start: start!, end: end! }
+}
+
+function readMarkdownOffsetForRangeStart(): number | null {
+  // 复用被测函数需要 root；这里用选区所在块的根（document.body 下第一个 div）
+  const root = document.body.querySelector('div') as HTMLElement
+  return readMarkdownOffset(root)
+}
+
+describe('列表选区偏移（缺陷1核心）', () => {
+  it('第二项 bb 的选区源码偏移是 [7,9]，不是第一项', () => {
+    const root = mount('- aa\n- bb')
+    const li = root.querySelectorAll('li')[1]
+    const { start, end } = selectElement(li)
+    // 源码 '- aa\n- bb'：bb 在偏移 7..9
+    expect(start).toBe(7)
+    expect(end).toBe(9)
+  })
+
+  it('给第二项选中文字加粗，落到 bb 而非 aa', () => {
+    const md = '- aa\n- bb'
+    const root = mount(md)
+    const li = root.querySelectorAll('li')[1]
+    const { start, end } = selectElement(li)
+    const result = applyMarkdownFormat(md, start, end, 'bold')!
+    expect(result.content).toBe('- aa\n- **bb**')
+  })
+
+  it('第一项 aa 的选区偏移是 [2,4]', () => {
+    const root = mount('- aa\n- bb')
+    const li = root.querySelectorAll('li')[0]
+    const { start, end } = selectElement(li)
+    expect(start).toBe(2)
+    expect(end).toBe(4)
+  })
+
+  it('selectByMarkdownOffset 跳进列表第二项选中 bb', () => {
+    const root = mount('- aa\n- bb')
+    expect(selectByMarkdownOffset(root, 7, 9)).toBe(true)
+    expect(window.getSelection()!.toString()).toBe('bb')
+  })
+
+  it('有序列表第二项偏移计入换行与序号标记', () => {
+    // '1. aa\n2. bb'：'1. aa'(5) + '\n'(1) + '2. '(3) → bb 在偏移 9..11
+    const root = mount('1. aa\n2. bb')
+    const li = root.querySelectorAll('li')[1]
+    const { start, end } = selectElement(li)
+    expect(start).toBe(9)
+    expect(end).toBe(11)
+    const result = applyMarkdownFormat('1. aa\n2. bb', start, end, 'bold')!
+    expect(result.content).toBe('1. aa\n2. **bb**')
+  })
+
+  it('嵌套列表子项 b 的偏移正确（取最深行容器）', () => {
+    // '- a\n  - b\n- c'：b 在偏移 8
+    const root = mount('- a\n  - b\n- c')
+    const nested = root.querySelector('li > ul > li')!
+    caretAtStart(nested)
+    expect(readMarkdownOffset(root)).toBe(8)
+    caretAtEnd(nested)
+    expect(readMarkdownOffset(root)).toBe(9)
+  })
+
+  it('任务列表第二项偏移计入勾选框标记', () => {
+    // '- [ ] aa\n- [x] bb'：'- [ ] aa'(8) + '\n'(1) + '- [x] '(6) → bb 在偏移 15..17
+    const root = mount('- [ ] aa\n- [x] bb')
+    const spans = root.querySelectorAll('li > span')
+    const { start, end } = selectElement(spans[1])
+    expect(start).toBe(15)
+    expect(end).toBe(17)
+  })
+})
+
+describe('引用块选区偏移（缺陷1）', () => {
+  it('引用第二行 bb 偏移 [7,9]', () => {
+    // '> aa\n> bb'
+    const root = mount('> aa\n> bb')
+    const ps = root.querySelectorAll('blockquote > p')
+    const { start, end } = selectElement(ps[1])
+    expect(start).toBe(7)
+    expect(end).toBe(9)
+  })
+
+  it('selectByMarkdownOffset 跳进引用第二行', () => {
+    const root = mount('> aa\n> bb')
+    expect(selectByMarkdownOffset(root, 7, 9)).toBe(true)
+    expect(window.getSelection()!.toString()).toBe('bb')
+  })
+})
+
+describe('代码块选区偏移（缺陷1）', () => {
+  it('代码正文按字面 1:1 换算（跳过围栏）', () => {
+    // '```js\nconst a = 1\n```'：正文 const 从偏移 6 起
+    const root = mount('```js\nconst a = 1\n```')
+    const code = root.querySelector('pre > code')!
+    caretAtStart(code)
+    expect(readMarkdownOffset(root)).toBe(6)
+  })
+
+  it('selectByMarkdownOffset 选中代码里的 const', () => {
+    const root = mount('```js\nconst a = 1\n```')
+    expect(selectByMarkdownOffset(root, 6, 11)).toBe(true)
+    expect(window.getSelection()!.toString()).toBe('const')
+  })
+
+  it('代码块内光标偏移往返一致', () => {
+    const root = mount('```js\nconst a = 1\n```')
+    for (const off of [6, 9, 11, 17]) {
+      selectByMarkdownOffset(root, off, off)
+      expect(readMarkdownOffset(root)).toBe(off)
+    }
+  })
+})
+
+describe('评论锚点 rangeByMarkdownOffset（缺陷1）', () => {
+  it('列表第二项锚点定位到 bb', () => {
+    const root = mount('- aa\n- bb')
+    const range = rangeByMarkdownOffset(root, 7, 9)!
+    expect(range).not.toBeNull()
+    expect(range.toString()).toBe('bb')
+  })
+
+  it('引用第二行锚点定位到 bb', () => {
+    const root = mount('> aa\n> bb')
+    const range = rangeByMarkdownOffset(root, 7, 9)!
+    expect(range.toString()).toBe('bb')
+  })
+})
+
+describe('列表/引用/代码块往返一致（读回==写入）', () => {
+  it('列表各项偏移往返一致', () => {
+    const root = mount('- aa\n- bb\n- cc')
+    for (const off of [2, 4, 7, 9, 12, 14]) {
+      selectByMarkdownOffset(root, off, off)
+      expect(readMarkdownOffset(root)).toBe(off)
+    }
+  })
+
+  it('引用各行偏移往返一致', () => {
+    const root = mount('> aa\n> bb')
+    for (const off of [2, 4, 7, 9]) {
+      selectByMarkdownOffset(root, off, off)
+      expect(readMarkdownOffset(root)).toBe(off)
+    }
   })
 })

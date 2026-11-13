@@ -254,13 +254,15 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
         </button>
 
         <div className="eh-dropdown" ref={moreMenuRef}>
-          <IconBtn title="更多" onClick={() => setShowMoreMenu(!showMoreMenu)} active={showMoreMenu}>
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="12" cy="12" r="2" />
-              <circle cx="12" cy="19" r="2" />
-            </svg>
-          </IconBtn>
+          <span data-eh-menu-trigger>
+            <IconBtn title="更多" onClick={() => setShowMoreMenu(!showMoreMenu)} active={showMoreMenu}>
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="5" r="2" />
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="12" cy="19" r="2" />
+              </svg>
+            </IconBtn>
+          </span>
           {showMoreMenu && (
             <div className="eh-dropdown-menu">
               <div className="eh-menu-group">
@@ -320,7 +322,7 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
                 <button className="eh-menu-item" onClick={() => { onToggleFullscreen?.(); setShowMoreMenu(false); }}>
                   <span className="eh-menu-icon"><IconMaximize size={16} /></span>{isFullscreen ? '退出全屏' : '全屏'}
                 </button>
-                <button className="eh-menu-item" onClick={toggleTheme}>
+                <button className="eh-menu-item" onClick={() => { toggleTheme(); setShowMoreMenu(false); }}>
                   <span className="eh-menu-icon">{isDark ? <IconSun size={16} /> : <IconMoon size={16} />}</span>{isDark ? '日间模式' : '夜间模式'}
                 </button>
               </div>

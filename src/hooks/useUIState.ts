@@ -3,6 +3,9 @@ import { useSyncExternalStore } from 'react'
 export type ViewType = 'notebooks' | 'trash' | 'favorite' | 'recent'
 export type LeftMenuType = 'start' | 'note' | 'notebooks' | 'favorite' | 'tags' | 'recent'
 
+/** 设置面板页签。定义在 hooks 层供 SettingsPanel 与「去设置」入口共用（组件不得被 hooks 反向依赖） */
+export type SettingsTabId = 'general' | 'editor' | 'ai' | 'shortcuts'
+
 export interface UIState {
   activeView: ViewType
   activeLeftMenu: LeftMenuType
@@ -15,6 +18,10 @@ export interface UIState {
   showVersionHistory: boolean
   showShortcutHelp: boolean
   showSettings: boolean
+  /** 设置面板当前页签（临时态，不持久化）。AI 错误条的「去设置」直接定位到 ai 页签 */
+  settingsTab: SettingsTabId
+  /** AI 设置存在未保存修改（草稿或密钥输入）。全局 Esc / 遮罩关闭前据此弹确认 */
+  aiSettingsDirty: boolean
 }
 
 const UI_STATE_KEY = 'notes-ui-state'
@@ -69,6 +76,8 @@ let state: UIState = {
   showVersionHistory: false,
   showShortcutHelp: false,
   showSettings: false,
+  settingsTab: 'general',
+  aiSettingsDirty: false,
 }
 
 const listeners = new Set<() => void>()
@@ -122,9 +131,13 @@ export const uiActions = {
   setShowVersionHistory: (v: boolean) => setState({ showVersionHistory: v }),
   setShowShortcutHelp: (v: boolean) => setState({ showShortcutHelp: v }),
   setShowSettings: (v: boolean) => setState({ showSettings: v }),
+  setSettingsTab: (tab: SettingsTabId) => setState({ settingsTab: tab }),
+  setAiSettingsDirty: (v: boolean) => setState({ aiSettingsDirty: v }),
+  /** 打开设置并定位到指定页签（AI 错误条「去设置」等入口用） */
+  openSettings: (tab: SettingsTabId = 'general') => setState({ showSettings: true, settingsTab: tab }),
   /** 供测试重置 */
   reset: () => {
-    state = { ...state, showSearchPanel: false, showSharePanel: false, showTagPanel: false, showCommentsPanel: false, showOutlinePanel: false, showVersionHistory: false, showShortcutHelp: false, showSettings: false }
+    state = { ...state, showSearchPanel: false, showSharePanel: false, showTagPanel: false, showCommentsPanel: false, showOutlinePanel: false, showVersionHistory: false, showShortcutHelp: false, showSettings: false, settingsTab: 'general', aiSettingsDirty: false }
     emit()
   },
 }

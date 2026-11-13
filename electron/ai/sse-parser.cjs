@@ -30,10 +30,15 @@ function normalizeUsage(usage) {
 }
 
 /**
- * @param {{warn?: (msg: string) => void}} [options]
+ * @param {{warn?: (msg: string) => void, onActivity?: () => void}} [options]
+ *   onActivity：任何非空 data: 帧到达时触发（含只有 reasoning_content 的帧、usage 帧、
+ *   甚至非法 JSON 帧）。推理型模型可能先流式输出几十秒思维链才给出可见正文，
+ *   调用方用它重置「首包 / 空闲」超时计时器，避免把活着的连接误判为超时。
+ *   注意：它不代表有正文 —— sawDelta / delta 事件仍然只由 delta.content 驱动。
  */
 function createSseParser(options = {}) {
   const warn = options.warn || (() => {});
+  const onActivity = options.onActivity || (() => {});
   let buffer = '';
   const state = {
     done: false,
@@ -52,6 +57,9 @@ function createSseParser(options = {}) {
 
     const payload = line.slice(5).trim();
     if (!payload) return [];
+    // 任何非空 data 帧都说明连接活着（含 reasoning_content / usage / [DONE]，
+    // 甚至解析失败的行——上游确实在发数据）。用于重置首包/空闲超时。
+    onActivity();
     if (payload === '[DONE]') {
       state.done = true;
       return [{ type: 'done' }];
