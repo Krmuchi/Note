@@ -5,12 +5,19 @@
 
 /* ===== 查找命中刻度带 =====
    textarea 无法内联高亮全部命中，用右侧一条与文档等长的刻度带回答
-   "一共几处、分别在哪、当前在第几处"。绝对定位在编辑区右缘，不占布局宽度 */
+   "一共几处、分别在哪、当前在第几处"。绝对定位在编辑区右缘，不占布局宽度。
+
+   右偏移必须让开滚动条：index.css 的全局 ::-webkit-scrollbar 宽
+   var(--scrollbar-width)=6px，轨道压在容器右缘内侧。原 right:2px + width:12px
+   与滚动条重叠 8px —— 刻度线（.find-match-mark 靠右 1px，宽 10px）正好被滚动条
+   盖住，且指针事件被滚动条截走、点了不跳转。
+   现在 right: 8px（6px 滚动条 + 2px 间隙），刻度带整体左移 6px，
+   宽度仍为 12px，刻度线与视口带随之一起移动（都是相对本容器定位）。 */
 .find-match-gutter {
   position: absolute;
   top: 8px;
   bottom: 8px;
-  right: 2px;
+  right: 8px;
   width: 12px;
   pointer-events: none;
   z-index: 5;

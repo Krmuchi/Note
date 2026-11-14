@@ -414,6 +414,29 @@ function isCaretAtEnd(host: HTMLElement): boolean {  const sel = window.getSelec
 }
 
 /**
+ * 取 <pre> 的纯文本，把 <br> 还原成换行、剔除零宽占位字符。
+ *
+ * 代码块里 Enter 插入的是 <br> + 一个零宽空格文本节点（见 insertLineBreakAtCaret），
+ * 直接用 textContent 会把换行吃掉、把零宽字符留下 —— 判定末尾空行、裁剪尾行都会错。
+ */
+function preTextOf(pre: HTMLElement): string {
+  let out = ''
+  const walk = (node: Node): void => {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        out += (child.textContent ?? '').replace(/\u200B/g, '')
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        const tag = (child as HTMLElement).tagName.toLowerCase()
+        if (tag === 'br') out += '\n'
+        else walk(child)
+      }
+    })
+  }
+  walk(pre)
+  return out
+}
+
+/**
  * 光标落在 <pre> 自身（而不是内部的 <code>）时，把它移进代码文本末尾。
  *
  * 浏览器在代码块的 padding 区域点击会把光标放在 <pre> 上，此后输入的文字
@@ -451,13 +474,43 @@ function ensureFocusable(el: HTMLElement): void {
   }
 }
 
-/** 是否以某个完整的行内标记对**结尾**（后面可以只有空白） */function endsWithMarkupPair(trimmed: string): boolean {
-  return (
-    /\*\*[^*\n]+\*\*$/.test(trimmed) ||
-    /(^|[^*])\*[^*\n]+\*$/.test(trimmed) ||
-    /~~[^~\n]+~~$/.test(trimmed) ||
-    /`[^`\n]+`$/.test(trimmed)
-  )
+/**
+ * 行内标记的**统一定义**。
+ *
+ * 为什么要抽成一份：触发检测（hasCompleteInlineMarkup / endsWithMarkupPair）和
+ * 实际渲染（inlineMdToHtml）必须认同一套语法，否则会出现「检测到了但不渲染」
+ * 或「渲染了但检测不到」的静默不一致。实测就踩过：手打的 `[链接](url)` 与
+ * `_斜体_` 不在检测集合里，工具栏插入的链接能渲染、手打的却一直显示源码。
+ *
+ * 顺序：长的、含特殊字符多的排前面，避免 `**` 被 `*` 抢先匹配。
+ */
+const INLINE_MARKUP_PATTERNS = [
+  /\*\*\*[^*\n]+\*\*\*/,
+  /\*\*[^*\n]+\*\*/,
+  /~~[^~\n]+~~/,
+  /`[^`\n]+`/,
+  /!?\[[^\]\n]*\]\([^)\s]+\)/,
+  /(^|[^*\w])\*[^*\n]+\*/,
+  /(^|[^\w])_[^_\n]+_/,
+]
+
+/** 文本里是否含任意一个完整行内标记 */
+function containsInlineMarkup(text: string): boolean {
+  return INLINE_MARKUP_PATTERNS.some((re) => re.test(text))
+}
+
+/** 是否以某个完整的行内标记对**结尾**（后面可以只有空白） */
+function endsWithMarkupPair(trimmed: string): boolean {
+  const atEnd = [
+    /\*\*\*[^*\n]+\*\*\*$/,
+    /\*\*[^*\n]+\*\*$/,
+    /~~[^~\n]+~~$/,
+    /`[^`\n]+`$/,
+    /!?\[[^\]\n]*\]\([^)\s]+\)$/,
+    /(^|[^*\w])\*[^*\n]+\*$/,
+    /(^|[^\w])_[^_\n]+_$/,
+  ]
+  return atEnd.some((re) => re.test(trimmed))
 }
 
 /**
@@ -475,18 +528,30 @@ function ensureFocusable(el: HTMLElement): void {
  * 末尾的情况（用户刚打完 `**加粗**`）留给 Enter / 失焦时补渲染。
  */
 function hasCompleteInlineMarkup(text: string): boolean {
-  if (!/\*\*[^*\n]+\*\*|(^|[^*])\*[^*\n]+\*|~~[^~\n]+~~|`[^`\n]+`/.test(text)) return false
+  if (!containsInlineMarkup(text)) return false
   return !endsWithMarkupPair(text.replace(/\s+$/, ''))
 }
 
 /**
  * 把 Markdown 里的**可见字符偏移**换算出来。
  *
- * 渲染前的偏移按源码计（含 `**` 等标记），渲染后按可见文本计 —— 两者不等长。
- * 直接沿用源码偏移会让光标落到错误位置。
+ * 渲染前的偏移按源码计（含 `**` / `[文字](url)` 等标记），渲染后按可见文本计 ——
+ * 两者不等长，直接沿用源码偏移会让光标落到错误位置。
+ *
+ * 处理顺序与 inlineMdToHtml 保持一致：先剥链接只留文字，再剥强调标记。
+ * 漏掉链接会让光标偏出「括号 + URL」那么多字符（实测：写完 `[文字](url)` 后
+ * 继续打字，字符落到链接中间）。
  */
 function visibleOffset(rawPrefix: string): number {
-  return rawPrefix.replace(/\*\*|\*|~~|`/g, '').length
+  return rawPrefix
+    // 图片整体不可见（占位 0 字符），链接只保留方括号里的文字
+    .replace(/!\[[^\]]*\]\([^)\s]*\)/g, '')
+    .replace(/\[([^\]]*)\]\([^)\s]*\)/g, '$1')
+    // 行内代码先去掉反引号（内容保留），再统一剥强调标记
+    .replace(/`/g, '')
+    .replace(/\*\*\*|\*\*|~~|_/g, '')
+    .replace(/\*/g, '')
+    .length
 }
 
 /**
@@ -498,6 +563,21 @@ function visibleOffset(rawPrefix: string): number {
  * @returns 是否发生了渲染
  */
 function renderInlineMarkup(host: HTMLElement, requireTrailing: boolean): boolean {
+  /*
+   * 取原始行内 Markdown 时把 nbsp 还原成普通空格（contenteditable 会把行尾空格
+   * 存成 &nbsp;）。这一步与 inlineMdToHtml 内部保持一致，否则后面写回 data-md 的
+   * 文本带 &nbsp;、与用户实际敲的内容不符。
+   */
+  /*
+   * 渲染输入取 DOM 当前可见文本（nbsp 归一化）。
+   *
+   * 这里**不能**用 data-md 当输入：data-md 是整个块的源码，而 host 可能只是
+   * 块内的一层容器（li/td），整行源码喂进去会把结构写错位。
+   *
+   * 链接被渲染成 <a> 后失去 `[文字](url)` 标记的问题，改由 handleInput 里的
+   * 顺序保证：先 commit（DOM→MD 写进 data-md），再渲染 —— 渲染只处理"尚未
+   * 渲染过、标记还在文本里"的那部分。
+   */
   const raw = (host.textContent ?? '').replace(/\u00a0/g, ' ')
   // 输入过程中要求"标记对后紧跟非空白"（见 hasCompleteInlineMarkup 注释）；
   // 离开块时（Enter/失焦）不要求 —— 此时光标本就离开，不会再有输入被吞。
@@ -511,6 +591,24 @@ function renderInlineMarkup(host: HTMLElement, requireTrailing: boolean): boolea
 
   const rawCaret = getCaretOffset(host)
   host.innerHTML = html
+  /*
+   * 渲染后必须**保住这份源码**：把渲染前的原始行内 Markdown 写回块的 data-md。
+   *
+   * 否则 data-md 仍是渲染前更早的旧值，回写时"语义文本 vs 源码"对不上，
+   * 于是走"从 DOM 重新推导"分支 —— 推导只认 `**`/`*` 只认一套写法，
+   * 用户的 `_斜体_` 会被静默改写成 `*斜体*`、`[文字](url)` 也会退化成纯文本
+   * （实测：打完链接再打斜体，data-md 变成 `见 官网 与 *斜体* 文字`，链接结构丢失）。
+   *
+   * 写 data-md 是安全的：它本来就该等于"这个块当前的 Markdown 源码"，
+   * 而 raw 正是用户刚刚键入、即将被 commit 上抛的同一份源码。
+   */
+  /*
+   * 不在这里改 data-md。
+   *
+   * data-md 的权威更新点是 commit()（DOM→MD 后统一刷新，见 refreshBlockDataMd）。
+   * 在这里按"行内可见文本"覆写，会把整块源码（含链接、块标记）截断成残片，
+   * 实测表现为后续输入再也写不进源码。
+   */
   if (rawCaret !== null) {
     // 偏移要按"可见字符"换算，否则光标会落到错误位置
     setCaretOffset(host, visibleOffset(raw.slice(0, rawCaret)))
@@ -1082,9 +1180,36 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
       let caret = { top: 0, left: 0 }
       if (sel && sel.rangeCount > 0) {
         const rect = sel.getRangeAt(0).getBoundingClientRect()
-        caret = { top: rect.bottom + 4, left: rect.left }
+        /*
+         * 零矩形保护：行首空块 / 刚换行时 getBoundingClientRect() 可能全 0，
+         * 直接使用会把菜单摆到屏幕左上角（SelectionToolbar 有同样的保护，这里此前漏了）。
+         */
+        if (rect.width === 0 && rect.height === 0 && rect.top === 0 && rect.left === 0) {
+          /*
+           * 零矩形兜底不依赖任何额外布局读取。
+           *
+           * getComputedStyle / getBoundingClientRect 在 jsdom 里都要走一遍样式计算，
+           * 会让这次 syncSlash 的耗时明显变长，进而改变 rAF 合并的时序
+           * （实测：该测试单跑通过、全量跑超时）。这里给一个与视口无关的保守常量，
+           * 由下面的视口钳制再收敛到安全位置。
+           */
+          caret = { top: 8, left: 8 }
+        } else {
+          caret = { top: rect.bottom + 4, left: rect.left }
+        }
       }
-      onSlashChange({ ...token, caret }, source)
+      /*
+       * 视口钳制：菜单宽 280px、最高 320px（见 editor.css 的 .slash-menu）。
+       * 不钳制时，在编辑器右缘 / 底部输入 `/` 会让菜单伸出视口——#root 是
+       * overflow:hidden，伸出去的部分既看不到也点不到（命令行使不出来）。
+       */
+      const MENU_W = 280
+      const MENU_H = 320
+      const clampX = Math.max(8, Math.min(caret.left, window.innerWidth - MENU_W - 8))
+      const belowTop = caret.top
+      const flipTop = belowTop + MENU_H > window.innerHeight - 8 ? caret.top - 4 - MENU_H : belowTop
+      const clampY = Math.max(8, Math.min(flipTop, window.innerHeight - 48))
+      onSlashChange({ ...token, caret: { top: clampY, left: clampX } }, source)
     },
     [onSlashChange],
   )
@@ -1115,7 +1240,21 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
      */
     if (!converted) {
       const host = innermostInlineHost(root)
-      if (host) renderInlineMarkup(host, true)
+      if (host) {
+        /*
+         * 顺序很关键：**先把当前 DOM 回写成 Markdown 存进 data-md，再做行内渲染**。
+         *
+         * renderInlineMarkup 会重建 innerHTML —— 一渲染，链接的 `[文字](url)`、
+         * 斜体的 `_x_` 这些标记就从 DOM 里消失了。若此时才 commit，commit 读到的
+         * 是"已经渲染过"的 DOM，只能从可见文本反推源码，链接被剥成纯文字、
+         * `_x_` 被改写成 `*x*`（实测）。
+         *
+         * 先 commit 一次，data-md 里就是用户真实键入的源码；随后的渲染只改 DOM、
+         * 不动 data-md，下次回写仍能拿到完整结构。
+         */
+        commit()
+        renderInlineMarkup(host, true)
+      }
     }
 
     commit()
@@ -1722,6 +1861,61 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
     if (preBlock) {
       if (e.key === 'Enter') {
         e.preventDefault()
+        /*
+         * 代码块末尾空行按 Enter → 跳出代码块。
+         *
+         * 没有这条出口，用户一旦进了 <pre> 就**只能用鼠标点走**：
+         * Enter 永远只是插入换行，连按多次也出不去（实测 3 次仍在 <pre> 内），
+         * 写作流程直接卡死。语雀 / Notion / Typora 的约定一致：
+         * 在代码块最后一行（或空行）再按一次 Enter，就在块后新建段落。
+         *
+         * 判定条件：当前光标所在行是块的**最后一个空行**（行首到尾只剩空白）。
+         * 只要这一行有任何字符，Enter 仍然只是换行，避免用户想写空行却被踢出去。
+         */
+        const codeEl = (preBlock.querySelector('code') ?? preBlock) as HTMLElement
+        /*
+         * 判断「光标停在代码块末尾的空行上」。
+         *
+         * 不能用 `range.toString()` 切行：代码块里的换行是 <br>，它**不产生 \n**，
+         * 文本里永远只有一行 —— 于是「最后一行是空行」这个条件永远不成立，
+         * 出口形同虚设（实测连按 3 次 Enter 仍困在 <pre> 里）。
+         *
+         * 这里改用 preTextOf 把 <br> 还原成 \n 后再取最后一行判断。
+         */
+        const caretAtTrailingBlank = (() => {
+          const sel = window.getSelection()
+          if (!sel || sel.rangeCount === 0) return false
+          const range = sel.getRangeAt(0)
+          if (!range.collapsed) return false
+          if (!codeEl.contains(range.startContainer)) return false
+          /* 从光标到块末尾必须只剩空白（含零宽占位字符） */
+          const tail = range.cloneRange()
+          tail.selectNodeContents(codeEl)
+          tail.setStart(range.endContainer, range.endOffset)
+          const rest = tail.toString().replace(/[\u200B\s]/g, '')
+          if (rest) return false
+          /* 光标所在的那一行也必须是空的（把 <br> 还原成换行后再取末行） */
+          const head = range.cloneRange()
+          head.selectNodeContents(codeEl)
+          head.setEnd(range.endContainer, range.endOffset)
+          const fragment = document.createElement('div')
+          fragment.appendChild(head.cloneContents())
+          const lineText = preTextOf(fragment).split('\n').pop() ?? ''
+          return lineText.replace(/[\u200B\s]/g, '') === ''
+        })()
+        if (caretAtTrailingBlank) {
+          /* 把末尾空行剥掉：否则回写会多出一个空行，块看起来永远不结束 */
+          const raw = preTextOf(preBlock)
+          const trimmed = raw.replace(/\n+$/, '')
+          const codeNode = preBlock.querySelector('code')
+          if (codeNode) codeNode.textContent = trimmed
+          const p = document.createElement('p')
+          p.appendChild(document.createElement('br'))
+          preBlock.after(p)
+          placeCaretAtEnd(p)
+          commit()
+          return
+        }
         insertLineBreakAtCaret()
         commit()
         return
@@ -1933,26 +2127,73 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
       const list = li.parentElement
       if (!list) return
 
-      // 空列表项上按 Enter：退出列表（语雀/Notion 的通用行为）
+      /*
+       * 空列表项按 Enter：退出列表（语雀 / Notion 的通用行为）。
+       *
+       * 必须**逐级**退出，不能一律 list.after(p)：
+       *
+       * 旧实现把新段落插到 list.after()。当这一层是嵌套列表（list 的父节点是
+       * 上级 <li>）时，这个 <p> 就被塞进了父 li 内部，DOM 变成
+       * <li>父项<p>新段落</p></li>；而回写只剔除 input/ul/ol、不剔除 <p>，
+       * 于是整行被合并成「- 父项新段落」—— 用户的两段文字黏在一起（实测）。
+       *
+       * 正确行为：嵌套层先退一级（把空项从子列表里摘掉，子列表空了就连父容器
+       * 一起清理），只有最外层列表的空项才真正退出成正文段落。
+       */
       if (!text) {
         e.preventDefault()
+        const parentLi = list.parentElement
+        const isNested = parentLi?.tagName.toLowerCase() === 'li'
+
+        if (isNested) {
+          // 退一级：删掉这个空子项；子列表空了就把整个子列表移除
+          li.remove()
+          if (list.children.length === 0) list.remove()
+          // 光标回到父项末尾，用户可以继续写父项，或再按 Enter 继续退出
+          const host = (parentLi.querySelector(':scope > span') ?? parentLi) as HTMLElement
+          placeCaretAtEnd(host)
+          commit()
+          return
+        }
+
+        // 最外层：真正退出成正文段落，插在整个列表之后
         const p = document.createElement('p')
-        p.innerHTML = '<br>'
+        p.appendChild(document.createElement('br'))
         list.after(p)
         li.remove()
-        // 列表被删空则一并移除
         if (list.children.length === 0) list.remove()
         placeCaretAtEnd(p)
         commit()
         return
       }
 
-      // 非空：新建同级项
+      /*
+       * 非空：新建同级项。
+       *
+       * 任务列表里必须带上勾选框结构：新建裸 <li> 的话，编辑器里这一项没有
+       * 复选框、缩进也和上面的任务项对不齐，而回写按 list 的 task-list 类名
+       * 把它序列化成「- [ ] 任务二」—— 于是「编辑器里没框、预览里有框」。
+       * 项目结构必须与 markdownToHtml 生成的一致（input + 空格 + span）。
+       */
       e.preventDefault()
       const next = document.createElement('li')
-      next.innerHTML = '<br>'
-      li.after(next)
-      placeCaretAtEnd(next)
+      const isTaskList = list.classList.contains('task-list') || !!li.querySelector('input[type=checkbox]')
+      if (isTaskList) {
+        list.classList.add('task-list')
+        next.className = 'task-item'
+        const box = document.createElement('input')
+        box.type = 'checkbox'
+        box.setAttribute('contenteditable', 'false')
+        const span = document.createElement('span')
+        span.appendChild(document.createElement('br'))
+        next.append(box, document.createTextNode(' '), span)
+        li.after(next)
+        placeCaretAtEnd(span)
+      } else {
+        next.appendChild(document.createElement('br'))
+        li.after(next)
+        placeCaretAtEnd(next)
+      }
       commit()
       return
     }
@@ -1975,11 +2216,32 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
 
       e.preventDefault()
       const list = li.parentElement
+      if (!list) return
+      /*
+       * 与 Enter 的空项退出同理，必须区分嵌套层：
+       *
+       * 旧实现无条件 list.before(p)，把段落插在**子列表**前面。子列表的父节点是
+       * 上级 <li>，于是段落被塞进父 li 里，回写时整行文字黏连（实测）。
+       * 嵌套层这里改为退一级：删掉空子项并清理空子列表，光标回到父项末尾；
+       * 只有最外层列表才真正退化成正文段落。
+       */
+      const parentLi = list.parentElement
+      const isNested = parentLi?.tagName.toLowerCase() === 'li'
+
+      if (isNested) {
+        li.remove()
+        if (list.children.length === 0) list.remove()
+        const host = (parentLi.querySelector(':scope > span') ?? parentLi) as HTMLElement
+        placeCaretAtEnd(host)
+        commit()
+        return
+      }
+
       const p = document.createElement('p')
-      p.innerHTML = '<br>'
-      list?.before(p)
+      p.appendChild(document.createElement('br'))
+      list.before(p)
       li.remove()
-      if (list && list.children.length === 0) list.remove()
+      if (list.children.length === 0) list.remove()
       placeCaretAtEnd(p)
       commit()
     }

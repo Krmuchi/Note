@@ -848,14 +848,26 @@ export const Editor: React.FC<EditorProps> = ({
         setFindBar({ open: true, replace: true });
         return;
       }
+      /*
+       * 查找栏 Esc 关闭后必须把焦点还给编辑器。
+       *
+       * 旧实现只 setFindBar(closed)：若用户此刻焦点在查找栏的**按钮**上
+       * （点过「下一个 / Aa / 替换」之后很常见），按钮随面板卸载消失，
+       * 焦点掉到 body —— 接着打字毫无反应。这正是注释里「缺陷9」要防的场景，
+       * 此前只覆盖了输入框内按 Esc 的那条路径。
+       */
       if (e.key === 'Escape' && findBar.open) {
         e.preventDefault();
         setFindBar({ open: false, replace: false });
+        requestAnimationFrame(() => {
+          if (richEditorEnabled) richEditorRef.current?.focus();
+          else textareaRef.current?.focus();
+        });
       }
     };
     window.addEventListener('keydown', handleFindKeys, true);
     return () => window.removeEventListener('keydown', handleFindKeys, true);
-  }, [findBar.open]);
+  }, [findBar.open, richEditorEnabled]);
 
   // 搜索结果跳转定位（S1）：打开查找栏并预填关键词，落到首个命中。
   // 两条路径都要覆盖：文档刚切换过来（effect 依赖 activeDoc.id），
@@ -1169,7 +1181,15 @@ export const Editor: React.FC<EditorProps> = ({
 
         {findBar.open && (
           <EditorFindBar
-            key={findBar.query ?? 'find'}
+            /*
+             * key 必须同时含 query 与「替换行是否展开」两个维度。
+             *
+             * 旧 key 只有 query：Ctrl+F 打开→输入关键词→按 Ctrl+H 时 query 没变，
+             * key 相同 → 组件不重挂载 → initialShowReplace 这个**仅作初值**的 prop
+             * 被忽略 → 界面毫无反应（用户以为没有替换功能）。
+             * 把 replace 纳入 key 后，Ctrl+H 会以「已展开替换行」重新挂载。
+             */
+            key={`${findBar.query ?? 'find'}:${findBar.replace ? 'r' : 'n'}`}
             content={activeDoc.content || ''}
             initialShowReplace={findBar.replace}
             initialQuery={findBar.query}

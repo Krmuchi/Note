@@ -27,6 +27,8 @@ interface EditorHeaderCodeLangMenuProps {
   menuRef: React.RefObject<HTMLDivElement | null>;
   activeFormats: Set<string>;
   applyFormat: (type: FormatType, options: { language: string }) => void;
+  /** 渲染在「更多格式」溢出面板（role="menu"）内时，触发按钮需作为 menuitem */
+  triggerRole?: 'menuitem';
 }
 
 export const EditorHeaderCodeLangMenu: React.FC<EditorHeaderCodeLangMenuProps> = ({
@@ -35,12 +37,16 @@ export const EditorHeaderCodeLangMenu: React.FC<EditorHeaderCodeLangMenuProps> =
   menuRef,
   activeFormats,
   applyFormat,
+  triggerRole,
 }) => (
-  <div className="eh-dropdown" ref={menuRef}>
+  <div className="eh-dropdown" ref={menuRef} role="none">
     <IconBtn
       title="代码块（可选择语言）"
       data-eh-menu-trigger onClick={() => setOpen(!open)}
       active={activeFormats.has('codeblock') || open}
+      role={triggerRole}
+      aria-haspopup="menu"
+      aria-expanded={open}
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -49,11 +55,13 @@ export const EditorHeaderCodeLangMenu: React.FC<EditorHeaderCodeLangMenuProps> =
       </svg>
     </IconBtn>
     {open && (
-      <div className="eh-dropdown-menu eh-codelang-menu">
-        <div className="eh-group-label">代码块语言</div>
+      <div className="eh-dropdown-menu eh-codelang-menu" role="menu" aria-label="代码块语言">
+        <div className="eh-group-label" role="presentation">代码块语言</div>
         {CODE_LANGUAGES.map(lang => (
           <button
             key={lang.value || 'plain'}
+            type="button"
+            role="menuitem"
             className="eh-menu-item"
             onClick={() => {
               applyFormat('codeblock', { language: lang.value });

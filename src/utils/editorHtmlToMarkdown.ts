@@ -16,6 +16,27 @@ function normalizeForCompare(s: string): string {
 }
 
 /**
+ * 取元素的"语义文本"：`<br>` 记为空格，其余按 textContent。
+ *
+ * 为什么不能直接用 textContent：`<br>` 不产生任何文本字符，`line1<br>line2`
+ * 的 textContent 是 `line1line2`，而对应源码的可见文本是 `line1 line2`。
+ * 两者不等会让每个含软换行的块都被判定为"已编辑"，于是每次回写都重新推导 ——
+ * 推导结果又是硬换行，等于**每次编辑都静默改写用户源码**（软换行→硬换行）。
+ * 把 br 视作空格后两者相等，data-md 保真机制继续生效。
+ */
+function semanticText(node: Node): string {
+  let out = ''
+  node.childNodes.forEach((child) => {
+    if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).tagName.toLowerCase() === 'br') {
+      out += ' '
+      return
+    }
+    out += child.nodeType === Node.TEXT_NODE ? (child.textContent ?? '') : semanticText(child)
+  })
+  return out
+}
+
+/**
  * 把 Markdown 源码归一化成"可见文本"，用于与 DOM 的 textContent 比较。
  *
  * 必须剥掉所有**标记符**（不只是行首的块标记）：`**加粗** 文字` 渲染成 DOM 后
@@ -32,6 +53,14 @@ function mdToVisibleText(md: string): string {
       // 行首块标记：# > - * 1. - [ ] 等
       .replace(/^\s*(#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+|[-*+]\s+\[[ xX]\]\s+)/gm, '')
       // 行内标记：** * ~~ ` 以及链接/图片的括号部分
+      /*
+       * 行内强调标记：`***` `**` `*` `~~` 反引号，以及下划线斜体 `_`。
+       * `_` 必须在这里一起剥：`_斜体_` 渲染成 <em>斜体</em> 后 textContent 是 `斜体`，
+       * 不剥下划线的话两边永远不相等 → 每块都被判为已编辑 → data-md 保真失效，
+       * 回写会把用户的 `_斜体_` 静默改写成 `*斜体*`（实测）。
+       * `_` 只在成对出现时才剥，避免吃掉 `snake_case` 里的下划线。
+       */
+      .replace(/(^|[^\w])_([^_\n]+)_(?=[^\w]|$)/g, '$1$2')
       .replace(/\*\*\*|\*\*|~~|`/g, '')
       .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
       // 表格分隔行与竖线
@@ -62,6 +91,13 @@ function inlineNodeToMd(node: Node): string {
     case 'strong':
     case 'b':
       return inner.trim() ? `**${inner}**` : inner
+    /*
+     * 斜体：`<em>` 本身不记录用户当初写的是 `*x*` 还是 `_x_`。
+     *
+     * 这里统一输出 `*x*`（最通用的写法）。要保住用户原始写法靠的是 data-md
+     * 保真机制：块没被编辑时直接返回渲染时存下的源码，根本不会走到这个分支。
+     * 只有当块**确实被改过**、且改后语义文本仍与源码一致时才需要这里兜底。
+     */
     case 'em':
     case 'i':
       return inner.trim() ? `*${inner}*` : inner
@@ -91,16 +127,36 @@ function inlineNodeToMd(node: Node): string {
         ? `<img src="${src}" alt="${alt}" width="${width}">`
         : `![${alt}](${src})`
     }
+    /*
+     * 段内 <br>（Shift+Enter 软换行）→ 行尾两个空格的**硬换行**。
+     *
+     * 为什么不能写裸 `\n`：Markdown 里单个换行只是软换行，预览侧会把它折叠成
+     * 空格 —— 实测「编辑器里两行、预览里一行」。行尾两空格是 CommenMark/GFM 的
+     * 标准硬换行语法，配合 markdownToHtml 把 `\n` 渲染成 <br>，往返才闭环。
+     *
+     * 写成 '\n' + '  ' 而不是 '  ' + '\n'：换行符本身由调用方按顺序拼接，
+     * 这里返回的字符串要成为「本行结尾」，两个空格必须紧贴在本行末尾。
+     */
     case 'br':
-      return '\n'
+      return '  \n'
     // 行内 HTML：原样保留，预览侧 rehype-raw 可解析
     case 'u':
     case 'mark':
     case 'sub':
     case 'sup':
+    case 'span':
       return `<${tag}>${inner}</${tag}>`
+    /*
+     * 未知行内元素：**连标签一起原样返回**，不要只返回内容。
+     *
+     * 用户正文里写的是字面量 `<div>`、`<Foo>`（讨论代码时极常见），
+     * 渲染时被 escapeHtml 变成文本节点、DOM 里是个普通文本 `使用 <div> 标签`。
+     * 若这里只 return inner，尖括号就被静默丢掉 —— 实测回写成 `使用 div 标签`，
+     * 用户的内容被改写。保留成 HTML 源码形态，至少不丢字符。
+     */
     default:
-      return inner
+      if (inner === '') return ''
+      return `<${tag}>${inner}</${tag}>`
   }
 }
 
@@ -126,8 +182,25 @@ function listItemsToMd(list: Element, ordered: boolean, start = 1, depth = 0): s
     const span = li.querySelector(':scope > span')
     const textEl = span ?? li
 
-    // 去掉复选框与嵌套列表本身的影响：嵌套列表在下面单独递归输出
+    /*
+     * 去掉复选框与嵌套列表本身的影响：嵌套列表在下面单独递归输出。
+     *
+     * 同时必须移除**块级**子元素（p / div / h*）。contenteditable 里回车或退格
+     * 可能把段落塞进 <li>（`<li>父项<p>新段落</p></li>`），只剔除 input/ul/ol
+     * 的话 inlineHtmlToMd 会把 p 的文本直接拼到父项后面，得到「- 父项新段落」——
+     * 两条内容黏成一条（实测）。这里先把块级子元素摘出来，下面按独立块输出，
+     * 保持用户看到的分段。
+     */
     const clone = textEl.cloneNode(true) as HTMLElement
+    const looseBlocks: string[] = []
+    Array.from(clone.children).forEach((child) => {
+      const tagName = child.tagName.toLowerCase()
+      const isBlockLevel = /^(p|div|h[1-6])$/.test(tagName)
+      if (!isBlockLevel) return
+      const t = inlineHtmlToMd(child)
+      if (t) looseBlocks.push(t)
+      child.remove()
+    })
     clone.querySelectorAll('input, ul, ol').forEach((n) => n.remove())
     const text = inlineHtmlToMd(clone)
 
@@ -138,6 +211,15 @@ function listItemsToMd(list: Element, ordered: boolean, start = 1, depth = 0): s
     } else {
       lines.push(`${pad}- ${text}`)
     }
+
+    /*
+     * 误嵌进 li 的块级内容单独成块输出。
+     *
+     * 不输出就等于**静默丢内容** —— 用户在这些段落里写的字会消失，
+     * 而界面上它们仍在（直到下次重渲染才不见），是最坏的一类数据损坏。
+     * 且必须插在列表项文本之后、嵌套列表之前，保持阅读顺序。
+     */
+    looseBlocks.forEach((block) => lines.push(block))
 
     // 嵌套列表：每层缩进 2 个空格，Markdown 解析回来自动还原层级
     Array.from(li.children).forEach((child) => {
@@ -229,8 +311,15 @@ export function blockElementToMd(el: Element): string {
    * 依然相等，会直接返回 data-md —— 表现为"拖了宽度、保存后一刷新又变回去"。
    */
   if (stored && tag !== 'pre' && !el.querySelector('img')) {
-    const currentText = normalizeForCompare(el.textContent ?? '')
+    const currentText = normalizeForCompare(semanticText(el))
     const storedText = mdToVisibleText(stored)
+    /*
+     * 含行内 HTML（a/em/strong/code…）的块：只要语义文本一致，就以 data-md 为准。
+     *
+     * 这一条把「用户原始写法」完整保住：`_斜体_`、`[文字](url)`、`**粗**` 都按
+     * 用户敲的样子留在源码里，而不是被 DOM 推导成同义的另一种写法。
+     * markdownToHtml 渲染这些块时本来就在 data-md 里存了原文，这里只是信任它。
+     */
     if (currentText === storedText) return stored
   }
 

@@ -216,13 +216,30 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
     codeLangMenuRef,
   } = useEditorHeaderMenus(colorTriggerRefs);
 
-  // 溢出菜单关闭后重置其内部的下拉菜单状态，避免下次打开时上一个子菜单还开着
+  /*
+   * 溢出菜单关闭后重置其内部**全部**下拉菜单状态，避免下次打开时上一个子菜单还开着。
+   *
+   * 旧实现只复位了字号 / 代码语言 / 表格三个 —— 颜色、对齐、列表靠"点外部关闭"
+   * 兜底，但溢出面板本身是被 Esc 或「收起工具栏」关掉的，那条路径不经过
+   * document 的 mousedown，于是子菜单会一直留在打开状态（缺陷10）。
+   */
   useEffect(() => {
     if (overflowOpen) return;
     setShowFontSizeMenu(false);
     setShowCodeLangMenu(false);
     setShowTableMenu(false);
-  }, [overflowOpen, setShowFontSizeMenu, setShowCodeLangMenu, setShowTableMenu]);
+    setShowColorPicker(null);
+    setShowAlignMenu(false);
+    setShowListMenu(false);
+  }, [
+    overflowOpen,
+    setShowFontSizeMenu,
+    setShowCodeLangMenu,
+    setShowTableMenu,
+    setShowColorPicker,
+    setShowAlignMenu,
+    setShowListMenu,
+  ]);
 
   const titleInputRef = useRef<HTMLInputElement>(null);
 

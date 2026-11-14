@@ -8,6 +8,8 @@ interface EditorHeaderListMenuProps {
   menuRef: React.RefObject<HTMLDivElement | null>;
   activeFormats: Set<string>;
   applyFormat: (type: FormatType) => void;
+  /** 渲染在「更多格式」溢出面板（role="menu"）内时，触发按钮需作为 menuitem */
+  triggerRole?: 'menuitem';
 }
 
 export const EditorHeaderListMenu: React.FC<EditorHeaderListMenuProps> = ({
@@ -16,12 +18,18 @@ export const EditorHeaderListMenu: React.FC<EditorHeaderListMenuProps> = ({
   menuRef,
   activeFormats,
   applyFormat,
+  triggerRole,
 }) => (
-  <div className="eh-dropdown" ref={menuRef}>
+  <div className="eh-dropdown" ref={menuRef} role="none">
     <button
+      type="button"
       className={`eh-icon-btn ${activeFormats.has('ulist') || activeFormats.has('olist') ? 'active' : ''}`}
       data-eh-menu-trigger onClick={() => setOpen(!open)}
       title="列表"
+      aria-label="列表"
+      role={triggerRole}
+      aria-haspopup="menu"
+      aria-expanded={open}
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <line x1="8" y1="6" x2="21" y2="6" />
@@ -34,16 +42,16 @@ export const EditorHeaderListMenu: React.FC<EditorHeaderListMenuProps> = ({
       <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor"><path d="M3 5l3 3 3-3" /></svg>
     </button>
     {open && (
-      <div className="eh-dropdown-menu eh-list-menu">
-        <button className={`eh-menu-item ${activeFormats.has('ulist') ? 'active' : ''}`} onClick={() => { applyFormat('ulist'); setOpen(false); }}>
+      <div className="eh-dropdown-menu eh-list-menu" role="menu" aria-label="列表">
+        <button type="button" role="menuitem" className={`eh-menu-item ${activeFormats.has('ulist') ? 'active' : ''}`} onClick={() => { applyFormat('ulist'); setOpen(false); }}>
           <svg className="eh-menu-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><circle cx="4" cy="6" r="1" fill="currentColor" /><circle cx="4" cy="12" r="1" fill="currentColor" /><circle cx="4" cy="18" r="1" fill="currentColor" /></svg>
           无序列表
         </button>
-        <button className={`eh-menu-item ${activeFormats.has('olist') ? 'active' : ''}`} onClick={() => { applyFormat('olist'); setOpen(false); }}>
+        <button type="button" role="menuitem" className={`eh-menu-item ${activeFormats.has('olist') ? 'active' : ''}`} onClick={() => { applyFormat('olist'); setOpen(false); }}>
           <svg className="eh-menu-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="10" y1="6" x2="21" y2="6" /><line x1="10" y1="12" x2="21" y2="12" /><line x1="10" y1="18" x2="21" y2="18" /><text x="2" y="8" fontSize="8" fill="currentColor" stroke="none">1</text><text x="2" y="14" fontSize="8" fill="currentColor" stroke="none">2</text><text x="2" y="20" fontSize="8" fill="currentColor" stroke="none">3</text></svg>
           有序列表
         </button>
-        <button className="eh-menu-item" onClick={() => { applyFormat('tasklist'); setOpen(false); }}>
+        <button type="button" role="menuitem" className="eh-menu-item" onClick={() => { applyFormat('tasklist'); setOpen(false); }}>
           <svg className="eh-menu-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
           任务列表
         </button>

@@ -39,7 +39,10 @@
  * 标题字号阶梯（正文 15px 为基准）。
  * 旧值 h1 1.9em / h2 1.55em / h3 1.3em 在 15px 正文下得到 28.5/23/19.5，
  * 与文档标题(20px)撞在一起，页面出现三个体量相近的大字块。
- * 现在文档标题 32px > H1 26px > H2 21px > H3 18px，层级唯一。
+ * 文档标题固定 32px，而正文基准字号用户可在 12-20px 间调整（.eh-fontsize-menu），
+ * 所以 h1 的 em 倍率必须按**最大**正文字号 20px 校验，否则调大字号后标题会反超文档标题：
+ * 20 × 1.6 = 32px，与文档标题齐平、绝不超出；20 × 1.72 = 34.4px 就倒挂了。
+ * 阶梯（15px 正文 → 20px 正文）：H1 24/32 > H2 21/28 > H3 18/24 > H4 15.75/21 > H5-H6 15/20。
  */
 .rich-editor h1,
 .rich-editor h2,
@@ -53,7 +56,7 @@
   letter-spacing: -0.1px;
 }
 
-.rich-editor h1 { font-size: 1.72em; margin-top: var(--space-6); }
+.rich-editor h1 { font-size: 1.6em; margin-top: var(--space-6); }
 .rich-editor h2 { font-size: 1.4em; margin-top: var(--space-5); }
 .rich-editor h3 { font-size: 1.2em; }
 .rich-editor h4 { font-size: 1.05em; }
@@ -295,7 +298,12 @@
   color: var(--text-primary);
 }
 
-/* 右下角拖拽手柄：8px 小方块，命中区扩到 18px（伪元素不参与 DOM） */
+/*
+ * 右下角拖拽手柄：14×14 可见小方块，命中区用 ::after 外扩到 22×22。
+ * 可见尺寸不能再大（会盖住图片内容），但 14px 对鼠标/触控都偏窄，
+ * 缩放在图片右下角反复"抓不住"。::after 是透明层、不参与 DOM、不改变布局，
+ * 只把这个盒子的可点击范围向四周各扩 4px：14 + 4 + 4 = 22px。
+ */
 .image-resize-handle {
   position: fixed;
   z-index: 62;
@@ -307,6 +315,13 @@
   cursor: nwse-resize;
   touch-action: none;
   box-shadow: 0 0 0 1px var(--primary-500);
+}
+
+/* 扩大的透明命中区（不参与布局，纯 pointer-events 热区） */
+.image-resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .rich-editor mark {
@@ -552,17 +567,12 @@
   border: 1px solid var(--border-secondary);
   border-radius: var(--radius-sm, 6px);
   box-shadow: var(--shadow-sm, 0 1px 4px rgb(0 0 0 / 10%));
-  opacity: 0;
-  transform: translateX(-4px);
-  transition: opacity 120ms ease, transform 120ms ease;
-  pointer-events: none;
-}
-
-/* 有挂载坐标时才可见（由组件渲染出来即有），做轻微淡入 */
-.block-handle:not([style*='none']) {
-  opacity: 1;
-  transform: translateX(0);
-  pointer-events: auto;
+  /*
+   * 手柄是条件渲染（BlockHandle 里 {state && <div className="block-handle">}）：
+   * 没有挂载坐标时节点根本不存在，渲染出来就一定有坐标。
+   * 所以它没有"占位但不可见"的中间态，挂载即可见 —— 不需要可见性切换规则，
+   * 也不需要淡入动画（原来的 :not([style*='none']) 淡入条件恒为真，等于从不生效）。
+   */
 }
 
 .block-handle-btn {
@@ -615,6 +625,13 @@
   border-radius: var(--radius-md, 8px);
   box-shadow: 0 10px 28px rgb(0 0 0 / 14%);
   animation: blockMenuIn 120ms ease;
+  /*
+   * 视口兜底：菜单高度超过屏幕时（块靠近屏幕底部），底部菜单项会被裁掉、点不到。
+   * 限高到视口高度减 32px（上下各 16px 余量）并允许内部滚动。
+   * 定位仍由 JS 给（top/left），翻转/避让也归 JS —— 这里只保证"再高也能滚到"。
+   */
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
 }
 
 @keyframes blockMenuIn {
@@ -689,6 +706,19 @@
 /* 已完成任务项：文字划线 + 变淡（语雀同款视觉） */
 .rich-editor li.task-done > span,
 .rich-editor li.task-item.task-done > span {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+
+/*
+ * 兜底：直接按复选框的选中态判定，不依赖 task-done 类名。
+ *
+ * 类名有两个写入方（markdownToHtml 重建 DOM、RichEditor 的 change 处理器），
+ * 任一环节漏写/被外部 HTML 覆盖，勾选框是勾上的、文字却没有划线。
+ * :has() 让"勾上 ⇒ 划线"成为纯粹的状态映射，与谁写类名无关；
+ * 上面的 .task-done 规则保留（语义显式，且不支持 :has 的旧内核仍能生效）。
+ */
+.rich-editor li.task-item:has(> input[type='checkbox']:checked) > span {
   text-decoration: line-through;
   color: var(--text-tertiary);
 }
@@ -806,7 +836,12 @@
 .code-lang-menu {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
+  /*
+   * 右对齐触发按钮（.code-lang-wrap 是 position:relative）：
+   * 菜单宽 186px 远大于按钮（约 60px），left:0 时靠右的代码块会把菜单推出视口右缘。
+   * right:0 让它向左展开，无论按钮在页面哪个位置都不会超出右边界。
+   */
+  right: 0;
   z-index: 62;
   display: grid;
   grid-template-columns: repeat(3, minmax(52px, 1fr));

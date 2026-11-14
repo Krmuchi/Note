@@ -1930,10 +1930,22 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-.eh-dropdown-menu.eh-add-menu,
+/*
+ * 「更多」菜单在工具栏最右侧 → 向左挂（right:0）才不越界。
+ *
+ * 「添加内容」按钮在工具栏**最左侧**，方向相反：它必须向右挂（left:0）。
+ * 旧规则把两者合并成 right:0，于是添加菜单从最左侧按钮向左伸出 180px，
+ * 约 132px 落在 .editor-panel 之外被 overflow:hidden 裁掉 —— 实测只剩一条
+ * 48px 白边，菜单项既看不见也点不到（主插入入口形同虚设）。
+ */
 .eh-dropdown-menu.eh-more-menu {
   right: 0;
   left: auto;
+}
+
+.eh-dropdown-menu.eh-add-menu {
+  left: 0;
+  right: auto;
 }
 
 .eh-menu-group {
@@ -2001,6 +2013,35 @@
 .eh-heading-h4 { font-size: var(--font-size-sm); font-weight: 400; }
 .eh-heading-h5 { font-size: var(--font-size-xs); font-weight: 400; }
 .eh-heading-h6 { font-size: var(--font-size-xs); font-weight: 400; color: var(--text-secondary); }
+
+/* ===== 四个专用下拉菜单：字号 / 段落样式 / 列表 / 对齐 =====
+   四个菜单此前只靠 .eh-dropdown-menu 兜底（min-width:180px 是"下限"不是"定值"），
+   内容一长就各撑各的，点不同按钮时菜单宽窄会跳。这里把下限显式写在四个菜单上，
+   并统一选项排版，保证四者同宽、选项一律单行。 */
+.eh-dropdown-menu.eh-fontsize-menu,
+.eh-dropdown-menu.eh-heading-menu,
+.eh-dropdown-menu.eh-list-menu,
+.eh-dropdown-menu.eh-align-menu {
+  min-width: 180px;
+}
+
+/*
+ * 选项单行：菜单项是「图标 + 文本」或「纯文本」，一旦折行菜单就会忽宽忽高。
+ * min-height 让四类菜单的行高一致（图标行与纯文本行不再一高一矮）。
+ */
+.eh-dropdown-menu.eh-fontsize-menu .eh-menu-item,
+.eh-dropdown-menu.eh-heading-menu .eh-menu-item,
+.eh-dropdown-menu.eh-list-menu .eh-menu-item,
+.eh-dropdown-menu.eh-align-menu .eh-menu-item {
+  white-space: nowrap;
+  min-height: 28px;
+}
+
+/* 字号菜单是纯数字列表：等宽数字让 12/13/14… 左缘对齐 */
+.eh-dropdown-menu.eh-fontsize-menu .eh-menu-item {
+  font-variant-numeric: tabular-nums;
+  justify-content: flex-start;
+}
 
 /* ===== 颜色选择器 ===== */
 .eh-color-picker {
@@ -2289,19 +2330,32 @@
   background: var(--bg-primary);
 }
 
-.editor-focus-mode .editor-header {
+/* 专注模式：顶栏默认隐藏，鼠标移入顶栏或用键盘聚焦顶栏时恢复 */
+.editor-focus-mode .eh-header {
   opacity: 0;
   transition: opacity 0.3s ease;
 }
 
-.editor-focus-mode:hover .editor-header {
+/*
+ * 悬停 / 聚焦恢复可见。
+ * 只认顶栏自身，**不能**写成 .editor-focus-mode:hover —— 外壳铺满整个窗口，
+ * 那样鼠标在正文里一动顶栏就冒出来，专注模式等于没开。
+ * opacity:0 不拦指针事件，所以隐藏态的顶栏照样能被悬停命中（这是"悬停恢复"的前提）；
+ * 隐藏时仍占布局高度，恢复时正文不会跳动。
+ * :focus-within 补键盘通路：Tab 进顶栏时也必须看得见按钮，否则无法用键盘退出专注。
+ */
+.editor-focus-mode .eh-header:hover,
+.editor-focus-mode .eh-header:focus-within {
   opacity: 1;
 }
 
+/* 正文容器撑满剩余高度（顶栏隐藏后不留空档） */
 .editor-focus-mode .editor-body-wrapper {
   flex: 1;
 }
 
+/* 富文本内核是 .rich-editor（.editor-textarea 只是禁用富文本时的旧内核） */
+.editor-focus-mode .rich-editor,
 .editor-focus-mode .editor-textarea {
   max-width: none;
   margin: 0;
@@ -2436,7 +2490,7 @@
 
 .eh-preview-btn.active {
   color: var(--primary-500);
-  background: var(--primary-500-light);
+  background: var(--primary-50);
 }
 
 .eh-preview-btn.active::after {
@@ -2458,7 +2512,7 @@
 
 .eh-focus-btn.active {
   color: var(--primary-500);
-  background: var(--primary-500-light);
+  background: var(--primary-50);
 }
 
 .eh-focus-btn.active::after {

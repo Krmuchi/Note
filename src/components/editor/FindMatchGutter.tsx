@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FindMatch } from '@/utils/findInText'
 
 interface FindMatchGutterProps {
@@ -23,6 +23,55 @@ interface FindMatchGutterProps {
   scrollContainer?: HTMLElement | null
 }
 
+/** 认为容器"真的能滚"的最小差值（px）；亚像素误差不算 */
+const SCROLL_EPSILON = 1
+
+/** 刻度带与滚动容器共用的一套坐标（全部相对刻度带盒子的顶边） */
+interface GutterLayout {
+  /** 正文 top=0 在刻度带坐标系里的 y（已扣掉 scrollTop） */
+  base: number
+  /** 刻度带自身高度 */
+  height: number
+  /** 滚动容器的内容总高度 */
+  scrollHeight: number
+  /** 滚动容器可视高度 */
+  clientHeight: number
+  /** 滚动容器可视区顶边在刻度带坐标系里的 y */
+  viewTop: number
+}
+
+const EMPTY_LAYOUT: GutterLayout = {
+  base: 0,
+  height: 1,
+  scrollHeight: 1,
+  clientHeight: 1,
+  viewTop: 0,
+}
+
+function isScrollable(el: HTMLElement | null): boolean {
+  return !!el && el.scrollHeight > el.clientHeight + SCROLL_EPSILON
+}
+
+/**
+ * 找刻度带的"几何锚点" —— 优先用传入的滚动容器自身。
+ *
+ * 旧实现把刻度按整条 wrapper 的高度铺开（CSS 上刻度带是 absolute 覆盖 wrapper），
+ * 却拿滚动容器的 scrollHeight 算可见区；两个盒子不是同一个（wrapper 里还有标题、
+ * 内边距，或刻度带只盖住滚动容器的一部分）时刻度会整体偏移、越往下越歪。
+ * 现在刻度与可见区统一用"滚动容器相对刻度带的坐标"换算，口径只有一个。
+ */
+function resolveScroller(preferred: HTMLElement | null, gutter: HTMLElement | null): HTMLElement | null {
+  // 传入的节点优先（哪怕暂时还没溢出：空文档 / 刚挂载时也按它算）
+  if (preferred) return preferred
+  // 没传：从刻度带向上找真正可滚动的祖先，而不是直接退回整条 wrapper
+  let node = gutter?.parentElement ?? null
+  while (node) {
+    if (isScrollable(node)) return node
+    node = node.parentElement
+  }
+  return null
+}
+
 /**
  * 查找命中位置刻度（右侧滚动条旁）。
  *
@@ -44,33 +93,65 @@ export const FindMatchGutter: React.FC<FindMatchGutterProps> = ({
   scrollContainer,
 }) => {
   const trackRef = useRef<HTMLDivElement>(null)
-  const [viewport, setViewport] = useState<{ top: number; height: number }>({ top: 0, height: 1 })
+  const [layout, setLayout] = useState<GutterLayout>(EMPTY_LAYOUT)
 
   // 跟随滚动位置：刻度带只在"可见区间"内绘制，避免几百个命中堆满整条
   useEffect(() => {
-    /*
-     * 统一取"可滚动元素"：富文本内核下是编辑器根节点，旧内核是 textarea。
-     * 两者都有 scrollHeight / scrollTop / clientHeight，所以后续计算完全共用。
-     */
-    const el = (scrollContainer ?? textareaNode) as HTMLElement | null
-    if (!el) return
+    const gutter = trackRef.current
+    const el = resolveScroller((scrollContainer ?? textareaNode) as HTMLElement | null, gutter)
+    if (!el || !gutter) {
+      setLayout(EMPTY_LAYOUT)
+      return
+    }
 
     const update = (): void => {
-      const total = el.scrollHeight || 1
-      setViewport({
-        top: el.scrollTop / total,
-        height: (el.clientHeight || 1) / total,
+      // 每次刷新都重新取 rect：窗口缩放、侧栏折叠、工具栏换行都会改变几何
+      const box = gutter.getBoundingClientRect()
+      const elBox = el.getBoundingClientRect()
+      const scrollHeight = el.scrollHeight || 1
+      const clientHeight = el.clientHeight || 1
+      const viewTop = elBox.top - box.top
+      setLayout({
+        // 内容原点 = 可视区顶边 - 已滚过的距离
+        base: viewTop - el.scrollTop,
+        height: box.height || 1,
+        scrollHeight,
+        clientHeight,
+        viewTop,
       })
     }
 
     update()
     el.addEventListener('scroll', update)
     window.addEventListener('resize', update)
+    // 容器尺寸变化（分栏、面板展开、字号调整、内容增减）也要重新测量
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(el)
+    observer?.observe(gutter)
     return () => {
       el.removeEventListener('scroll', update)
       window.removeEventListener('resize', update)
+      observer?.disconnect()
     }
-  }, [textareaNode, scrollContainer])
+  }, [textareaNode, scrollContainer, contentLength, matches.length])
+
+  /** 文档位置占比（0~1）→ 刻度带内的百分比；越界贴边 */
+  const toPercent = useCallback(
+    (ratio: number): number => {
+      const safeRatio = Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : 0
+      const y = layout.base + safeRatio * layout.scrollHeight
+      return Math.min(100, Math.max(0, (y / layout.height) * 100))
+    },
+    [layout],
+  )
+
+  const viewport = useMemo(
+    () => ({
+      top: Math.min(100, Math.max(0, (layout.viewTop / layout.height) * 100)),
+      height: Math.min(100, Math.max(0, (layout.clientHeight / layout.height) * 100)),
+    }),
+    [layout],
+  )
 
   const marks = useMemo(() => {
     if (contentLength <= 0 || matches.length === 0) return []
@@ -93,8 +174,8 @@ export const FindMatchGutter: React.FC<FindMatchGutterProps> = ({
       <div
         className="find-match-viewport"
         style={{
-          top: `${viewport.top * 100}%`,
-          height: `${Math.min(100, viewport.height * 100)}%`,
+          top: `${viewport.top}%`,
+          height: `${viewport.height}%`,
         }}
       />
       {marks.map((mark) => (
@@ -103,7 +184,7 @@ export const FindMatchGutter: React.FC<FindMatchGutterProps> = ({
           type="button"
           tabIndex={-1}
           className={`find-match-mark ${mark.isCurrent ? 'current' : ''}`}
-          style={{ top: `${mark.ratio * 100}%` }}
+          style={{ top: `${toPercent(mark.ratio)}%` }}
           onClick={() => onJump(mark.index)}
           aria-label={`跳转到第 ${mark.index + 1} 处命中`}
         />

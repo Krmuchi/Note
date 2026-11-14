@@ -19,7 +19,59 @@ interface EditorStatusBarProps {
   richEditorRoot?: HTMLElement | null;
 }
 
-/** 统计文本信息 */
+/** 代码围栏行本身不是正文（三反引号 / 三个波浪线，可带语言标注） */
+const FENCE_LINE_RE = /^\s{0,3}(?:`{3}|~{3})/;
+/** 表格分隔行 |---|---| */
+const TABLE_SEPARATOR_RE = /^\s*\|?[\s:|-]+\|[\s:|-]*$/;
+/** 分隔线 --- / *** / ___ */
+const THEMATIC_BREAK_RE = /^\s{0,3}(?:[-*_]\s*){3,}$/;
+/** 行首块标记：# 标题、> 引用、- / * / + / 1. 列表 */
+const BLOCK_MARKER_RE = /^\s{0,3}(?:#{1,6}\s+|>\s?|(?:[-*+]|\d+[.)])\s+)/;
+/** 任务列表的勾选框 [ ] / [x] */
+const TASK_BOX_RE = /^\s*\[[ xX]\]\s+/;
+
+/**
+ * 剥离 Markdown 标记，得到"正文文字"（缺陷7）。
+ *
+ * 旧实现直接对 activeDoc.content 做 length / split —— 用户在编辑器里看到的是
+ * 排版后的正文，状态栏却在数源码：一行 "## 标题" 算 4 个字、"**加粗**" 算 8 个字、
+ * 链接 "[文字](https://很长的地址)" 把 URL 也算进字数、代码围栏行白算一行。
+ * 这里按"行首块标记 → 链接括号 → 行内标记"的顺序剥一层，
+ * 统计口径与预览里读到的文字基本一致；纯估算，不追求与渲染器逐字一致。
+ */
+function stripMarkdownForStats(text: string): string {
+  return text
+    .split('\n')
+    // 代码围栏行：标记本身不计入任何统计
+    .filter((line) => !FENCE_LINE_RE.test(line))
+    .map((line) => {
+      // 整行都是"排版结构"的行直接清空：表格分隔行、分隔线
+      if (TABLE_SEPARATOR_RE.test(line) || THEMATIC_BREAK_RE.test(line)) return '';
+      return (
+        line
+          .replace(BLOCK_MARKER_RE, '')
+          .replace(TASK_BOX_RE, '')
+          // 图片 / 链接：只留可见文字，丢掉括号里的地址
+          .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+          .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+          .replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1')
+          // Wiki 链接 [[目标]] / [[目标|别名]]
+          .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, '$2')
+          .replace(/\[\[([^\]]*)\]\]/g, '$1')
+          // 行内代码保留内容、去掉反引号
+          .replace(/`([^`]*)`/g, '$1')
+          // 加粗 / 斜体 / 删除线
+          .replace(/(\*\*|__)(.*?)\1/g, '$2')
+          .replace(/(\*|_)(.*?)\1/g, '$2')
+          .replace(/~~(.*?)~~/g, '$1')
+          // 残留的 HTML 标签（<br>、<u> 等）
+          .replace(/<[^>]+>/g, '')
+      );
+    })
+    .join('\n');
+}
+
+/** 统计文本信息（字数 / 字符 / 段落 / 阅读时长均按剥离标记后的正文计） */
 function countTextStats(text: string): {
   characters: number;
   charactersNoSpaces: number;
@@ -39,17 +91,22 @@ function countTextStats(text: string): {
     };
   }
 
+  // 行数按 **Markdown 源码** 计：用户对照编辑器行号时才对得上，表格行与围栏行也算行
+  const lines = text.split('\n').length;
+
+  const body = stripMarkdownForStats(text);
+
   // 字符数（含空格）
-  const characters = text.length;
+  const characters = body.length;
 
   // 字符数（不含空格）
-  const charactersNoSpaces = text.replace(/\s/g, '').length;
+  const charactersNoSpaces = body.replace(/\s/g, '').length;
 
   // 中文字符数
-  const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  const chineseChars = (body.match(/[\u4e00-\u9fff]/g) || []).length;
 
   // 英文单词数（不含中文字符）
-  const englishWords = text
+  const englishWords = body
     .replace(/[\u4e00-\u9fff]/g, ' ')
     .split(/\s+/)
     .filter(word => word.length > 0).length;
@@ -57,11 +114,8 @@ function countTextStats(text: string): {
   // 总词数（中文按字计，英文按词计）
   const words = chineseChars + englishWords;
 
-  // 行数
-  const lines = text.split('\n').length;
-
   // 段落数（非空行）
-  const paragraphs = text.split('\n').filter(line => line.trim().length > 0).length;
+  const paragraphs = body.split('\n').filter(line => line.trim().length > 0).length;
 
   // 阅读时间（中文按 300 字/分钟，英文按 200 词/分钟）
   const chineseReadingTime = chineseChars / 300;
@@ -91,10 +145,10 @@ function getSelectionInfo(text: string, selectionStart: number, selectionEnd: nu
   if (!text || selectionStart === selectionEnd) {
     return { selectedChars: 0, selectedWords: 0 };
   }
-  
+
   const selectedText = text.substring(selectionStart, selectionEnd);
   const selectedChars = selectedText.length;
-  
+
   // 统计选中的词数
   const chineseChars = (selectedText.match(/[\u4e00-\u9fff]/g) || []).length;
   const englishWords = selectedText
@@ -102,9 +156,24 @@ function getSelectionInfo(text: string, selectionStart: number, selectionEnd: nu
     .split(/\s+/)
     .filter(word => word.length > 0).length;
   const selectedWords = chineseChars + englishWords;
-  
+
   return { selectedChars, selectedWords };
 }
+
+/*
+ * 行列号与选中统计的口径说明（缺陷6）。
+ *
+ * 两种内核的光标来源都只有 **Markdown 源码偏移**：
+ * textarea 的 selectionStart 直接就是源码下标；富文本内核的
+ * RichEditorHandle.getCursorInfo() 也是把 DOM 选区换算回源码偏移再算行列
+ * （RichEditor 不能改，所以这里不去动它，只把口径讲清楚）。
+ * 因此状态栏显示的行列号一定是"源码行 / 源码列"，与 Markdown 预览的排版
+ * 行号并不一致 —— "**加粗**" 在源码里占 6 个字符，在预览里只显示 2 个字。
+ * 写进 tooltip，而不是放任用户误读。
+ */
+const CURSOR_TITLE =
+  '光标位置：按 Markdown 源码计（#、**、- 等标记也计入列号，与预览排版的行列不一致）';
+const SELECTION_TITLE = '选中：按 Markdown 源码字符计（含标记符号），与右侧行列号同一口径';
 
 /** 编辑器状态栏组件 */
 export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
@@ -131,11 +200,11 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
   // 更新光标位置
   const updateCursorPosition = useCallback(() => {
     if (!textareaRef?.current) return;
-    
+
     const ta = textareaRef.current;
     const position = getCursorPosition(ta.value, ta.selectionStart);
     setCursorPosition(position);
-    
+
     const selection = getSelectionInfo(ta.value, ta.selectionStart, ta.selectionEnd);
     setSelectionInfo(selection);
   }, [textareaRef]);
@@ -199,7 +268,10 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
   return (
     <div className={`editor-status-bar ${className}`}>
       <div className="status-bar-left">
-        <span className="status-item" title="字数">
+        <span
+          className="status-item"
+          title="字数：中文按字、英文按词；已剥离 Markdown 标记（#、**、- 等）与代码围栏行"
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
@@ -208,27 +280,30 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
         </span>
         <span className="status-bar-extra">
           <span className="status-divider">|</span>
-          <span className="status-item" title="字符数（不含空格）">
+          <span className="status-item" title="字符数（不含空格）：按正文文字计，已剥离 Markdown 标记与链接地址">
             {formatNumber(stats.charactersNoSpaces)} 字符
           </span>
           <span className="status-divider">|</span>
-          <span className="status-item" title="行数">
+          <span className="status-item" title="行数：按 Markdown 源码行计（含标题行、代码围栏行）">
             {formatNumber(stats.lines)} 行
           </span>
           <span className="status-divider">|</span>
-          <span className="status-item" title="段落数">
+          <span className="status-item" title="段落数：正文非空行（已剥离 Markdown 标记）">
             {formatNumber(stats.paragraphs)} 段
           </span>
         </span>
         {selectionInfo.selectedChars > 0 && (
-          <span className="status-item status-selection" title="选中文本">
+          <span
+            className="status-item status-selection"
+            title={`${SELECTION_TITLE}；约 ${selectionInfo.selectedWords} 词`}
+          >
             已选择 {formatNumber(selectionInfo.selectedChars)} 字符
           </span>
         )}
       </div>
       <div className="status-bar-right">
         <span className="status-bar-extra">
-          <span className="status-item" title="预计阅读时间">
+          <span className="status-item" title="预计阅读时间：按正文文字计算，中文 300 字/分钟、英文 200 词/分钟">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
               <circle cx="12" cy="12" r="10" />
               <polyline points="12 6 12 12 16 14" />
@@ -237,7 +312,7 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
           </span>
           <span className="status-divider">|</span>
         </span>
-        <span className="status-item" title="光标位置">
+        <span className="status-item status-cursor" title={CURSOR_TITLE} aria-label={CURSOR_TITLE}>
           行 {cursorPosition.line}, 列 {cursorPosition.column}
         </span>
       </div>

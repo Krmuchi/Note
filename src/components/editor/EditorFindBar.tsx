@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   computeScrollTop,
-  findAllMatches,
+  findMatches,
   lineIndexAt,
   measureLineHeight,
   replaceAllMatches,
+  replacementTextFor,
   type FindMatch,
 } from '@/utils/findInText'
 import { toast } from '@/components/common/Toast'
+import { confirmAction } from '@/hooks/useConfirmAction'
 
 interface EditorFindBarProps {
   content: string
@@ -29,6 +31,16 @@ interface EditorFindBarProps {
   onFocusEditor?: () => void
   /** 由 Ctrl+H 打开时直接展开替换行 */
   initialShowReplace?: boolean
+  /**
+   * 替换行显隐变化时通知父组件（可选，用于让 Editor 的 findBar.replace 跟着同步）。
+   *
+   * 没有它也不会坏：initialShowReplace 变化时本组件会自我同步。
+   * 但"用户按 Esc 收起替换行"是我们内部的局部状态，Editor 并不知道，
+   * 它仍以为 replace=true —— 这时再按 Ctrl+H，prop 没有从 false 变 true，
+   * 组件收不到信号，替换行就打不开了。接了这条回调后 Editor 能把状态复位，
+   * 下一次 Ctrl+H 才是一次真正的 false→true 变化。
+   */
+  onShowReplaceChange?: (showReplace: boolean) => void
   /** 预填关键词：搜索面板跳转过来时直接定位到首个命中（S1） */
   initialQuery?: string
   /**
@@ -71,15 +83,21 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
   onMatchesChange,
   onRegisterJump,
   editorReady = false,
+  onShowReplaceChange,
 }) => {
   const [query, setQuery] = useState(initialQuery)
   const [replacement, setReplacement] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
+  const [wholeWord, setWholeWord] = useState(false)
+  const [regexMode, setRegexMode] = useState(false)
   const [showReplace, setShowReplace] = useState(initialShowReplace)
   const [current, setCurrent] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const matches = useMemo(() => findAllMatches(content, query, caseSensitive), [content, query, caseSensitive])
+  const { matches, valid, error: patternError, regexp } = useMemo(
+    () => findMatches(content, query, { caseSensitive, wholeWord, regex: regexMode }),
+    [content, query, caseSensitive, wholeWord, regexMode],
+  )
   const safeCurrent = matches.length === 0 ? -1 : Math.min(current, matches.length - 1)
 
   /** focus=false 用于"边输入边定位"：只选中与滚动，不抢走输入框的焦点 */
@@ -137,6 +155,22 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
     inputRef.current?.select()
   }, [])
 
+  /*
+   * Ctrl+H 已打开查找栏时不会重新挂载（Editor 用的是同一个组件实例），
+   * `useState(initialShowReplace)` 只在首次渲染取值 —— 用户第二次按 Ctrl+H
+   * 就再也打不开替换行。这里跟随 props 变化同步，既不用换 key 重挂载
+   * （会丢掉已输入的关键词），也能让 Esc 收起替换行后再次 Ctrl+H 生效。
+   *
+   * 用"渲染期比对上一次 props"而不是 useEffect 里的 setState：
+   * 前者是 React 官方推荐的"随 props 调整 state"写法，不会多一轮渲染；
+   * 后者会触发 react-hooks/set-state-in-effect（级联渲染告警）。
+   */
+  const [prevInitialShowReplace, setPrevInitialShowReplace] = useState(initialShowReplace)
+  if (prevInitialShowReplace !== initialShowReplace) {
+    setPrevInitialShowReplace(initialShowReplace)
+    setShowReplace(initialShowReplace)
+  }
+
   const handleNext = useCallback(() => {
     if (matches.length === 0) return
     const next = (safeCurrent + 1) % matches.length
@@ -151,18 +185,65 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
     jumpTo(prev, true)
   }, [jumpTo, matches.length, safeCurrent])
 
+  /**
+   * 替换当前并前进（缺陷1）。
+   *
+   * 旧实现只把新内容交给 onReplaceContent，current 不动：替换文本仍匹配原查询时，
+   * 下一次"替换"还落在同一处（因为 re-render 后 matches 又指向同一段新文本）。
+   * 现在按"新内容重新算命中"的方式推算下一处的位置：
+   * 下次渲染的 current 是"第一处 index ≥ 本处替换结束位置"的命中，没有就回到第一处。
+   */
   const handleReplaceCurrent = useCallback(() => {
     const match = matches[safeCurrent]
     if (!match) return
-    onReplaceContent(content.slice(0, match.index) + replacement + content.slice(match.index + match.length))
-  }, [content, matches, onReplaceContent, replacement, safeCurrent])
 
+    const inserted = replacementTextFor(content, match, replacement, regexp)
+    const next = content.slice(0, match.index) + inserted + content.slice(match.index + match.length)
+    const cursor = match.index + inserted.length
+
+    const { matches: nextMatches } = findMatches(next, query, {
+      caseSensitive,
+      wholeWord,
+      regex: regexMode,
+    })
+    let nextIndex = nextMatches.findIndex((item) => item.index >= cursor)
+    if (nextIndex === -1 && nextMatches.length > 0) nextIndex = 0
+
+    setCurrent(nextIndex >= 0 ? nextIndex : 0)
+    onReplaceContent(next)
+  }, [
+    caseSensitive,
+    content,
+    matches,
+    onReplaceContent,
+    query,
+    regexMode,
+    regexp,
+    replacement,
+    safeCurrent,
+    wholeWord,
+  ])
+
+  /**
+   * 全部替换（缺陷3）。
+   *
+   * 旧实现只有"事后 toast"—— 一次误点就会把整篇文档的关键词全部改掉且无法逐处撤销。
+   * 现在先走全局 ConfirmDialog：取消则一个字都不动。
+   */
   const handleReplaceAll = useCallback(() => {
     if (matches.length === 0) return
     const count = matches.length
-    onReplaceContent(replaceAllMatches(content, matches, replacement))
-    toast.success(`已替换 ${count} 处`)
-  }, [content, matches, onReplaceContent, replacement])
+    confirmAction({
+      title: '全部替换',
+      message: `将把文档中全部 ${count} 处「${query}」替换为「${replacement}」，此操作会一次性修改整篇文档，确定继续吗？`,
+      confirmText: '全部替换',
+      onConfirm: () => {
+        onReplaceContent(replaceAllMatches(content, matches, replacement, regexp))
+        setCurrent(0)
+        toast.success(`已替换 ${count} 处`)
+      },
+    })
+  }, [content, matches, onReplaceContent, query, regexp, replacement])
 
   const handleClose = useCallback(() => {
     onClose()
@@ -172,16 +253,67 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
     else textareaRef.current?.focus()
   }, [onClose, onFocusEditor, textareaRef])
 
-  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+  /**
+   * Esc 先收替换行、再关查找栏（缺陷4）。
+   *
+   * 替换行展开时按 Esc 的意图是"收起这一行"；旧实现直接关掉整个查找栏，
+   * 用户想退一步回到纯查找就得重按 Ctrl+F 并重新输入关键词。
+   */
+  const handleEscape = useCallback(() => {
+    if (showReplace) {
+      setShowReplace(false)
+      onShowReplaceChange?.(false)
+      inputRef.current?.focus()
+      return
+    }
+    handleClose()
+  }, [handleClose, onShowReplaceChange, showReplace])
+
+  /** 替换行的显隐切换：同步本地状态，并把选择告知父组件（如果接了回调） */
+  const toggleShowReplace = useCallback(
+    (next: boolean) => {
+      setShowReplace(next)
+      onShowReplaceChange?.(next)
+    },
+    [onShowReplaceChange],
+  )
+
+  const handleFindKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'Enter') {
       e.preventDefault()
       if (e.shiftKey) handlePrev()
       else handleNext()
     } else if (e.key === 'Escape') {
       e.preventDefault()
-      handleClose()
+      handleEscape()
     }
   }
+
+  /**
+   * 替换框的 Enter 是"替换并前进"（缺陷2）。
+   *
+   * 旧实现与查找框共用同一个 handleInputKeyDown，Enter 被绑成"下一个" ——
+   * 用户在替换框里敲回车本来就想替换，结果只是移动了光标，
+   * 得再用鼠标去点「替换」按钮。Shift+Enter 保留为"上一个"，与查找框一致。
+   */
+  const handleReplaceKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (e.shiftKey) handlePrev()
+      else handleReplaceCurrent()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      handleEscape()
+    }
+  }
+
+  const countLabel = !query
+    ? ''
+    : !valid
+      ? '正则无效'
+      : matches.length === 0
+        ? '无结果'
+        : `${safeCurrent + 1}/${matches.length}`
 
   return (
     <div className="find-bar" role="search" aria-label="文档内查找">
@@ -189,17 +321,25 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
         <input
           ref={inputRef}
           className="find-bar-input"
-          placeholder="查找…"
+          placeholder={regexMode ? '查找（正则）…' : '查找…'}
           value={query}
           aria-label="查找内容"
+          aria-invalid={!valid}
+          title={!valid ? patternError : undefined}
+          style={!valid ? { borderColor: 'var(--error-500)' } : undefined}
           onChange={(e) => {
             setQuery(e.target.value)
             setCurrent(0)
           }}
-          onKeyDown={handleInputKeyDown}
+          onKeyDown={handleFindKeyDown}
         />
-        <span className="find-bar-count" aria-live="polite">
-          {query ? (matches.length === 0 ? '无结果' : `${safeCurrent + 1}/${matches.length}`) : ''}
+        <span
+          className="find-bar-count"
+          aria-live="polite"
+          style={!valid ? { color: 'var(--error-500)' } : undefined}
+          title={!valid ? patternError : undefined}
+        >
+          {countLabel}
         </span>
         <button type="button" className="find-bar-btn" onClick={handlePrev} disabled={matches.length === 0} title="上一个（Shift+Enter）" aria-label="上一个匹配">
           ↑
@@ -221,8 +361,34 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
         </button>
         <button
           type="button"
+          className={`find-bar-btn ${wholeWord ? 'active' : ''}`}
+          onClick={() => {
+            setWholeWord((v) => !v)
+            setCurrent(0)
+          }}
+          title="全词匹配（中英文均按整词判定）"
+          aria-label="全词匹配"
+          aria-pressed={wholeWord}
+        >
+          全词
+        </button>
+        <button
+          type="button"
+          className={`find-bar-btn ${regexMode ? 'active' : ''}`}
+          onClick={() => {
+            setRegexMode((v) => !v)
+            setCurrent(0)
+          }}
+          title="正则表达式"
+          aria-label="正则表达式"
+          aria-pressed={regexMode}
+        >
+          .*
+        </button>
+        <button
+          type="button"
           className={`find-bar-btn ${showReplace ? 'active' : ''}`}
-          onClick={() => setShowReplace((v) => !v)}
+          onClick={() => toggleShowReplace(!showReplace)}
           title="替换"
           aria-pressed={showReplace}
         >
@@ -240,13 +406,14 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
             placeholder="替换为…"
             value={replacement}
             aria-label="替换内容"
+            title={regexMode ? '支持 $1 / $& 捕获组引用' : undefined}
             onChange={(e) => setReplacement(e.target.value)}
-            onKeyDown={handleInputKeyDown}
+            onKeyDown={handleReplaceKeyDown}
           />
-          <button type="button" className="find-bar-btn find-bar-text-btn" onClick={handleReplaceCurrent} disabled={matches.length === 0}>
+          <button type="button" className="find-bar-btn find-bar-text-btn" onClick={handleReplaceCurrent} disabled={matches.length === 0} title="替换并前进（Enter）">
             替换
           </button>
-          <button type="button" className="find-bar-btn find-bar-text-btn" onClick={handleReplaceAll} disabled={matches.length === 0}>
+          <button type="button" className="find-bar-btn find-bar-text-btn" onClick={handleReplaceAll} disabled={matches.length === 0} title="全部替换（需确认）">
             全部替换
           </button>
         </div>

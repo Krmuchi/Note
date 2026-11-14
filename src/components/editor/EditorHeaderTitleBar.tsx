@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { NoteDoc } from '@/types';
 import { useNotesStore } from '@/store';
 import type { SaveStatus } from '@/store';
@@ -130,6 +130,46 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
   /** 导出 PDF / 打印共用的选项弹窗（C4 / C5） */
   const [showPdfDialog, setShowPdfDialog] = useState(false);
 
+  /**
+   * 进入编辑时的标题快照（Esc 还原用）。
+   *
+   * 旧实现的 Esc 是「从 store 读回 activeDoc.title 再写回同一个值」——
+   * 但输入框是受控的、onChange 早就逐字符写进 store 了，所以读回来的
+   * 就是用户刚输入的内容，等于什么都没做（缺陷6）。真正要还原的是
+   * **开始编辑之前**的值，只能在 focus 时留一份快照。
+   */
+  const titleSnapshotRef = useRef('');
+  const presentationMenuRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * 演示模式浮层：点外部 / Esc 关闭（缺陷3）。
+   *
+   * 旧实现只在点「开始演示」时关闭：浮层打开后点别处、按 Esc 都不会消失，
+   * 只能再点一次「演示模式」把它切回来 —— 而那个入口此时被浮层盖住。
+   * 用 pointerdown（比 click 更早，且覆盖触摸/触控笔）：先关浮层，
+   * 用户的这次点击照常落到下面的元素上，不会"点了没反应"。
+   */
+  useEffect(() => {
+    if (!showPresentationMenu) return;
+    const onPointerDown = (e: PointerEvent): void => {
+      const target = e.target as Node | null;
+      if (target && presentationMenuRef.current?.contains(target)) return;
+      setShowPresentationMenu(false);
+    };
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      setShowPresentationMenu(false);
+      // 截住 Esc：焦点可能还留在正文，Editor 的"Esc 收起工具栏"不该被这次按键连带触发
+      e.stopPropagation();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showPresentationMenu, setShowPresentationMenu]);
+
   // 相邻文档按需计算（点击时才读 store）：不在渲染期订阅文档列表，
   // 否则每次击键都会触发一次全库展平
   const navigateAdjacent = (direction: 'prev' | 'next'): void => {
@@ -159,16 +199,23 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
             className={`eh-title-input ${titleEditing ? 'editing' : ''}`}
             value={docTitle}
             onChange={(e) => updateDocContent({ title: e.target.value })}
-            onFocus={() => setTitleEditing(true)}
+            onFocus={() => {
+              // 快照"开始编辑前"的标题，Esc 用它还原（见下方 titleSnapshotRef 注释）
+              titleSnapshotRef.current = docTitle;
+              setTitleEditing(true);
+            }}
             onBlur={() => setTitleEditing(false)}
             onKeyDown={(e) => {
-              // Enter 提交（失焦），Escape 还原为当前已保存标题
+              // Enter 提交（失焦），Escape 还原为进入编辑时的标题
               if (e.key === 'Enter') {
                 e.currentTarget.blur();
               } else if (e.key === 'Escape') {
-                const doc = useNotesStore.getState().notebooks
-                  .find(nb => nb.id === activeNotebookId)?.docs.find(d => d.id === activeDocId);
-                if (doc) updateDocContent({ title: doc.title });
+                e.preventDefault();
+                // 输入框是受控的，onChange 已经把逐字符写进 store 了：
+                // 这里必须写回 focus 时的快照才有"还原"效果（缺陷6）
+                if (titleSnapshotRef.current !== docTitle) {
+                  updateDocContent({ title: titleSnapshotRef.current });
+                }
                 e.currentTarget.blur();
               }
             }}
@@ -340,8 +387,10 @@ export const EditorHeaderTitleBar: React.FC<EditorHeaderTitleBarProps> = ({
       />
 
       {showPresentationMenu && (
-        <div className="eh-presentation-menu">
+        <div className="eh-presentation-menu" ref={presentationMenuRef} role="menu" aria-label="演示模式">
           <button
+            type="button"
+            role="menuitem"
             className="eh-presentation-item"
             onClick={() => {
               setShowPresentationMenu(false);

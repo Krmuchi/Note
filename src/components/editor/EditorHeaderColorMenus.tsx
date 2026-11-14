@@ -14,6 +14,8 @@ interface EditorHeaderColorMenusProps {
   colorPickerRef: React.RefObject<HTMLDivElement | null>;
   /** 由父级提供的触发按钮 ref 注册函数（保持原有内联 ref 回调的挂载/卸载时机） */
   registerTriggerRef: (index: number) => (el: HTMLButtonElement | null) => void;
+  /** 渲染在「更多格式」溢出面板（role="menu"）内时，触发按钮需作为 menuitem */
+  triggerRole?: 'menuitem';
 }
 
 export const EditorHeaderColorMenus: React.FC<EditorHeaderColorMenusProps> = ({
@@ -22,6 +24,7 @@ export const EditorHeaderColorMenus: React.FC<EditorHeaderColorMenusProps> = ({
   setShowColorPicker,
   colorPickerRef,
   registerTriggerRef,
+  triggerRole,
 }) => {
   const renderColorPicker = (): React.JSX.Element => (
     <EditorHeaderColorPicker
@@ -35,33 +38,43 @@ export const EditorHeaderColorMenus: React.FC<EditorHeaderColorMenusProps> = ({
 
   return (
     <>
-      <div className="eh-dropdown">
+      <div className="eh-dropdown" role="none">
         <button
           ref={registerTriggerRef(0)}
+          type="button"
           className="eh-icon-btn eh-btn-text eh-color-trigger"
           onClick={() => setShowColorPicker(showColorPicker === 'text' ? null : 'text')}
           title="文字颜色"
+          aria-label="文字颜色"
+          role={triggerRole}
+          aria-haspopup="menu"
+          aria-expanded={showColorPicker === 'text'}
         >
-          <span className="eh-color-letter">A</span>
-          <span className="eh-color-underline" />
-          <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor"><path d="M3 5l3 3 3-3" /></svg>
+          <span className="eh-color-letter" aria-hidden="true">A</span>
+          <span className="eh-color-underline" aria-hidden="true" />
+          <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M3 5l3 3 3-3" /></svg>
         </button>
         {showColorPicker === 'text' && renderColorPicker()}
       </div>
 
-      <div className="eh-dropdown">
+      <div className="eh-dropdown" role="none">
         <button
           ref={registerTriggerRef(1)}
+          type="button"
           className="eh-icon-btn eh-color-trigger"
           onClick={() => setShowColorPicker(showColorPicker === 'highlight' ? null : 'highlight')}
           title="高亮颜色"
+          aria-label="高亮颜色"
+          role={triggerRole}
+          aria-haspopup="menu"
+          aria-expanded={showColorPicker === 'highlight'}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M9 11l-6 6v3h3l6-6" />
             <path d="M14 6l3.5-3.5a2.12 2.12 0 0 1 3 3L17 9z" />
             <path d="M9 11l5 5" />
           </svg>
-          <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor"><path d="M3 5l3 3 3-3" /></svg>
+          <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M3 5l3 3 3-3" /></svg>
         </button>
         {showColorPicker === 'highlight' && renderColorPicker()}
       </div>

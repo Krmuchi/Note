@@ -12,6 +12,8 @@ interface EditorHeaderFontSizeMenuProps {
   setFontSize: (size: string) => void;
   /** 有选区时作用于选中文本，无选区时回退 setFontSize 调整基础字号 */
   onFontSizeSelect?: (size: string) => void;
+  /** 渲染在「更多格式」溢出面板（role="menu"）内时，触发按钮需作为 menuitem */
+  triggerRole?: 'menuitem';
 }
 
 export const EditorHeaderFontSizeMenu: React.FC<EditorHeaderFontSizeMenuProps> = ({
@@ -21,21 +23,29 @@ export const EditorHeaderFontSizeMenu: React.FC<EditorHeaderFontSizeMenuProps> =
   fontSize,
   setFontSize,
   onFontSizeSelect,
+  triggerRole,
 }) => (
-  <div className="eh-dropdown" ref={menuRef}>
+  <div className="eh-dropdown" ref={menuRef} role="none">
     <button
+      type="button"
       className="eh-icon-btn eh-btn-text"
       data-eh-menu-trigger onClick={() => setOpen(!open)}
       title="字号"
+      aria-label="字号"
+      role={triggerRole}
+      aria-haspopup="menu"
+      aria-expanded={open}
     >
       {fontSize.replace('px', '')}
       <svg className="eh-arrow" viewBox="0 0 12 12" fill="currentColor"><path d="M3 5l3 3 3-3" /></svg>
     </button>
     {open && (
-      <div className="eh-dropdown-menu eh-fontsize-menu">
+      <div className="eh-dropdown-menu eh-fontsize-menu" role="menu" aria-label="字号">
         {FONT_SIZE_OPTIONS.map((val) => (
           <button
             key={val}
+            type="button"
+            role="menuitem"
             className={`eh-menu-item ${fontSize === val ? 'active' : ''}`}
             onClick={() => {
               if (onFontSizeSelect) {

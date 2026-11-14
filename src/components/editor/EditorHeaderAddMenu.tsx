@@ -21,10 +21,14 @@ export const EditorHeaderAddMenu: React.FC<EditorHeaderAddMenuProps> = ({
   }, [setOpen]);
 
   return (
-    <div className="eh-dropdown" ref={menuRef}>
+    <div className="eh-dropdown" ref={menuRef} role="none">
       <button
+        type="button"
         className="eh-add-btn"
         title="添加内容"
+        aria-label="添加内容"
+        aria-haspopup="menu"
+        aria-expanded={open}
         data-eh-menu-trigger onClick={() => setOpen(!open)}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -33,49 +37,49 @@ export const EditorHeaderAddMenu: React.FC<EditorHeaderAddMenuProps> = ({
         </svg>
       </button>
       {open && (
-        <div className="eh-dropdown-menu eh-add-menu">
-          <div className="eh-menu-group">
-            <div className="eh-group-label">基础块</div>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('heading1'))}>
+        <div className="eh-dropdown-menu eh-add-menu" role="menu" aria-label="添加内容">
+          <div className="eh-menu-group" role="none">
+            <div className="eh-group-label" role="presentation">基础块</div>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('heading1'))}>
               <span className="eh-menu-icon">H1</span>标题 1
             </button>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('heading2'))}>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('heading2'))}>
               <span className="eh-menu-icon">H2</span>标题 2
             </button>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('ulist'))}>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('ulist'))}>
               <span className="eh-menu-icon">•</span>无序列表
             </button>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('tasklist'))}>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('tasklist'))}>
               <span className="eh-menu-icon">☑</span>任务列表
             </button>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('quote'))}>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('quote'))}>
               <span className="eh-menu-icon">❝</span>引用块
             </button>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('callout'))}>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('callout'))}>
               <span className="eh-menu-icon">💡</span>提示块
             </button>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('codeblock'))}>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('codeblock'))}>
               <span className="eh-menu-icon">&lt;/&gt;</span>代码块
             </button>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('divider'))}>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('divider'))}>
               <span className="eh-menu-icon">—</span>分割线
             </button>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('table'))}>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('table'))}>
               <span className="eh-menu-icon">⊞</span>表格
             </button>
           </div>
 
           {/* 媒体与高级块：预览侧早已支持，缺的一直是插入入口 */}
-          <div className="eh-menu-divider" />
-          <div className="eh-menu-group">
-            <div className="eh-group-label">媒体与高级</div>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('image'))}>
+          <div className="eh-menu-divider" role="separator" />
+          <div className="eh-menu-group" role="none">
+            <div className="eh-group-label" role="presentation">媒体与高级</div>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('image'))}>
               <span className="eh-menu-icon">🖼</span>图片
             </button>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('math'))}>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('math'))}>
               <span className="eh-menu-icon">∑</span>公式（LaTeX）
             </button>
-            <button className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('mermaid'))}>
+            <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('mermaid'))}>
               <span className="eh-menu-icon">◇</span>流程图（Mermaid）
             </button>
           </div>

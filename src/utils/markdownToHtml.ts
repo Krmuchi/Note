@@ -116,9 +116,28 @@ export function inlineMdToHtml(md: string): string {
   out = out.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
   out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
   out = out.replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+  /*
+   * 下划线斜体 `_x_`：必须用词边界限定两侧，否则 `snake_case_name` 这类标识符
+   * 会被误判成斜体（Markdown 规范本身也要求 `_` 强调两侧不能是字母数字）。
+   * 放在 `*` 规则之后：`*` 优先，避免两者互相抢匹配。
+   */
+  out = out.replace(/(^|[^\w])_([^_\n]+)_(?=[^\w]|$)/g, '$1<em>$2</em>')
 
   // 7. 还原占位符
   out = out.replace(/\uE000(\d+)\uE000/g, (_m, i: string) => stash[Number(i)] ?? '')
+
+  /*
+   * 8. 段内换行 → <br>（软换行 / Shift+Enter）。
+   *
+   * 必须在**所有**行内规则之后再处理：早处理的话，换行符会打断 `**加粗` 的跨行
+   * 匹配（正则里的 `[^*\n]` 明确不接受换行），也会让占位符还原前的文本被切开。
+   *
+   * 为什么必须要这一步：Markdown 规范里单个 `\n` 只是软换行，渲染时折叠成空格。
+   * 但编辑器里 Shift+Enter 是**用户明确表达的分行**，预览若折叠成一行，
+   * 「编辑器里两行、预览里一行」就是明显的显示错误。这里渲染成 <br>，
+   * 与 editorHtmlToMarkdown 把 <br> 回写成硬换行（行尾两个空格）形成闭环。
+   */
+  out = out.replace(/\n/g, '<br>')
 
   return out
 }
@@ -414,7 +433,15 @@ export function blockToHtml(block: MdBlock): string {
       return `<ul class="task-list"${attr}>${(block.items ?? [])
         .map(
           (it) =>
-            `<li class="task-item"><input type="checkbox"${it.checked ? ' checked' : ''} contenteditable="false"> <span>${inlineMdToHtml(it.md)}</span></li>`,
+            /*
+             * `task-done` 必须在这里就写上。
+             *
+             * 划线样式只挂在 `.task-done` 上，而编辑器每次重渲染（打开文档、撤销/重做、
+             * 外部更新）都会走这条链路重建 DOM。若这里不带类名，渲染出来的勾选框是
+             * 勾上的、文字却没有划线 —— 只有用户再点一次复选框（RichEditor 的 change
+             * 处理器补 toggle）才会出现，表现为「点了才有反应」的假象。
+             */
+            `<li class="task-item${it.checked ? ' task-done' : ''}"><input type="checkbox"${it.checked ? ' checked' : ''} contenteditable="false"> <span>${inlineMdToHtml(it.md)}</span></li>`,
         )
         .join('')}</ul>`
     case 'callout': {

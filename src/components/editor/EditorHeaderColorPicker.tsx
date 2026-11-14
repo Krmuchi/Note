@@ -6,16 +6,60 @@ import type { ColorTab } from '@/types';
    这里重新导出，保持既有 import 路径可用。 */
 export type { ColorTab };
 
-const TEXT_COLORS = [
-  '#000000', '#262626', '#595959', '#8c8c8c', '#bfbfbf', '#1677ff', '#0958d9', '#003eb3',
-  '#52c41a', '#389e0d', '#13c2c2', '#08979c', '#722ed1', '#531dab', '#eb2f96', '#c41d7f',
-  '#fa8c16', '#d46b08', '#fa541c', '#d4380d', '#f5222d', '#cf1322', '#faad14', '#d48806',
+/** 文字颜色（值 → 可读名称；顺序与 TEXT_COLORS 一致） */
+const TEXT_COLORS: { value: string; name: string }[] = [
+  { value: '#000000', name: '黑色' },
+  { value: '#262626', name: '深灰' },
+  { value: '#595959', name: '灰色' },
+  { value: '#8c8c8c', name: '浅灰' },
+  { value: '#bfbfbf', name: '银灰' },
+  { value: '#1677ff', name: '天蓝' },
+  { value: '#0958d9', name: '蓝色' },
+  { value: '#003eb3', name: '深蓝' },
+  { value: '#52c41a', name: '草绿' },
+  { value: '#389e0d', name: '深绿' },
+  { value: '#13c2c2', name: '青色' },
+  { value: '#08979c', name: '深青' },
+  { value: '#722ed1', name: '紫色' },
+  { value: '#531dab', name: '深紫' },
+  { value: '#eb2f96', name: '玫红' },
+  { value: '#c41d7f', name: '深玫红' },
+  { value: '#fa8c16', name: '橙色' },
+  { value: '#d46b08', name: '深橙' },
+  { value: '#fa541c', name: '桔红' },
+  { value: '#d4380d', name: '深桔红' },
+  { value: '#f5222d', name: '红色' },
+  { value: '#cf1322', name: '深红' },
+  { value: '#faad14', name: '金色' },
+  { value: '#d48806', name: '深金' },
 ];
 
-const HIGHLIGHT_COLORS = [
-  '#fff3a0', '#ffe58f', '#ffd591', '#ffbb96', '#ff9c6e', '#d9f7be', '#b7eb8f', '#95de64',
-  '#91d5ff', '#69c0ff', '#40a9ff', '#1890ff', '#b5f5ec', '#87e8de', '#5cdbd3', '#36cfc9',
-  '#d3adf7', '#b37feb', '#9254de', '#722ed1', '#efdbff', '#ffadd2', '#ff85c0', '#f759ab',
+/** 背景高亮色（值 → 可读名称） */
+const HIGHLIGHT_COLORS: { value: string; name: string }[] = [
+  { value: '#fff3a0', name: '浅黄' },
+  { value: '#ffe58f', name: '杏黄' },
+  { value: '#ffd591', name: '浅橙' },
+  { value: '#ffbb96', name: '浅桔' },
+  { value: '#ff9c6e', name: '桔粉' },
+  { value: '#d9f7be', name: '浅绿' },
+  { value: '#b7eb8f', name: '嫩绿' },
+  { value: '#95de64', name: '草绿' },
+  { value: '#91d5ff', name: '浅蓝' },
+  { value: '#69c0ff', name: '天蓝' },
+  { value: '#40a9ff', name: '亮蓝' },
+  { value: '#1890ff', name: '蓝色' },
+  { value: '#b5f5ec', name: '浅青' },
+  { value: '#87e8de', name: '青绿' },
+  { value: '#5cdbd3', name: '青色' },
+  { value: '#36cfc9', name: '深青' },
+  { value: '#d3adf7', name: '浅紫' },
+  { value: '#b37feb', name: '淡紫' },
+  { value: '#9254de', name: '紫色' },
+  { value: '#722ed1', name: '深紫' },
+  { value: '#efdbff', name: '藕紫' },
+  { value: '#ffadd2', name: '浅粉' },
+  { value: '#ff85c0', name: '粉色' },
+  { value: '#f759ab', name: '玫红' },
 ];
 
 interface ColorPickerProps {
@@ -26,7 +70,13 @@ interface ColorPickerProps {
   pickerRef: React.RefObject<HTMLDivElement | null>;
 }
 
-/** 编辑器文字颜色/背景高亮选择器 */
+/** 颜色 Tab 的中文名，作为色块可及名的前缀 */
+const TAB_LABEL: Record<ColorTab, string> = {
+  text: '文字颜色',
+  highlight: '背景高亮',
+};
+
+/** 编辑器文字颜色 / 背景高亮选择器 */
 export const EditorHeaderColorPicker: React.FC<ColorPickerProps> = ({
   tab,
   onTabChange,
@@ -38,30 +88,36 @@ export const EditorHeaderColorPicker: React.FC<ColorPickerProps> = ({
   const colors = tab === 'text' ? TEXT_COLORS : HIGHLIGHT_COLORS;
   return (
     <div className="eh-color-picker" ref={pickerRef}>
-      <div className="eh-color-tabs">
+      <div className="eh-color-tabs" role="group" aria-label="颜色类型">
         <button
+          type="button"
+          aria-pressed={tab === 'text'}
           className={`eh-color-tab ${tab === 'text' ? 'active' : ''}`}
           onClick={() => onTabChange('text')}
         >
           文字颜色
         </button>
         <button
+          type="button"
+          aria-pressed={tab === 'highlight'}
           className={`eh-color-tab ${tab === 'highlight' ? 'active' : ''}`}
           onClick={() => onTabChange('highlight')}
         >
           背景高亮
         </button>
       </div>
-      <div className="eh-color-grid">
-        {colors.map((color) => (
+      <div className="eh-color-grid" role="group" aria-label={`${TAB_LABEL[tab]}色块`}>
+        {colors.map(({ value, name }) => (
           <button
-            key={color}
+            key={value}
+            type="button"
             className="eh-color-swatch"
-            style={{ backgroundColor: color }}
-            title={color}
-            aria-label={color}
+            style={{ backgroundColor: value }}
+            /* 可及名用「文字颜色 浅黄」这类有意义的名字，十六进制值只在 title 里作补充 */
+            title={`${TAB_LABEL[tab]} ${name}（${value}）`}
+            aria-label={`${TAB_LABEL[tab]} ${name}`}
             onClick={() => {
-              onPick(tab === 'text' ? 'textColor' : 'highlight', color);
+              onPick(tab === 'text' ? 'textColor' : 'highlight', value);
               onClose();
             }}
           />

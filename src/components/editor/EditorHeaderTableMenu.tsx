@@ -13,6 +13,8 @@ interface EditorHeaderTableMenuProps {
   setOpen: (open: boolean) => void;
   menuRef: React.RefObject<HTMLDivElement | null>;
   applyFormat: (type: FormatType, options: { rows: number; cols: number }) => void;
+  /** 渲染在「更多格式」溢出面板（role="menu"）内时，触发按钮需作为 menuitem */
+  triggerRole?: 'menuitem';
 }
 
 export const EditorHeaderTableMenu: React.FC<EditorHeaderTableMenuProps> = ({
@@ -20,12 +22,20 @@ export const EditorHeaderTableMenu: React.FC<EditorHeaderTableMenuProps> = ({
   setOpen,
   menuRef,
   applyFormat,
+  triggerRole,
 }) => {
   const [tableHover, setTableHover] = useState({ rows: 3, cols: 3 });
 
   return (
-    <div className="eh-dropdown" ref={menuRef}>
-      <IconBtn title="表格（可选择行列数）" data-eh-menu-trigger onClick={() => setOpen(!open)} active={open}>
+    <div className="eh-dropdown" ref={menuRef} role="none">
+      <IconBtn
+        title="表格（可选择行列数）"
+        data-eh-menu-trigger onClick={() => setOpen(!open)}
+        active={open}
+        role={triggerRole}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
           <line x1="3" y1="9" x2="21" y2="9" />
@@ -35,14 +45,15 @@ export const EditorHeaderTableMenu: React.FC<EditorHeaderTableMenuProps> = ({
         </svg>
       </IconBtn>
       {open && (
-        <div className="eh-dropdown-menu eh-table-menu">
-          <div className="eh-table-grid" onMouseLeave={() => setTableHover({ rows: 3, cols: 3 })}>
+        <div className="eh-dropdown-menu eh-table-menu" role="menu" aria-label="表格尺寸">
+          <div className="eh-table-grid" role="none" onMouseLeave={() => setTableHover({ rows: 3, cols: 3 })}>
             {Array.from({ length: TABLE_MAX_ROWS }).map((_, rowIdx) => (
-              <div className="eh-table-grid-row" key={rowIdx}>
+              <div className="eh-table-grid-row" role="none" key={rowIdx}>
                 {Array.from({ length: TABLE_MAX_COLS }).map((__, colIdx) => (
                   <button
                     key={colIdx}
                     type="button"
+                    role="menuitem"
                     className={`eh-table-cell ${
                       rowIdx < tableHover.rows && colIdx < tableHover.cols ? 'active' : ''
                     }`}
@@ -57,7 +68,7 @@ export const EditorHeaderTableMenu: React.FC<EditorHeaderTableMenuProps> = ({
               </div>
             ))}
           </div>
-          <div className="eh-table-hint">
+          <div className="eh-table-hint" role="none" aria-live="polite">
             {tableHover.rows} × {tableHover.cols} 表格
           </div>
         </div>
