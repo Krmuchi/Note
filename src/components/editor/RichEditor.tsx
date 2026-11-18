@@ -29,6 +29,9 @@ import {
   readMarkdownOffset,
   detectSlashInRoot,
 } from '@/utils/domOffset'
+import { toast, toastWithUndo } from '@/services/toast'
+import { armFocusEscape, consumeFocusEscape, resetFocusEscape } from './focusEscape'
+import { useUndoRedo } from '@/hooks/useUndoRedo'
 
 /**
  * 暴露给父组件的命令式接口。
@@ -46,6 +49,14 @@ export interface RichEditorHandle {
   getSelectionRange: () => { start: number; end: number } | null
   /** 聚焦编辑器 */
   focus: () => void
+  /**
+   * 聚焦并把光标放到正文末尾（P1-3 的兜底）。
+   *
+   * 文档刚打开 / 焦点还在别处时，`focus()` 之后选区对象可能仍不在正文内，
+   * getSelectionRange 会返回 null —— 顶部格式按钮就无从知道作用对象。
+   * 这里显式落位到最后一块，保证「格式按钮一定有地方生效」。
+   */
+  focusAtEnd: () => boolean
   /** 取得根节点（供外部注册滚动监听等） */
   getRoot: () => HTMLDivElement | null
   /**
@@ -136,6 +147,14 @@ export interface RichEditorProps {
    * 用户点到别处按回车会把命令执行到**旧位置**。只在打开时挂监听，打字零开销。
    */
   slashActive?: boolean
+  /**
+   * 编辑态点击 [[双链]]（P：编辑态双链不可点）。
+   *
+   * 预览模式里双链由 MarkdownPreview 渲染成按钮可直接点；编辑态它是普通文本，
+   * 用户看到 [[标题]] 完全不知道能跳。这里提供 **Ctrl/Cmd+点击** 打开，
+   * 并在悬停时把操作提示写进 title —— 让"能点"这件事本身可被发现。
+   */
+  onWikiLink?: (title: string) => void
   className?: string
 }
 
@@ -189,6 +208,39 @@ function currentBlock(root: HTMLElement): HTMLElement | null {
 
 /** 行内渲染的容器标签：文字直接挂在这些元素里 */
 const INLINE_HOSTS = new Set(['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'td', 'th', 'div'])
+
+/**
+ * (x, y) 处的文本节点与偏移 —— 编辑态双链命中检测用。
+ * caretRangeFromPoint 是 Chromium 专有 API（jsdom 里没有，返回 null 即可）。
+ */
+function caretNodeAtPoint(x: number, y: number): { node: Node; offset: number } | null {
+  const doc = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+  const range = doc.caretRangeFromPoint?.(x, y)
+  if (!range) return null
+  return { node: range.startContainer, offset: range.startOffset }
+}
+
+/**
+ * 文本节点里包含 offset 的 [[标题]]；不在双链上返回 null。
+ * 兼容 [[标题|别名]] 的写法（当前解析器只认标题，别名部分丢弃）。
+ */
+function wikiLinkTitleAt(node: Node, offset: number): string | null {
+  if (node.nodeType !== Node.TEXT_NODE) return null
+  const text = node.textContent ?? ''
+  const re = /\[\[([^[]\]\n]+)\]\]/g
+  let m: RegExpExecArray | null = re.exec(text)
+  while (m) {
+    const start = m.index
+    const end = m.index + m[0].length
+    if (offset >= start && offset <= end) {
+      const target = m[1]
+      const title = target.includes('|') ? target.slice(0, target.indexOf('|')) : target
+      return title.trim()
+    }
+    m = re.exec(text)
+  }
+  return null
+}
 
 /**
  * 从当前 selection 找到**最内层**的行内容器。
@@ -640,7 +692,7 @@ function ensureTrailingTextNode(host: HTMLElement): void {
 }
 
 export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(function RichEditor(
-  { activeDoc, updateDocContent, fontSize, onScroll, onMount, onSlashChange, onInsertImage, onInsertFile, onInsertMarkdown, resolveShortcut, onFormatShortcut, slashActive = false, className = '' },
+  { activeDoc, updateDocContent, fontSize, onScroll, onMount, onSlashChange, onInsertImage, onInsertFile, onInsertMarkdown, resolveShortcut, onFormatShortcut, slashActive = false, onWikiLink, className = '' },
   ref,
 ) {
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -841,11 +893,25 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
     }
   }, [hasImageSel, measureImage])
 
-  /** 点击标题左侧折叠热区 → 折叠/展开该标题下的块 */
+  /**
+   * 点击标题左侧折叠热区 → 折叠/展开该标题下的块。
+   *
+   * 顺带处理编辑态双链：Ctrl/Cmd+点击 [[标题]] 打开目标文档（P：编辑态双链不可点）。
+   */
   const handleRootClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const root = rootRef.current
       if (!root) return
+      // Ctrl/Cmd + 点击 [[双链]]：跳到目标文档（普通点击仍只落光标，不打断编辑）
+      if (onWikiLink && (e.ctrlKey || e.metaKey)) {
+        const point = caretNodeAtPoint(e.clientX, e.clientY)
+        const title = point ? wikiLinkTitleAt(point.node, point.offset) : null
+        if (title) {
+          e.preventDefault()
+          onWikiLink(title)
+          return
+        }
+      }
       // 点图片 → 选中并浮出缩放工具条（语雀式）
       const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
       if (img && root.contains(img)) {
@@ -870,8 +936,37 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
       }
       applyFolds(root)
     },
-    [applyFolds, selectImage],
+    [applyFolds, selectImage, onWikiLink],
   )
+
+  /*
+   * 编辑态双链的可发现性：悬停到 [[...]] 上时把操作提示写进 title。
+   *
+   * 没有这条，Ctrl+点击 是个"没人知道的快捷键"。rAF 合并连续 mousemove，
+   * 每帧最多一次命中测试（与 BlockHandle 的 elementFromPoint 同一量级）；
+   * 不在双链上时清空 title，避免整篇正文挂一个常驻 tooltip。
+   */
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root || !onWikiLink) return
+    let raf = 0
+    const onMove = (e: MouseEvent): void => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        const point = caretNodeAtPoint(e.clientX, e.clientY)
+        const title = point ? wikiLinkTitleAt(point.node, point.offset) : null
+        const next = title ? `Ctrl/Cmd+点击打开「${title}」` : ''
+        if (root.title !== next) root.title = next
+      })
+    }
+    root.addEventListener('mousemove', onMove)
+    return () => {
+      root.removeEventListener('mousemove', onMove)
+      if (raf) cancelAnimationFrame(raf)
+      root.title = ''
+    }
+  }, [onWikiLink, mountedRoot])
 
   const renderFromMarkdown = useCallback(
     (md: string) => {
@@ -900,6 +995,26 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
    */
   const undoRedoSeq = useNotesStore((s) => s.undoRedoSeq)
   const lastUndoRedoSeqRef = useRef(undoRedoSeq)
+  /** P2-11：块删除的「撤销」复用统一实现，不另造写入方 */
+  const { undo } = useUndoRedo()
+  /*
+   * P2-11：重建之后要恢复的光标（Markdown 源码偏移）。
+   *
+   * 「删除块」给出带撤销按钮的提示，而撤销会走下面的整体重建 —— 光标随之丢失。
+   * 与查找替换（Editor 的 pendingSelection）同一套思路：**先登记目标，重建完成后落位**。
+   * 由本组件自己的 effect 消费（子 effect 内顺序确定），不依赖 rAF 排队。
+   */
+  const pendingCaretRef = useRef<number | null>(null)
+  const applyPendingCaret = useCallback(() => {
+    const offset = pendingCaretRef.current
+    if (offset === null) return
+    pendingCaretRef.current = null
+    const root = rootRef.current
+    if (!root) return
+    root.focus()
+    selectByMarkdownOffset(root, offset, offset)
+  }, [])
+
   useEffect(() => {
     const root = rootRef.current
     if (!root || !docId) return
@@ -912,6 +1027,8 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
     if (docChanged) {
       // 折叠状态属于"当前这篇文档的阅读位置"，换文档必须清空
       foldedHeadingsRef.current.clear()
+      // 上一篇登记的光标对新文档没有意义，丢弃
+      pendingCaretRef.current = null
       lastUndoRedoSeqRef.current = undoRedoSeq
       renderFromMarkdown(docContent)
       return
@@ -922,6 +1039,7 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
       lastUndoRedoSeqRef.current = undoRedoSeq
       lastWrittenRef.current = null
       renderFromMarkdown(docContent)
+      applyPendingCaret()
       return
     }
 
@@ -938,8 +1056,9 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
     const currentMd = editorHtmlToMarkdown(root)
     if (currentMd !== docContent) {
       renderFromMarkdown(docContent)
+      applyPendingCaret()
     }
-  }, [docId, docContent, undoRedoSeq, renderFromMarkdown])
+  }, [docId, docContent, undoRedoSeq, renderFromMarkdown, applyPendingCaret])
 
   /* ---------------- 回写：HTML → Markdown ---------------- */
 
@@ -1222,6 +1341,9 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
     // compositionend 后会补跑一次完整处理。
     if (composingRef.current) return
 
+    // P1-8：一打字就解除 Tab 逃生武装，避免一次误按的 Esc 改变很久之后 Tab 的行为
+    resetFocusEscape()
+
     // 点进代码块 padding 后直接输入时，先把光标移进 <code>（否则文字挂到代码块外）
     normalizePreCaret(root)
 
@@ -1238,26 +1360,39 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
      * 字符，否则渲染会把光标留在 <strong> 边界上、后续输入被浏览器并入该元素。
      * 块末尾的情况（`**加粗**` 刚打完）留给 Enter / 失焦时补渲染。
      */
+    /*
+     * P1-6：一次击键只做**一遍**全文序列化。
+     *
+     * 旧写法是"行内渲染分支里先 commit 一次，最后再无条件 commit 一次" ——
+     * 光标在加粗 / 链接 / 行内代码里打字时，每次按键都对全文做两遍
+     * HTML→Markdown 序列化 + 两遍 data-md 重解析，大文档里这是打字卡顿的
+     * 直接来源（另一处是文档体量本身）。现在只有"确实要渲染"才走先提交分支，
+     * 且该分支自己收尾，末尾的重复提交一并去掉。
+     */
+    let committed = false
     if (!converted) {
       const host = innermostInlineHost(root)
-      if (host) {
+      const raw = host ? (host.textContent ?? '').replace(/\u00a0/g, ' ') : ''
+      if (host && hasCompleteInlineMarkup(raw)) {
         /*
          * 顺序很关键：**先把当前 DOM 回写成 Markdown 存进 data-md，再做行内渲染**。
          *
-         * renderInlineMarkup 会重建 innerHTML —— 一渲染，链接的 `[文字](url)`、
-         * 斜体的 `_x_` 这些标记就从 DOM 里消失了。若此时才 commit，commit 读到的
+         * renderInlineMarkup 会重建 innerHTML —— 一渲染，链接的 [文字](url)、
+         * 斜体的 _x_ 这些标记就从 DOM 里消失了。若此时才 commit，commit 读到的
          * 是"已经渲染过"的 DOM，只能从可见文本反推源码，链接被剥成纯文字、
-         * `_x_` 被改写成 `*x*`（实测）。
+         * _x_ 被改写成 *x*（实测）。
          *
          * 先 commit 一次，data-md 里就是用户真实键入的源码；随后的渲染只改 DOM、
-         * 不动 data-md，下次回写仍能拿到完整结构。
+         * 不动 data-md —— 因此这一次 commit 之后无需再提交（语义文本与源码一致，
+         * 下次回写会原样取回 data-md）。
          */
         commit()
         renderInlineMarkup(host, true)
+        committed = true
       }
     }
 
-    commit()
+    if (!committed) commit()
     syncSlash('input')
   }, [applyInputRule, commit, syncSlash])
 
@@ -1572,6 +1707,8 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
     (block: HTMLElement) => {
       const root = rootRef.current
       if (!root) return
+      // P2-11：删除前记下光标（Markdown 偏移）——点了提示里的「撤销」要回到原处
+      const caretBeforeDelete = readMarkdownOffset(root)
       const prev = block.previousElementSibling as HTMLElement | null
       const next = block.nextElementSibling as HTMLElement | null
       if (root.children.length <= 1) {
@@ -1585,8 +1722,17 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
         if (host) placeCaretAtEnd((host.querySelector('p,li,h1,h2,h3,h4,h5,h6') ?? host) as HTMLElement)
       }
       commit()
+      /*
+       * P2-11：删除块是"一次点击就没了一整段"，必须给出可撤销的出口 ——
+       * 与批量删除同一套回执（toast + 撤销按钮）。撤销会触发上面的整体重建，
+       * 光标由 pendingCaretRef 在重建后落回删除处。
+       */
+      toastWithUndo('已删除块', () => {
+        pendingCaretRef.current = caretBeforeDelete
+        if (!undo()) pendingCaretRef.current = null
+      })
     },
-    [commit],
+    [commit, undo],
   )
 
   /**
@@ -1784,6 +1930,25 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
      * 若被下面的续列表/换行/标题退出分支吃掉，拼音组合会被拆断、光标乱跳。
      */
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
+
+    /*
+     * P1-8：Esc → Tab 逃生（见 ./focusEscape）。
+     *
+     * Tab 在本组件里被拦下来做缩进（这是对的），但副作用是键盘用户**永远出不了正文**：
+     * 焦点困在编辑器里，到不了工具栏 / 大纲 / 评论面板。约定与语雀 / Google Docs 一致 ——
+     * 先按 Esc（局部操作结束），1.5 秒内的下一个 Tab 恢复浏览器默认的焦点导航。
+     * Esc 自己不 preventDefault：它还要交给 Editor 收起工具栏、交给全局链关面板。
+     */
+    if (e.key === 'Escape') {
+      if (armFocusEscape()) {
+        toast.info('提示：按 Esc 后再按 Tab，可以把焦点移出编辑器', 4000)
+      }
+      return
+    }
+    if (e.key === 'Tab' && consumeFocusEscape()) {
+      // 放行：不 preventDefault，让浏览器执行默认的焦点导航
+      return
+    }
 
     /*
      * 快捷键注册表（单一数据源，含用户自定义键位）。
@@ -2424,6 +2589,15 @@ export const RichEditor = React.forwardRef<RichEditorHandle, RichEditorProps>(fu
         return { start, end: end ?? start }
       },
       focus: () => rootRef.current?.focus(),
+      focusAtEnd: () => {
+        const root = rootRef.current
+        if (!root) return false
+        root.focus()
+        // 放到最后一块里而不是 root 上：根级空文本节点打字不会进任何段落
+        const last = root.lastElementChild
+        placeCaretAtEnd(last instanceof HTMLElement ? last : root)
+        return true
+      },
       getRoot: () => rootRef.current,
       getCursorInfo: () => {
         const root = rootRef.current

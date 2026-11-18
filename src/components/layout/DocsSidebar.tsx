@@ -8,7 +8,16 @@ import { setPendingBatchUndo, undoBatch } from '@/utils/batchUndo';
 import { EmptyState } from '@/components/common/EmptyState';
 import { IconDocument, IconChevronRight } from '@/components/common/Icon';
 import { Loading } from '@/components/common/Loading';
-import { DOC_SORT_MODES, readDocSortMode, writeDocSortMode, type DocSortMode } from '@/utils/docSort';
+import {
+  DOC_SORT_MODES,
+  collectSubtreeIds,
+  dedupeToTopLevel,
+  readDocSortMode,
+  writeDocSortMode,
+  type DocSortMode,
+} from '@/utils/docSort';
+import { flattenDocs } from '@/utils/docNavigation';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { applyTemplateVars } from '@/utils/templateVars';
 import type { Template } from '@/types/templates';
 
@@ -40,15 +49,17 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
   mobile = false,
   compact = false,
 }) => {
-  const { notebooks, tags, activeNotebookId, createDoc, moveDocToNotebook } = useNotesStore(
-    useShallow((s) => ({
-      notebooks: s.notebooks,
-      tags: s.tags,
-      activeNotebookId: s.activeNotebookId,
-      createDoc: s.createDoc,
-      moveDocToNotebook: s.moveDocToNotebook,
-    }))
-  );
+  const { notebooks, tags, activeNotebookId, createDoc, moveDocToNotebook, updateDoc } =
+    useNotesStore(
+      useShallow((s) => ({
+        notebooks: s.notebooks,
+        tags: s.tags,
+        activeNotebookId: s.activeNotebookId,
+        createDoc: s.createDoc,
+        moveDocToNotebook: s.moveDocToNotebook,
+        updateDoc: s.updateDoc,
+      }))
+    );
 
   // 标签过滤（K2）：当前按单个标签过滤，够用且不抢空间；空数组表示不过滤
   const [tagFilter, setTagFilter] = useState<string[]>([]);
@@ -63,8 +74,11 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
     writeDocSortMode(mode);
   }, []);
   const [showMoveDialog, setShowMoveDialog] = useState(false);
-  /** 待移动的文档：单个与批量共用同一个对话框 */
+  /** 待移动的文档（已按「父子同选」去重到顶层）：单个与批量共用同一个对话框 */
   const [moveDocIds, setMoveDocIds] = useState<string[]>([]);
+  /** P1-13 移动对话框的两级选择：目标知识库 + 目标库里的父级（null = 放到根级） */
+  const [moveTargetNotebookId, setMoveTargetNotebookId] = useState<string | null>(null);
+  const [moveParentId, setMoveParentId] = useState<string | null>(null);
 
   /** 「新建文档」下拉：空白 / 从模板（T4） */
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -75,9 +89,26 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
 
   const requestMove = useCallback((docIds: string[]) => {
     if (docIds.length === 0) return;
-    setMoveDocIds(docIds);
+    /*
+     * P0-3：父子同选时只搬顶层 —— 子文档会随父文档一起过去（coreSlice 搬整棵
+     * 子树），再搬一次已不存在的子文档只会搬出半个结构。
+     * 这里按需读快照而不是订阅：本回调只在打开对话框那一刻用到这些数据。
+     */
+    const state = useNotesStore.getState();
+    const sourceId = state.activeNotebookId;
+    const source = state.notebooks.find((nb) => nb.id === sourceId) ?? null;
+    const topIds = dedupeToTopLevel(docIds, source?.docs ?? []);
+    if (topIds.length === 0) return;
+    const firstTarget = state.notebooks.find((nb) => nb.id !== sourceId) ?? null;
+    setMoveDocIds(topIds);
+    setMoveTargetNotebookId(firstTarget?.id ?? null);
+    setMoveParentId(null);
     setShowMoveDialog(true);
   }, []);
+  /* P1-3：移动对话框与模板选择两个浮层的焦点陷阱 + Esc 关闭（useFocusTrap 单一实现） */
+  const moveDialogRef = useFocusTrap<HTMLDivElement>(showMoveDialog, () => setShowMoveDialog(false));
+  const templateModalRef = useFocusTrap<HTMLDivElement>(showTemplateModal, () => setShowTemplateModal(false));
+
   const [isCompact, setIsCompact] = useState(false);
   /** 移动端文档列表展开态（默认收起，避免挤压编辑器） */
   const [mobileExpanded, setMobileExpanded] = useState(false);
@@ -113,6 +144,25 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
     [notebooks, activeNotebookId]
   );
 
+  /** P0-3：选中的文档一共还带着多少个子文档（moveDocIds 已去重到顶层，不会重复计） */
+  const moveSubtreeCount = useMemo(() => {
+    if (!activeNotebook || moveDocIds.length === 0) return 0;
+    let count = 0;
+    for (const id of moveDocIds) count += collectSubtreeIds(activeNotebook.docs, id).size - 1;
+    return count;
+  }, [activeNotebook, moveDocIds]);
+
+  /** P0-2：过滤无结果时的唯一出口 —— 搜索词与标签一起清掉 */
+  const clearFilter = useCallback(() => {
+    onSearchChange('');
+    setTagFilter([]);
+  }, [onSearchChange]);
+
+  /** P1-13 第二级选择：目标知识库展平后的文档（供「放入哪个文档下面」下拉使用） */
+  const moveTargetNotebook =
+    moveTargetNotebookId === null ? null : notebooks.find((nb) => nb.id === moveTargetNotebookId) ?? null;
+  const moveParentOptions = moveTargetNotebook ? flattenDocs([moveTargetNotebook]) : [];
+
   // 下拉的外部点击关闭 / Esc / 键盘导航统一由 ContextMenu 负责（含触发按钮的开关语义）
 
   // 移动端打开文档后自动收起列表，把空间还给编辑器
@@ -134,6 +184,57 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
     useNotesStore.getState().recordTemplateUsage(template.id);
     setShowTemplateModal(false);
   }, [activeNotebookId, createDoc, handleViewDoc]);
+
+  /**
+   * P1-13 / P0-3：确认移动 —— 两级选择（知识库 + 目标库里的父级）、整棵子树一起搬、
+   * 撤销时把层级也放回去（旧实现只把文档搬回根级，父子关系一去不返）。
+   */
+  const handleConfirmMove = useCallback(() => {
+    const targetId = moveTargetNotebookId;
+    if (!targetId || moveDocIds.length === 0) return;
+    const sourceId = activeNotebookId;
+    const ids = [...moveDocIds];
+    const targetParentId = moveParentId;
+    const sourceDocs = activeNotebook?.docs ?? [];
+    const originalParents = new Map(
+      ids.map((id) => [id, sourceDocs.find((d) => d.id === id)?.parentId ?? null] as const),
+    );
+
+    ids.forEach((docId) => {
+      moveDocToNotebook(sourceId, docId, targetId);
+      if (targetParentId) updateDoc(targetId, docId, { parentId: targetParentId });
+    });
+    setShowMoveDialog(false);
+    setMoveDocIds([]);
+
+    // 撤销＝整批搬回原知识库，并还原各自原来的父级
+    const batchId = setPendingBatchUndo('批量移动', () => {
+      ids.forEach((docId) => {
+        moveDocToNotebook(targetId, docId, sourceId);
+        const parentId = originalParents.get(docId) ?? null;
+        if (parentId) updateDoc(sourceId, docId, { parentId });
+      });
+    });
+    const targetTitle = notebooks.find((nb) => nb.id === targetId)?.title ?? '目标知识库';
+    toastWithUndo(
+      ids.length > 1
+        ? `已将 ${ids.length} 篇文档移动到「${targetTitle}」`
+        : `已移动到「${targetTitle}」`,
+      () => {
+        if (undoBatch(batchId)) toast.info('已移回原知识库');
+        else toast.warning('撤销已过期');
+      },
+    );
+  }, [
+    activeNotebook,
+    activeNotebookId,
+    moveDocIds,
+    moveParentId,
+    moveTargetNotebookId,
+    moveDocToNotebook,
+    notebooks,
+    updateDoc,
+  ]);
 
   const showBody = !mobile || mobileExpanded;
 
@@ -274,11 +375,23 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
           {showBody && (
             <>
               <div className="docs-search">
+                {/*
+                  P1-4：与侧栏头部的「全局搜索」入口分开 —— 这里只过滤**当前知识库**的标题，
+                  旧占位文案「搜索文档...」和全局搜索一模一样，用户永远分不清搜的是哪一层。
+                */}
                 <input
                   className="docs-search-input"
-                  placeholder="搜索文档..."
+                  placeholder="过滤当前知识库文档…"
+                  aria-label="过滤当前知识库文档"
                   value={searchText}
                   onChange={(e) => onSearchChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape' && searchText) {
+                      // 第一次 Esc 只清过滤；不再冒泡去关面板
+                      e.stopPropagation();
+                      clearFilter();
+                    }
+                  }}
                 />
               </div>
               {tags.length > 0 && (
@@ -325,6 +438,7 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
                   onViewDoc={handleViewDoc}
                   onMoveRequest={(docId) => requestMove([docId])}
                   onBatchMoveRequest={requestMove}
+                  onClearFilter={clearFilter}
                 />
               )}
             </>
@@ -334,8 +448,18 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
 
       {/* 从模板新建：复用首页的模板中心（懒加载，点开才拉取模板数据） */}
       {showTemplateModal && (
-        <div className="modal-overlay" onClick={() => setShowTemplateModal(false)}>
-          <div className="modal-content template-center-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowTemplateModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="模板中心"
+        >
+          <div
+            ref={templateModalRef}
+            className="modal-content template-center-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <Suspense fallback={<Loading type="spinner" size="medium" text="正在加载模板…" />}>
               <TemplateCenter
                 onSelectTemplate={handleSelectTemplate}
@@ -347,37 +471,35 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
       )}
 
       {showMoveDialog && moveDocIds.length > 0 && (
-        <div className="confirm-dialog-overlay" onClick={() => setShowMoveDialog(false)}>
-          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>{moveDocIds.length > 1 ? `移动 ${moveDocIds.length} 个文档` : '移动文档'}</h3>
-            <p>选择目标知识库：</p>
+        <div
+          className="confirm-dialog-overlay"
+          onClick={() => setShowMoveDialog(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={moveDocIds.length > 1 ? `移动 ${moveDocIds.length} 篇文档` : '移动文档'}
+        >
+          <div ref={moveDialogRef} className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>{moveDocIds.length > 1 ? `移动 ${moveDocIds.length} 篇文档` : '移动文档'}</h3>
+            {/* P0-3：移动前如实告知会连带多少子文档 —— 旧对话框对结构只字不提 */}
+            {moveSubtreeCount > 0 && (
+              <p className="move-subtree-hint">
+                选中的文档还包含 {moveSubtreeCount} 个子文档，将一并移动到目标知识库。
+              </p>
+            )}
+            <p>第一步：选择目标知识库</p>
             <div className="move-target-list">
               {notebooks
                 .filter((nb) => nb.id !== activeNotebookId)
                 .map((nb) => (
                   <button
                     key={nb.id}
-                    className="move-target-item"
+                    type="button"
+                    className={`move-target-item ${moveTargetNotebookId === nb.id ? 'active' : ''}`}
+                    aria-pressed={moveTargetNotebookId === nb.id}
                     onClick={() => {
-                      const movedIds = [...moveDocIds];
-                      const sourceNotebookId = activeNotebookId;
-                      movedIds.forEach((docId) => moveDocToNotebook(sourceNotebookId, docId, nb.id));
-                      setShowMoveDialog(false);
-                      setMoveDocIds([]);
-
-                      // 移动到别的知识库是可逆的：撤销＝把它们移回原来的库
-                      const batchId = setPendingBatchUndo('批量移动', () => {
-                        movedIds.forEach((docId) => moveDocToNotebook(nb.id, docId, sourceNotebookId));
-                      });
-                      toastWithUndo(
-                        movedIds.length > 1
-                          ? `已将 ${movedIds.length} 个文档移动到「${nb.title}」`
-                          : `已移动到「${nb.title}」`,
-                        () => {
-                          if (undoBatch(batchId)) toast.info('已移回原知识库');
-                          else toast.warning('撤销已过期');
-                        },
-                      );
+                      setMoveTargetNotebookId(nb.id);
+                      // 换了知识库，原来的父级选择必然失效
+                      setMoveParentId(null);
                     }}
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '16px', height: '16px' }}>
@@ -387,8 +509,34 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
                   </button>
                 ))}
             </div>
+            {/* P1-13 第二级：落到目标库的哪个位置（根级 / 某篇文档下面） */}
+            <p>第二步：放入目标位置</p>
+            <select
+              className="move-parent-select"
+              aria-label="放入目标位置"
+              value={moveParentId ?? ''}
+              onChange={(e) => setMoveParentId(e.target.value || null)}
+            >
+              <option value="">根级（顶层）</option>
+              {moveParentOptions.map((ref) => (
+                <option key={ref.docId} value={ref.docId}>
+                  {/* path 含自身，减 1 即层级深度；全角空格做缩进，下拉里也能看出树形 */}
+                  {'　'.repeat(Math.max(0, ref.path.length - 1)) + ref.title}
+                </option>
+              ))}
+            </select>
             <div className="confirm-dialog-actions">
-              <button onClick={() => setShowMoveDialog(false)}>取消</button>
+              <button type="button" onClick={() => setShowMoveDialog(false)}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={!moveTargetNotebookId}
+                onClick={handleConfirmMove}
+              >
+                移动到此处
+              </button>
             </div>
           </div>
         </div>

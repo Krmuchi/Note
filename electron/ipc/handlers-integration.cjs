@@ -356,6 +356,22 @@ function createIntegrationHandlers(deps) {
         }
       }
 
+      /*
+       * P1-6：缩放写盘后必须**立刻应用到当前窗口** —— 否则设置里的 −/+ 只是改了个
+       * 数字，用户点了看不到任何变化。菜单「视图」那条链路（webContents 'zoom-changed'
+       * → persistZoomSoon）与本通道互不经过，不会互相触发。
+       */
+      if (Object.prototype.hasOwnProperty.call(patch, "zoomFactor")) {
+        const win = getMainWindow();
+        if (win && !win.isDestroyed()) {
+          try {
+            win.webContents.setZoomFactor(result.settings.zoomFactor);
+          } catch (err) {
+            console.warn("[main] 应用缩放失败：", err && err.message ? err.message : err);
+          }
+        }
+      }
+
       return result;
     });
   }

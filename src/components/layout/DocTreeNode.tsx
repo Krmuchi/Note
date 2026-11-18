@@ -35,6 +35,16 @@ interface DocTreeNodeProps {
   isMultiSelectMode?: boolean;
   isSelected?: boolean;
   onSelect?: (docId: string) => void;
+  /**
+   * P0-2：自身命中、但部分祖先未命中时，显示的父路径（如「项目A › 会议」）。
+   * 只在过滤激活时有值 —— 平时树的层级缩进已经表达了路径。
+   */
+  contextPath?: string;
+  /**
+   * P0-2：本行只是"路径上下文"（祖先没命中，命中项在它下面）。
+   * 这类行视觉上压暗，避免被误读成搜索结果。
+   */
+  isContext?: boolean;
 }
 
 const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
@@ -65,8 +75,9 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
   isMultiSelectMode = false,
   isSelected = false,
   onSelect,
+  contextPath,
+  isContext = false,
 }) => {
-  const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingTitle, setEditingTitle] = useState(doc.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -106,7 +117,7 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
 
   return (
     <div
-      className={`doc-item ${isActive ? 'active' : ''} ${isFocused ? 'focused' : ''} ${depth > 0 ? 'doc-item-nested' : ''} ${isDragOver && dragOverPosition === 'inside' ? 'drag-over-inside' : ''}`}
+      className={`doc-item ${isActive ? 'active' : ''} ${isFocused ? 'focused' : ''} ${depth > 0 ? 'doc-item-nested' : ''} ${isContext ? 'doc-item-context' : ''} ${isDragOver && dragOverPosition === 'inside' ? 'drag-over-inside' : ''}`}
       data-doc-id={doc.id}
       role="treeitem"
       aria-selected={isActive}
@@ -115,8 +126,6 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
       style={{ paddingLeft: depth * 16 + 12 }}
       onClick={() => onDocClick(doc.id)}
       onContextMenu={(e) => onContextMenu(e, doc.id)}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
       draggable
       onDragStart={(e) => onDragStart(e, doc.id)}
       onDragEnd={onDragEnd}
@@ -194,16 +203,25 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
       ) : (
         <span
           className="doc-title"
+          title={contextPath ? `${contextPath} › ${doc.title}` : undefined}
           onDoubleClick={(e) => {
             e.stopPropagation();
             onStartRename?.(doc.id);
           }}
         >
+          {/* P0-2：自身命中但祖先没命中时把父路径写在标题前，否则深层文档在过滤结果里没有落点 */}
+          {contextPath && <span className="doc-context-path">{contextPath} › </span>}
           {doc.title}
         </span>
       )}
       <span className="doc-time">{formatRelativeTime(doc.updatedAt)}</span>
-      {isHovered && !editing && (
+      {/*
+        P1-11：操作按钮改为**常驻挂载**，可见性交给 CSS（:hover / :focus-within /
+        @media (hover:none)）。此前 JS 按 isHovered 条件渲染 —— 元素根本不在 DOM 里，
+        responsive.css 那两条兜底规则作用于不存在的节点，键盘与触屏用户等于没有这组操作。
+        键盘的等价入口还有 Shift+F10 / 菜单键（DocTree 打开同款右键菜单）。
+      */}
+      {!editing && (
         <div className="doc-actions">
           <button
             className="doc-action-btn"

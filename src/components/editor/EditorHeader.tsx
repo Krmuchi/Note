@@ -51,6 +51,12 @@ interface EditorHeaderProps {
   formatPainterActive?: boolean;
   /** 选区 AI 操作：父级捕获当前选区并弹出浮层 */
   onAiAction?: () => void;
+  /**
+   * P1-9：「AI 帮你写」（AiWriter 面板，生成新内容）。
+   * 此前编辑器里根本没有这个入口 —— 只有开始页能用 AiWriter，
+   * 而唯一的"AI 处理选中文本"还藏在「⋯ 更多格式」里。
+   */
+  onOpenAiWriter?: () => void;
   activeFormats?: Set<string>;
   showOutlinePanel?: boolean;
   onToggleOutlinePanel?: () => void;
@@ -97,6 +103,7 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
   onFormatPainter,
   formatPainterActive = false,
   onAiAction,
+  onOpenAiWriter,
   activeFormats = new Set(),
   showOutlinePanel,
   onToggleOutlinePanel,
@@ -405,6 +412,32 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
               )}
             </div>
 
+              {/*
+                P1-9：AI 入口从「⋯ 更多格式」提回主工具条，并补上「AI 帮你写」。
+                两件事语义不同：写作=生成新内容（面板），改写=处理当前选中的文字（浮层）。
+                放在固定区（不参与 foldExtras 自动收折）—— 窄窗口也要能一眼看到。
+              */}
+              <span className="eh-divider" />
+              <div className="eh-toolbar-group">
+                {onOpenAiWriter && (
+                  <IconBtn title="AI 帮你写：按主题生成新内容" onClick={onOpenAiWriter}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z" />
+                      <path d="M18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z" />
+                    </svg>
+                  </IconBtn>
+                )}
+                {onAiAction && (
+                  <IconBtn title="AI 处理选中文本（润色 / 改写 / 扩写 / 总结 / 风格转换）" onClick={onAiAction}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 20l8.5-8.5" />
+                      <path d="M14 4.5l1.2 2.8L18 8.5l-2.8 1.2L14 12.5l-1.2-2.8L10 8.5l2.8-1.2z" />
+                      <path d="M19 14l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z" />
+                    </svg>
+                  </IconBtn>
+                )}
+              </div>
+
             <div className="eh-toolbar-right">
               <EditorHeaderViewControls
                 previewMode={previewMode}
@@ -432,7 +465,6 @@ const EditorHeaderInner: React.FC<EditorHeaderProps> = ({
                 fontSizeMenuRef={fontSizeMenuRef}
                 onFormatPainter={onFormatPainter}
                 formatPainterActive={formatPainterActive}
-                onAiAction={onAiAction}
                 showCodeLangMenu={showCodeLangMenu}
                 setShowCodeLangMenu={setShowCodeLangMenu}
                 codeLangMenuRef={codeLangMenuRef}

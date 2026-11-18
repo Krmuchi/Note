@@ -40,6 +40,14 @@ interface UseEditorFormattingOptions {
    * "把 Markdown 图片语法追加到文档内容"，与旧内核最终效果一致。
    */
   onRichInsert?: (markdown: string) => void;
+  /**
+   * 富文本内核下"当前选中的文字"（P2-15）。
+   *
+   * contenteditable 没有 selectionStart/End：旧实现读 textarea 拿到选中文本当 alt，
+   * 富文本路径拿不到就硬编码 `![image]` —— 用户选中一段说明再插图，
+   * 文字被替换掉且一个字都没留下（alt 也没有）。由 Editor 注入读取函数补上同一语义。
+   */
+  getRichSelectionText?: () => string;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   /** 当前挂载的 textarea DOM 节点（预览切换会卸载/重建节点，依赖它使监听器重新绑定） */
   textareaNode: HTMLTextAreaElement | null;
@@ -49,10 +57,97 @@ interface UseEditorFormattingOptions {
   onLinkInsert?: () => void;
 }
 
+/**
+ * 正文里的外链图片（http/https）地址，去重后返回（P0-2）。
+ *
+ * 应用 CSP 是 `img-src 'self' data: file:` —— 外链图片**永远渲染不出来**，
+ * 所以插入链路必须能回答"这次带进来几张外链图"。
+ */
+export function remoteImageUrls(markdown: string): string[] {
+  return Array.from(
+    new Set(Array.from(markdown.matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g), (m) => m[1])),
+  );
+}
+
+/** 转存结果：replacements=已替换的地址对；failed=确实没能落地的地址（CSP/网络） */
+export interface LocalizeResult {
+  replacements: { from: string; to: string }[];
+  failed: string[];
+}
+
+/**
+ * 把外链图片转存到本机：最多处理 5 张、单张不超过 8MB。
+ * 失败（CSP / CORS / 404 / 网络）时保留原始外链，不影响已插入的内容。
+ *
+ * 原先是 hook 内部的 useCallback —— 只有 textarea 粘贴链路用得到，
+ * 于是默认（富文本）内核粘进来的外链图既不转存也不提示（P0-2）。
+ * 现在提到模块级，两条内核共用。
+ */
+export async function localizeRemoteImages(markdown: string): Promise<LocalizeResult> {
+  const MAX_REMOTE_IMAGES = 5;
+  const MAX_REMOTE_IMAGE_BYTES = 8 * 1024 * 1024;
+  const urls = remoteImageUrls(markdown).slice(0, MAX_REMOTE_IMAGES);
+  if (urls.length === 0) return { replacements: [], failed: [] };
+
+  const replacements: { from: string; to: string }[] = [];
+  const failed: string[] = [];
+  for (const url of urls) {
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        failed.push(url);
+        continue;
+      }
+      const blob = await resp.blob();
+      if (!blob.type.startsWith('image/') || blob.size > MAX_REMOTE_IMAGE_BYTES) {
+        failed.push(url);
+        continue;
+      }
+
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string) || '');
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      if (!data) {
+        failed.push(url);
+        continue;
+      }
+
+      const ext = (blob.type.split('/')[1] || 'png').split('+')[0];
+      const saved = await saveImage({ name: 'remote-' + Date.now() + '.' + ext, data });
+      // Web 模式 saveImage 原样返回 data URL，此时无需替换（避免内联体积翻倍）
+      if (saved && saved !== data) replacements.push({ from: url, to: saved });
+    } catch (err) {
+      // Electron 下 CSP(connect-src 'self') 会把外链 fetch 直接拦掉，落到这里 —— 记为失败
+      console.error('localize remote image failed:', err);
+      failed.push(url);
+    }
+  }
+  return { replacements, failed };
+}
+
+/**
+ * P0-2：转存没成功的外链图，给出**可执行**的提示（而不是让人对着裂图猜）。
+ *
+ * Electron 里 fetch 外链会被 CSP(connect-src 'self') 拦掉，转存几乎必然失败，
+ * 所以"失败但不吭声"才是常态 —— 用户必须知道：图片会裂、要先下载再插入。
+ * 只传"确实失败"的地址：Web 模式下 fetch 成功但无需落地的地址不该误报。
+ */
+export function warnRemainingRemoteImages(failed: string[]): void {
+  if (failed.length === 0) return;
+  toast.warning(
+    failed.length + ' 张外链图片无法在应用内显示（应用不加载外部图片，会是裂图）：请先下载图片，再以本地文件方式插入',
+    6000,
+  );
+}
+
 export function useEditorFormatting({
   textareaRef,
   textareaNode,
   onRichInsert,
+  getRichSelectionText,
   activeDoc,
   updateDocContent,
   onLinkInsert,
@@ -65,45 +160,6 @@ export function useEditorFormatting({
   handleInsertAnyFile: (file: File) => void;
 } {
   const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
-
-  /**
-   * 粘贴 HTML 中的外链图片转存本地：最多处理 5 张、单张不超过 8MB，
-   * 失败（CORS/404/网络）时保留原始外链，不影响已插入的内容。
-   */
-  const localizeRemoteImages = useCallback(async (markdown: string): Promise<{ from: string; to: string }[]> => {
-    const MAX_REMOTE_IMAGES = 5;
-    const MAX_REMOTE_IMAGE_BYTES = 8 * 1024 * 1024;
-    const urls = Array.from(
-      new Set(Array.from(markdown.matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g), (m) => m[1])),
-    ).slice(0, MAX_REMOTE_IMAGES);
-    if (urls.length === 0) return [];
-
-    const replacements: { from: string; to: string }[] = [];
-    for (const url of urls) {
-      try {
-        const resp = await fetch(url);
-        if (!resp.ok) continue;
-        const blob = await resp.blob();
-        if (!blob.type.startsWith('image/') || blob.size > MAX_REMOTE_IMAGE_BYTES) continue;
-
-        const data = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve((reader.result as string) || '');
-          reader.onerror = () => reject(reader.error);
-          reader.readAsDataURL(blob);
-        });
-        if (!data) continue;
-
-        const ext = (blob.type.split('/')[1] || 'png').split('+')[0];
-        const saved = await saveImage({ name: `remote-${Date.now()}.${ext}`, data });
-        // Web 模式 saveImage 原样返回 data URL，此时无需替换（避免内联体积翻倍）
-        if (saved && saved !== data) replacements.push({ from: url, to: saved });
-      } catch (err) {
-        console.error('localize remote image failed:', err);
-      }
-    }
-    return replacements;
-  }, []);
 
   /** 检测当前光标位置的格式 */
   const detectFormats = useCallback(() => {
@@ -222,13 +278,19 @@ export function useEditorFormatting({
        * 实测症状：粘贴图片后编辑器内容被清空、图片根本没插入。
        */
       if (!ta) {
-        onRichInsert?.(`![image](${src})`);
+        // P2-15：与 textarea 分支同一语义 —— 选中的文字保留为 alt，而不是丢成字面量 image
+        const picked = (getRichSelectionText?.() ?? '')
+          .replace(/[\]\r\n]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 120);
+        onRichInsert?.('![' + (picked || 'image') + '](' + src + ')');
         return;
       }
       const selectedText = ta.value.substring(ta.selectionStart, ta.selectionEnd);
       insertTextAtCursor(ta, `![${selectedText || 'image'}](${src})`);
     },
-    [onRichInsert],
+    [onRichInsert, getRichSelectionText],
   );
 
   /** 读取文件为 data URL，尝试保存到本地后插入编辑器（失败则内联 data URL 兜底并提示） */
@@ -348,20 +410,24 @@ export function useEditorFormatting({
     if (next !== null) updateDocContent({ content: next });
 
     // 先插入保证粘贴不卡顿，再异步把外链图片转存本地并原位替换
-    void localizeRemoteImages(markdown).then((replacements) => {
-      if (replacements.length === 0) return;
-      const taNow = textareaRef.current;
-      if (!taNow) return;
-      let value = taNow.value;
-      replacements.forEach(({ from, to }) => {
-        value = value.split(from).join(to);
-      });
-      if (value !== taNow.value) {
-        taNow.value = value;
-        updateDocContent({ content: value });
+    void localizeRemoteImages(markdown).then(({ replacements, failed }) => {
+      if (replacements.length > 0) {
+        const taNow = textareaRef.current;
+        if (taNow) {
+          let value = taNow.value;
+          replacements.forEach(({ from, to }) => {
+            value = value.split(from).join(to);
+          });
+          if (value !== taNow.value) {
+            taNow.value = value;
+            updateDocContent({ content: value });
+          }
+        }
       }
+      // P0-2：转存失败必须告知 —— 这些图在应用里注定是裂图，不能静默
+      warnRemainingRemoteImages(failed);
     });
-  }, [handleInsertImage, localizeRemoteImages, activeDoc, updateDocContent, textareaRef]);
+  }, [handleInsertImage, activeDoc, updateDocContent, textareaRef]);
 
   /** 处理粘贴/拖入的任意文件：图片走图片流程，其余走附件流程 */
   const handleInsertAnyFile = useCallback((file: File) => {

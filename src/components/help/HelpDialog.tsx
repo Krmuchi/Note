@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import { getAppInfo, openDataDir } from '@/services/storage'
+import { getAppInfo, isWebMode, openDataDir } from '@/services/storage'
 import { copyToClipboard } from '@/utils/clipboard'
 import { formatErrorLogs, readErrorLogs } from '@/utils/errorLog'
 import { formatPerfSnapshot } from '@/utils/perfMarks'
@@ -14,6 +14,23 @@ interface HelpDialogProps {
   onOpenShortcuts: () => void
 }
 
+type HelpAppInfo = { version: string; dataDir: string }
+
+/*
+ * P1-9：异步信息未到位时不能把"读取中"显示成"浏览器模式/开发版" ——
+ * 数据位置是信任最敏感的字段，桌面版闪一句"数据存在 IndexedDB"会被当成数据存错了地方。
+ * 模块级纯函数（入参显式传 appInfo），useCallback 引用它们不需要进依赖数组。
+ */
+function dataDirText(info: HelpAppInfo | null): string {
+  if (isWebMode) return '（浏览器模式下存在 IndexedDB）'
+  return info ? info.dataDir : '（读取中…）'
+}
+
+function versionText(info: HelpAppInfo | null): string {
+  if (isWebMode) return '浏览器模式'
+  return info?.version || '（读取中…）'
+}
+
 /**
  * 帮助中心（O6）。
  *
@@ -23,7 +40,7 @@ interface HelpDialogProps {
  */
 export default function HelpDialog({ isOpen, onClose, onOpenShortcuts }: HelpDialogProps): JSX.Element | null {
   const trapRef = useFocusTrap<HTMLDivElement>()
-  const [appInfo, setAppInfo] = useState<{ version: string; dataDir: string } | null>(null)
+  const [appInfo, setAppInfo] = useState<HelpAppInfo | null>(null)
 
   useEffect(() => {
     if (!isOpen || appInfo) return
@@ -46,8 +63,8 @@ export default function HelpDialog({ isOpen, onClose, onOpenShortcuts }: HelpDia
     const lines = [
       '# 笔记 · 诊断信息',
       '时间：' + new Date().toLocaleString('zh-CN'),
-      '版本：' + (appInfo?.version || '开发版'),
-      '数据目录：' + (appInfo?.dataDir || '浏览器模式'),
+      '版本：' + versionText(appInfo),
+      '数据目录：' + dataDirText(appInfo),
       '错误日志条数：' + logs.length,
       '启动耗时：' + formatPerfSnapshot(),
       '',
@@ -82,8 +99,8 @@ export default function HelpDialog({ isOpen, onClose, onOpenShortcuts }: HelpDia
         <section className="help-section">
           <h3>数据与安全</h3>
           <ul>
-            <li>所有数据只存在本机，位置：<code>{appInfo?.dataDir || '（浏览器模式下存在 IndexedDB）'}</code></li>
-            <li>每次保存后自动生成备份（最多保留 10 份），恢复前还会额外留一份当前快照</li>
+            <li>所有数据只存在本机，位置：<code>{dataDirText(appInfo)}</code></li>
+            <li>保存后最多每分钟自动备份一次（保留最近 10 份），恢复前还会额外留一份当前快照</li>
             <li>需要回退时：侧栏「更多 → 从备份恢复」或「设置 → 数据与备份」</li>
             <li>异常退出后重启会主动提示，并可用草稿或备份找回内容</li>
           </ul>

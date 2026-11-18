@@ -75,5 +75,12 @@ export async function withPreview(fn) {
     process.exitCode = 1
   } finally {
     stop()
+    /*
+     * 无论成败都显式退出：断言抛错时各脚本的 browser.close() 不会执行，
+     * node 会被 Playwright 的连接吊住永不退出（实测挂死 19 分钟、任务状态永远 running）。
+     * 先留 100ms 给管道排空再退出；Playwright 的进程退出钩子会连带收掉 headless shell。
+     */
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    process.exit(process.exitCode ?? 0)
   }
 }

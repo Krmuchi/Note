@@ -44,6 +44,17 @@ interface EditorFindBarProps {
   /** 预填关键词：搜索面板跳转过来时直接定位到首个命中（S1） */
   initialQuery?: string
   /**
+   * 富文本内核下「**延迟**恢复选区」的回调（P0-1）。
+   *
+   * 替换回写会改 store，RichEditor 的同步 effect 随后用新 Markdown **整体重建**
+   * contenteditable 的 innerHTML —— 本组件在 effect 里立刻 selectRange 只会落在
+   * 即将被销毁的旧 DOM 上，重建后光标丢失，用户接着打字会落到文档开头。
+   * 传入本回调后，替换动作只登记目标区间，由 Editor 在内容变化的 effect
+   * （子组件重建 effect 之后执行）里恢复光标 —— 与 useAiSelectionAction 的
+   * 「回写后 rAF 恢复光标」同一约定，但时序更确定（父子 effect 顺序有保证）。
+   */
+  deferRichSelection?: (start: number, end: number) => void
+  /**
    * 命中信息上抛：右侧刻度带需要"全部命中 + 当前下标 + 正文长度"才能绘制。
    * 由 Editor 持有并渲染，避免 FindBar 自己再插一层布局。
    */
@@ -65,6 +76,9 @@ interface EditorFindBarProps {
   editorReady?: boolean
 }
 
+/** P1-7：刻度带上抛的防抖窗口 —— 命中计算同步，只有驱动刻度带的这一步延迟 */
+const MATCH_REPORT_DELAY = 200
+
 /**
  * 文档内查找 / 替换（BUG-3）。
  *
@@ -84,6 +98,7 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
   onRegisterJump,
   editorReady = false,
   onShowReplaceChange,
+  deferRichSelection,
 }) => {
   const [query, setQuery] = useState(initialQuery)
   const [replacement, setReplacement] = useState('')
@@ -93,6 +108,28 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
   const [showReplace, setShowReplace] = useState(initialShowReplace)
   const [current, setCurrent] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  /**
+   * P1-7：是否需要把选区重定位到「当前命中」。
+   *
+   * 旧实现把 jumpTo 直接挂在 [jumpTo, safeCurrent, editorReady] 上，而 jumpTo 依赖
+   * content —— 于是**在正文里每敲一个字**，content 变化就让该 effect 重跑一次，
+   * 把光标从用户正在编辑的位置拽回上一次的命中处（textarea 与富文本内核都中招）。
+   * 现在只有「查询/选项/当前下标/编辑器就绪」这些**查找自身的意图**变化
+   * （或下面显式登记的替换动作）才重定位，纯内容变化一律不抢光标。
+   */
+  const relocateRef = useRef(true)
+  /** 替换属于「查找意图」：内容变了也要重新落到新命中上 */
+  const markRelocate = useCallback(() => {
+    relocateRef.current = true
+  }, [])
+  const prevKeyRef = useRef({
+    query,
+    caseSensitive,
+    wholeWord,
+    regexMode,
+    current: 0,
+    ready: editorReady,
+  })
 
   const { matches, valid, error: patternError, regexp } = useMemo(
     () => findMatches(content, query, { caseSensitive, wholeWord, regex: regexMode }),
@@ -122,23 +159,53 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
   )
 
   /**
-   * 查询条件或内容变化后把当前命中保持在视口内（纯 DOM 操作，不 setState）。
+   * 查询条件 / 当前下标 / 编辑器就绪变化后，把当前命中保持在视口内
+   * （纯 DOM 操作，不 setState）。
    *
-   * `editorReady` 必须进依赖：旧内核（EditorContent）已改成 React.lazy，
-   * 查找栏出现时 textarea 可能还没挂载 —— jumpTo 里的 `if (!ta) return`
-   * 会直接跳过且永不重试，表现为"查找栏打开了，但没选中任何命中"。
-   * 编辑器一旦就绪（textareaRef 或富文本 root 有值）就重新跑一次。
+   * 两处问题一起修（P1-7）：
+   * 1. `editorReady` 必须进依赖：旧内核（EditorContent）是 React.lazy，查找栏可能
+   *    先于编辑器出现 —— jumpTo 里的 `if (!ta) return` 会直接跳过且永不重试，
+   *    表现为"查找栏打开了，但没选中任何命中"；
+   * 2. **纯内容变化不能触发**：jumpTo 依赖 content，直接挂在它上面意味着正文里
+   *    每敲一个字光标都被拽回命中处。这里用 prevKey 比对"查找意图"，
+   *    只有查询 / 选项 / 下标 / 就绪状态真的变了（或替换显式登记了 relocate）才跳。
    */
   useEffect(() => {
+    const prev = prevKeyRef.current
+    const intentChanged =
+      prev.query !== query ||
+      prev.caseSensitive !== caseSensitive ||
+      prev.wholeWord !== wholeWord ||
+      prev.regexMode !== regexMode ||
+      prev.current !== safeCurrent ||
+      prev.ready !== editorReady
+    prevKeyRef.current = { query, caseSensitive, wholeWord, regexMode, current: safeCurrent, ready: editorReady }
+    if (!intentChanged && !relocateRef.current) return
+    relocateRef.current = false
     if (safeCurrent >= 0) jumpTo(safeCurrent, false)
-  }, [jumpTo, safeCurrent, editorReady])
+  }, [jumpTo, safeCurrent, editorReady, query, caseSensitive, wholeWord, regexMode])
 
-  // 命中信息上抛给 Editor 的刻度带；组件卸载时清空，避免刻度残留在关闭后的编辑器上
+  /*
+   * 命中信息上抛给 Editor 的刻度带（P1-7 防抖 200ms）。
+   *
+   * 刻度带是「每个命中一个 button」，高频词在长文档里会上千个节点；
+   * 上抛随 content 每击键触发一次，等于每敲一个字就重建一遍这些节点 ——
+   * 查找栏开着时打字卡顿的主因。命中计算与计数仍然**同步**（用户要立刻看到
+   * 1/N），只有刻度带这个"余光可见"的信息延迟 200ms 合并连击。
+   */
   useEffect(() => {
     if (!onMatchesChange) return
-    onMatchesChange({ matches, current: safeCurrent, contentLength: content.length })
-    return () => onMatchesChange(null)
+    const timer = window.setTimeout(() => {
+      onMatchesChange({ matches, current: safeCurrent, contentLength: content.length })
+    }, MATCH_REPORT_DELAY)
+    return () => window.clearTimeout(timer)
   }, [matches, safeCurrent, content.length, onMatchesChange])
+
+  // 卸载时清空刻度：查找栏关闭后刻度不能残留（在上一个 effect 的 clearTimeout 之后执行）
+  useEffect(() => {
+    if (!onMatchesChange) return
+    return () => onMatchesChange(null)
+  }, [onMatchesChange])
 
   // 把"跳到第 N 处"注册给刻度带：点击刻度时既切当前下标，也把选区/滚动带过去
   useEffect(() => {
@@ -210,10 +277,26 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
     if (nextIndex === -1 && nextMatches.length > 0) nextIndex = 0
 
     setCurrent(nextIndex >= 0 ? nextIndex : 0)
+    // P1-7：替换属于"查找意图" —— 即便下标没变（文档只有一处命中）也要重新落位
+    markRelocate()
     onReplaceContent(next)
+
+    /*
+     * P0-1：富文本内核的光标恢复交给父级。
+     * 替换回写会改 store，RichEditor 随后用新 Markdown 整体重建 contenteditable，
+     * 此刻立刻 selectRange 只会落在马上被销毁的旧 DOM 上，重建后光标丢失。
+     * 这里只登记"新内容里下一处命中的区间"，由 Editor 在重建 effect 之后恢复。
+     */
+    if (deferRichSelection) {
+      const target = nextMatches[nextIndex >= 0 ? nextIndex : 0]
+      if (target) deferRichSelection(target.index, target.index + target.length)
+      else deferRichSelection(cursor, cursor)
+    }
   }, [
     caseSensitive,
     content,
+    deferRichSelection,
+    markRelocate,
     matches,
     onReplaceContent,
     query,
@@ -238,12 +321,36 @@ export const EditorFindBar: React.FC<EditorFindBarProps> = ({
       message: `将把文档中全部 ${count} 处「${query}」替换为「${replacement}」，此操作会一次性修改整篇文档，确定继续吗？`,
       confirmText: '全部替换',
       onConfirm: () => {
-        onReplaceContent(replaceAllMatches(content, matches, replacement, regexp))
+        const next = replaceAllMatches(content, matches, replacement, regexp)
+        onReplaceContent(next)
         setCurrent(0)
+        // P1-7：全部替换同样要重新落位（哪怕 current 一直是 0）
+        markRelocate()
+        /*
+         * P0-1：登记替换后第一处命中供父级在 DOM 重建后恢复光标；
+         * 替换文本不含查询词导致再无命中时，退化为"替换处之后"的位置。
+         */
+        if (deferRichSelection) {
+          const { matches: after } = findMatches(next, query, {
+            caseSensitive,
+            wholeWord,
+            regex: regexMode,
+          })
+          const target = after[0]
+          if (target) {
+            deferRichSelection(target.index, target.index + target.length)
+          } else {
+            // 再无命中：光标停在"最后一处替换"的末尾（尾部原文长度在替换前后不变）
+            const last = matches[matches.length - 1]
+            const tail = content.length - (last.index + last.length)
+            const endPos = Math.max(0, next.length - tail)
+            deferRichSelection(endPos, endPos)
+          }
+        }
         toast.success(`已替换 ${count} 处`)
       },
     })
-  }, [content, matches, onReplaceContent, query, regexp, replacement])
+  }, [caseSensitive, content, deferRichSelection, markRelocate, matches, onReplaceContent, query, regexMode, regexp, replacement, wholeWord])
 
   const handleClose = useCallback(() => {
     onClose()

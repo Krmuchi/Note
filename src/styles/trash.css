@@ -297,3 +297,28 @@
   background: var(--bg-quaternary);
   color: var(--text-primary);
 }
+
+/* P2-15：回收站多选 + 批量恢复 */
+.trash-select-checkbox {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--primary-500);
+}
+
+.trash-selected-count {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 恢复是正向动作，不该沿用「清空」的危险配色 */
+.btn-restore-selected {
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.btn-restore-selected:hover:not(:disabled) {
+  background: var(--primary-100);
+}

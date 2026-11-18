@@ -41,6 +41,18 @@ const DEFAULT_SHORTCUTS: KeyboardShortcut[] = [
   { id: 'toggleSidebar', name: '切换侧边栏', keys: ['Ctrl', '\\'], category: '通用' },
   { id: 'toggleFavorite', name: '收藏/取消收藏', keys: ['Ctrl', 'Shift', 'F'], category: '通用' },
   { id: 'shortcutHelp', name: '快捷键帮助', keys: ['Ctrl', '/'], category: '通用' },
+  // 标签页：Ctrl+W 关闭当前标签（主进程菜单的 role:close 已改绑 CmdOrCtrl+Shift+W 让位，见 electron/main.cjs）
+  { id: 'closeTab', name: '关闭标签', keys: ['Ctrl', 'W'], category: '通用' },
+  { id: 'nextTab', name: '下一个标签', keys: ['Ctrl', 'Tab'], category: '通用' },
+  { id: 'prevTab', name: '上一个标签', keys: ['Ctrl', 'Shift', 'Tab'], category: '通用' },
+  { id: 'reopenTab', name: '重开关闭的标签', keys: ['Ctrl', 'Shift', 'T'], category: '通用' },
+  // 视图直达（P1-10 ③）：Alt+1..6 对应侧栏顺序，避开 Ctrl+数字（标题级）与 Alt+↑/↓（移动行）
+  { id: 'openStart', name: '打开开始页', keys: ['Alt', '1'], category: '通用' },
+  { id: 'openNote', name: '打开小记', keys: ['Alt', '2'], category: '通用' },
+  { id: 'openFavorite', name: '打开收藏', keys: ['Alt', '3'], category: '通用' },
+  { id: 'openRecent', name: '打开最近', keys: ['Alt', '4'], category: '通用' },
+  { id: 'openTags', name: '打开标签', keys: ['Alt', '5'], category: '通用' },
+  { id: 'openTrash', name: '打开回收站', keys: ['Alt', '6'], category: '通用' },
   // Ctrl+P 在 Electron 里默认未绑定（应用菜单没有 print 角色），可安全占用
   { id: 'quickOpen', name: '快速打开文档', keys: ['Ctrl', 'P'], category: '通用' },
   { id: 'undo', name: '撤销', keys: ['Ctrl', 'Z'], category: '编辑' },

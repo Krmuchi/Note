@@ -67,6 +67,19 @@ const IconH1 = I(
     <path d="M17 10l2-2v10" />
   </>,
 )
+const IconAi = I(
+  <>
+    <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z" />
+    <path d="M18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z" />
+  </>,
+)
+
+const IconComment = I(
+  <>
+    <path d="M21 12a8 8 0 0 1-8 8H8l-4 3v-5.5A8 8 0 0 1 12 4h1a8 8 0 0 1 8 8z" />
+  </>,
+)
+
 const IconLink = I(
   <>
     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -96,6 +109,13 @@ export interface SelectionToolbarProps {
   onFormat: (id: string) => void
   /** 触发插入链接 */
   onLink: () => void
+  /**
+   * P1-9：划词后的 AI 改写与评论入口。
+   * 浮层原本只有 6 个格式 + 链接 —— 最常用的"改写 / 就地评论"反而要移回顶部工具栏找。
+   * 父级未提供时不渲染对应按钮（textarea 内核下 AI 走的是另一条链路）。
+   */
+  onAi?: () => void
+  onComment?: () => void
   /** 预览模式下不显示 */
   enabled?: boolean
 }
@@ -115,6 +135,8 @@ export const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
   root,
   onFormat,
   onLink,
+  onAi,
+  onComment,
   enabled = true,
 }) => {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
@@ -187,8 +209,8 @@ export const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
         setPos(null)
         return
       }
-      // 浮层宽约 260px、高约 36px：水平居中于选区，垂直放在选区上方
-      const TOOLBAR_W = 260
+      // 浮层宽约 330px（格式 6 键 + AI / 评论 / 链接）、高约 36px：水平居中于选区，垂直放在选区上方
+      const TOOLBAR_W = 330
       const TOOLBAR_H = 36
       const left = Math.min(
         Math.max(8, rect.left + rect.width / 2 - TOOLBAR_W / 2),
@@ -241,10 +263,35 @@ export const SelectionToolbar: React.FC<SelectionToolbarProps> = ({
         </button>
       ))}
       <span className="selection-toolbar-sep" aria-hidden="true" />
+      {onAi && (
+        <button
+          key="ai"
+          type="button"
+          className="selection-toolbar-btn"
+          title="AI 处理选中文本（润色 / 改写 / 扩写 / 总结）"
+          aria-label="AI 处理选中文本"
+          onClick={onAi}
+        >
+          <IconAi size={15} />
+        </button>
+      )}
+      {onComment && (
+        <button
+          key="comment"
+          type="button"
+          className="selection-toolbar-btn"
+          title="对选中内容发表评论"
+          aria-label="对选中内容发表评论"
+          onClick={onComment}
+        >
+          <IconComment size={15} />
+        </button>
+      )}
       <button
         type="button"
         className="selection-toolbar-btn"
         title="插入链接"
+        aria-label="插入链接"
         onClick={onLink}
       >
         <IconLink size={15} />

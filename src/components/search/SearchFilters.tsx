@@ -91,7 +91,9 @@ export default function SearchFilters({ filters, tags, onFilterChange }: SearchF
       <div className="filter-row">
         <label>标签</label>
         <div className="tag-filter">
-          {tags.slice(0, 5).map(tag => (
+          {/* P1-8：全量展示 —— 旧版 slice(0,5) 让第 6 个之后的标签在筛选面板里永远选不到，
+              还没有任何「还有更多」的提示；溢出由 search.css 的折行 + 滚动兜住 */}
+          {tags.map(tag => (
             <button
               key={tag.id}
               className={`filter-tag ${filters.tags?.includes(tag.id) ? 'selected' : ''}`}

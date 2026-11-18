@@ -56,12 +56,43 @@ export const getPrimarySearchTerm = (query: string): string => {
 export const sortSearchHistory = (history: SearchHistory[]): SearchHistory[] =>
   [...history].sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false))
 
+/**
+ * P1-9「按标签看文档」的跨组件一次性请求：标签页发起 → 搜索面板打开时消费。
+ * 与 searchJump / docNavigation 同款的模块级通道（面板的筛选条件是组件内 state，
+ * 从外部塞值只能走一次性请求，避免把临时查询写进全局 store）。
+ */
+export interface TagSearchRequest {
+  tagIds: string[]
+  /** 展示用的标签名（面板标题/提示语），如「工作」 */
+  label: string
+}
+
+let pendingTagSearch: TagSearchRequest | null = null
+
+export function requestTagSearch(request: TagSearchRequest): void {
+  pendingTagSearch = { tagIds: [...request.tagIds], label: request.label }
+}
+
+/** 取出并清空待处理请求；未消费的请求不会影响下一次普通搜索 */
+export function consumeTagSearch(): TagSearchRequest | null {
+  const request = pendingTagSearch
+  pendingTagSearch = null
+  return request
+}
+
+/** 仅测试用 */
+export function resetTagSearch(): void {
+  pendingTagSearch = null
+}
+
 export interface SearchSlice {
   searchHistory: SearchHistory[]
   search: (query: string, filters?: SearchFilter, limit?: number) => SearchResult[]
   getSearchSuggestions: (query: string) => SearchSuggestion[]
   addSearchHistory: (query: string, resultCount: number) => void
   clearSearchHistory: () => void
+  /** P2「清空搜索历史可撤销」：一次性还原被清空的整份历史（含置顶状态与顺序） */
+  restoreSearchHistory: (items: SearchHistory[]) => void
   removeSearchHistoryItem: (id: string) => void
   togglePinSearchHistory: (id: string) => void
   getPopularSearches: (limit?: number) => SearchHistory[]
@@ -139,8 +170,15 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
     }
 
     const terms = parseQuery(query)
-    // 没有任何正向/排除词条：空查询不应返回整库
-    if (terms.length === 0) return []
+    /*
+     * 没有任何正向/排除词条时：空查询不应返回整库。
+     * 例外（P1-9「按标签看文档」）：用户只要求了标签或日期范围时，
+     * 关键词可以为空 —— 此时 matchesQuery 对空词条恒真，结果由下面的
+     * 标签/日期谓词收窄，天然就是"这个标签下有哪些文档"。
+     * 既无词条也无任何范围约束才回落到 []（否则空查询命中全部文档）。
+     */
+    const hasScopeFilter = Boolean(filters?.tags?.length || filters?.dateRange)
+    if (terms.length === 0 && !hasScopeFilter) return []
 
     /*
      * 分词只做一次。
@@ -268,8 +306,14 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
     }
 
     notebooks.forEach(notebook => {
-      // type 过滤对两类结果都要生效：选"只搜知识库"时不应再返回文档，反之亦然
-      if (filters?.type === 'all' || filters?.type === 'notebook') {
+      /*
+       * type 过滤对两类结果都要生效：选"只搜知识库"时不应再返回文档，反之亦然。
+       * 纯范围筛选（无关键词、只有标签/日期）时**不出知识库结果**：
+       * 知识库本身没有标签可被范围谓词收窄，否则"按标签看文档"会混进一个
+       * 和该标签毫无关系的知识库行。
+       */
+      const keywordScoped = terms.length > 0
+      if (keywordScoped && (filters?.type === 'all' || filters?.type === 'notebook')) {
         if (matchesQuery(notebook.title.toLowerCase())) {
           // 取最新文档的更新时间（原实现取首个文档，排序失真）
           const latestDocTime = notebook.docs.reduce<string | null>(
@@ -428,6 +472,14 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
   clearSearchHistory: () => {
     set((state) => {
       state.searchHistory = []
+    })
+  },
+
+  restoreSearchHistory: (items) => {
+    if (!Array.isArray(items)) return
+    set((state) => {
+      // 与写入路径同序：置顶在前、其余按原相对顺序（用户看到的正是被清空前的样子）
+      state.searchHistory = sortSearchHistory(items)
     })
   },
 

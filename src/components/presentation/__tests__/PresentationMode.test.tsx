@@ -76,3 +76,53 @@ describe('PresentationMode 键盘（缺陷 12）', () => {
     window.removeEventListener('keydown', globalKey)
   })
 })
+
+/**
+ * P：演示模式支持正文里单独成行的 --- 作为**手动分页符**。
+ * 顺带钉住"代码围栏里的 --- 不是分页符"（否则一段 YAML 就被切开）。
+ */
+describe('PresentationMode 手动分页（---）', () => {
+  const page = (): string => (screen.getByTestId('md') as HTMLElement).textContent ?? ''
+
+  it('单独成行的 --- 切成两页', () => {
+    const paged = { ...doc, content: '第一页内容\n---\n第二页内容' }
+    render(<PresentationMode doc={paged} onClose={() => {}} />)
+
+    expect(page()).toContain('第一页内容')
+    expect(page()).not.toContain('第二页内容')
+
+    fireEvent.keyDown(document.body, { key: 'ArrowRight' })
+    expect(page()).toContain('第二页内容')
+    expect(page()).not.toContain('第一页内容')
+
+    // 往回也能翻
+    fireEvent.keyDown(document.body, { key: 'ArrowLeft' })
+    expect(page()).toContain('第一页内容')
+  })
+
+  it('代码围栏里的 --- 不参与分页（整段仍在同一页）', () => {
+    // 用 fromCharCode 拼三反引号：源码里直接写会截断模板字符串
+    const ticks = String.fromCharCode(96, 96, 96)
+    const fenced = {
+      ...doc,
+      content: '# 配置\n' + ticks + 'yaml\nkey: 1\n---\nkey: 2\n' + ticks,
+    }
+    render(<PresentationMode doc={fenced} onClose={() => {}} />)
+
+    const before = page()
+    expect(before).toContain('key: 1')
+    expect(before).toContain('key: 2')
+
+    fireEvent.keyDown(document.body, { key: 'ArrowRight' })
+    // 只有一页：翻页后内容不变（曾经围栏里的 --- 会把配置切开）
+    expect(page()).toBe(before)
+  })
+
+  it('文首孤立的 --- 不制造空页', () => {
+    const leading = { ...doc, content: '---\n---\n正文只有一页' }
+    render(<PresentationMode doc={leading} onClose={() => {}} />)
+    expect(page()).toContain('正文只有一页')
+    fireEvent.keyDown(document.body, { key: 'ArrowRight' })
+    expect(page()).toContain('正文只有一页')
+  })
+})

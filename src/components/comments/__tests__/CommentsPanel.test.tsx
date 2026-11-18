@@ -345,3 +345,47 @@ describe('划词评论（锚点）', () => {
     expect(screen.getByText('评论')).not.toBeNull()
   })
 })
+
+/**
+ * P2-13：主表单与回复表单的键盘约定要一致。
+ * 回复框早就支持 Ctrl/Cmd+Enter 提交，主表单却只能摸鼠标点「发表评论」。
+ */
+describe('CommentsPanel 主表单键盘提交（P2-13）', () => {
+  it('Ctrl+Enter 提交评论', () => {
+    const onAddComment = vi.fn()
+    render(
+      <CommentsPanel
+        comments={[]}
+        docId="doc1"
+        onAddComment={onAddComment}
+        onDeleteComment={vi.fn()}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    )
+    const input = screen.getByPlaceholderText('写下你的评论...')
+    fireEvent.change(input, { target: { value: '一条评论' } })
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+
+    expect(onAddComment).toHaveBeenCalledTimes(1)
+    expect(onAddComment).toHaveBeenCalledWith('doc1', '一条评论')
+  })
+
+  it('普通 Enter 仍然换行，不提交', () => {
+    const onAddComment = vi.fn()
+    render(
+      <CommentsPanel
+        comments={[]}
+        docId="doc1"
+        onAddComment={onAddComment}
+        onDeleteComment={vi.fn()}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    )
+    const input = screen.getByPlaceholderText('写下你的评论...')
+    fireEvent.change(input, { target: { value: '第一行' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onAddComment).not.toHaveBeenCalled()
+  })
+})

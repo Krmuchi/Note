@@ -187,6 +187,45 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   const previewRef = useRef<HTMLDivElement>(null);
   const isScrollingRef = useRef(false);
 
+  /*
+   * 预览图片点击放大（lightbox）。
+   *
+   * 图片是笔记里最常见的内容之一，预览里却只能"看个缩略" —— 点开大图是零学习成本的
+   * 本能操作。放大层复用图片**原本的地址**（self / data: file:，CSP 允许），
+   * 不经 URL.createObjectURL，也就没有 blob: 被 CSP 拦掉的问题。
+   */
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
+  const lightboxOpenerRef = useRef<HTMLElement | null>(null);
+  const openLightbox = useCallback((src: string, alt: string) => {
+    lightboxOpenerRef.current = document.activeElement as HTMLElement | null;
+    setLightbox({ src, alt });
+  }, []);
+  const closeLightbox = useCallback(() => {
+    setLightbox(null);
+    // 关闭后把焦点还给那张图（键盘用户才不会"掉到 body"）
+    lightboxOpenerRef.current?.focus?.();
+  }, []);
+
+  const lightboxCloseRef = useRef<HTMLButtonElement | null>(null);
+  // 打开后焦点进入放大层（Tab 才不会落到背后文档上）
+  useEffect(() => {
+    if (lightbox) lightboxCloseRef.current?.focus();
+  }, [lightbox]);
+
+  // Esc 关闭大图。演示模式下 Esc 会被演示层（window capture）先收走用于退出演示 ——
+  // 那种情况下放大层随 MarkdownPreview 一起卸载，不会残留。
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closeLightbox();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [lightbox, closeLightbox]);
+
   // 防抖渲染：split 模式下每次击键都会触发全量 markdown 重解析（含 KaTeX/mermaid），
   // 大文档明显卡顿。延迟 200ms 合并连续击键，只在停顿后解析一次。
   const [debouncedContent, setDebouncedContent] = useState(content);
@@ -353,12 +392,26 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       );
     },
     img({ src, alt }) {
+      if (!src) return null;
       return (
         <img
           src={src}
           alt={alt}
           style={{ maxWidth: '100%', height: 'auto' }}
           loading="lazy"
+          className="md-preview-img"
+          title="点击放大"
+          // 键盘可达：Tab 到图片后 Enter / 空格同样能放大
+          tabIndex={0}
+          role="button"
+          aria-label={alt ? `放大查看：${alt}` : '放大查看图片'}
+          onClick={() => openLightbox(src, alt ?? '')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              openLightbox(src, alt ?? '');
+            }
+          }}
         />
       );
     },
@@ -383,8 +436,8 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         />
       );
     },
-    // onWikiLink 参与渲染（双链按钮的点击回调），必须进依赖，否则会捕获旧闭包
-  }), [onWikiLink]);
+    // onWikiLink / openLightbox 参与渲染（点击回调），必须进依赖，否则会捕获旧闭包
+  }), [onWikiLink, openLightbox]);
 
   // 空态判断与正文渲染使用同一数据源（防抖后的内容），避免清空/输入时闪跳
   if (!debouncedContent || debouncedContent.trim() === '') {
@@ -418,6 +471,34 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       >
         {processedContent}
       </ReactMarkdown>
+
+      {lightbox && (
+        <div
+          className="lightbox-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={lightbox.alt ? `放大查看：${lightbox.alt}` : '放大查看图片'}
+          onClick={closeLightbox}
+        >
+          {/* 用图片原本的地址（self/data:/file: 均为 CSP 允许），点击图片本身不关闭 */}
+          <img
+            className="lightbox-image"
+            src={lightbox.src}
+            alt={lightbox.alt}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            ref={lightboxCloseRef}
+            className="lightbox-close"
+            onClick={closeLightbox}
+            aria-label="关闭图片预览"
+            title="关闭（Esc）"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 };

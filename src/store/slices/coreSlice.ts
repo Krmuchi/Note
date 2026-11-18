@@ -3,6 +3,7 @@ import type { NoteDoc, Notebook, TrashDoc, AppStore } from '@/types'
 import type { NotesStore } from '@/store/types'
 import { newId } from '@/store/storeUtils'
 import { pushAutoVersion } from '@/store/docVersions'
+import { collectSubtreeIds } from '@/utils/docSort'
 import { loadAppStore, saveAppStore } from '@/services/storage'
 import { toast } from '@/services/toast'
 import { TRASH_RETENTION_DAYS } from '@/shared/constants'
@@ -491,29 +492,65 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
     get().pruneOpenTabs()
   },
 
+  /*
+   * 跨知识库移动（P0-3）：默认**连同整棵子树**一起搬。
+   *
+   * 旧实现只搬父文档本体，子文档被重挂到父文档原来的父级、留在原知识库 ——
+   * 用户看到的是"项目搬走了，里面的记录还散在旧库顶层"，层级被静默打散。
+   * 批量选择中的"父子同选"由调用方 dedupeToTopLevel 预先去掉；即便仍被
+   * 重复调用（父先搬走、子已不在原库），这里对找不到的文档直接返回，
+   * 不会搬出半个子树。
+   */
   moveDocToNotebook: (sourceNotebookId, docId, targetNotebookId) => {
+    let remappedTab = false
     set((state) => {
       state.lastMutationAt = Date.now()
       const sourceNotebook = state.notebooks.find(nb => nb.id === sourceNotebookId)
       const targetNotebook = state.notebooks.find(nb => nb.id === targetNotebookId)
       if (!sourceNotebook || !targetNotebook) return
+      // 同库"移动"没有意义，且会把子树整体重排一次
+      if (sourceNotebook.id === targetNotebook.id) return
 
       const doc = sourceNotebook.docs.find(d => d.id === docId)
       if (!doc) return
 
-      sourceNotebook.docs = detachAndReparent(sourceNotebook.docs, docId, doc.parentId)
+      const subtreeIds = collectSubtreeIds(sourceNotebook.docs, docId)
+      const movedDocs = sourceNotebook.docs.filter(d => subtreeIds.has(d.id))
+      sourceNotebook.docs = sourceNotebook.docs.filter(d => !subtreeIds.has(d.id))
+      targetNotebook.docs.push(
+        ...movedDocs.map(d =>
+          d.id === docId
+            ? { ...d, parentId: null, updatedAt: new Date().toISOString() }
+            : d,
+        ),
+      )
 
-      targetNotebook.docs.push({
-        ...doc,
-        parentId: null,
-        updatedAt: new Date().toISOString(),
+      /*
+       * 打开中的标签跟随换库：标签只存 {notebookId, docId}，指向旧库的引用
+       * 会被紧接着的 pruneOpenTabs 当幽灵清掉 —— 用户刚移动完，标签栏
+       * 里这篇（及其子文档）的标签就全消失了。
+       */
+      state.openTabs = state.openTabs.map(tab => {
+        if (tab.notebookId !== sourceNotebookId || !subtreeIds.has(tab.docId)) return tab
+        remappedTab = true
+        return { ...tab, notebookId: targetNotebookId }
       })
 
-      if (state.activeDocId === docId) {
+      if (state.activeDocId && subtreeIds.has(state.activeDocId)) {
         state.activeNotebookId = targetNotebookId
       }
     })
-    // 文档换了知识库：旧标签引用（原 notebookId + docId）已失效，立即清理
+
+    if (remappedTab) {
+      // tabSlice 的 persistTabs 未导出，这里按同一约定写同一个键
+      //（键名需与 tabSlice 的 OPEN_TABS_KEY 保持一致）
+      try {
+        localStorage.setItem('notes-open-tabs', JSON.stringify(get().openTabs))
+      } catch {
+        // 存储不可用：标签是纯体验功能，失败不影响移动本身
+      }
+    }
+    // 换库后清理确实失效的标签引用（remap 过的引用仍然有效，不会被清）
     get().pruneOpenTabs()
   },
 

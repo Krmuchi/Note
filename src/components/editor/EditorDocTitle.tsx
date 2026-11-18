@@ -14,10 +14,12 @@ import type { NoteDoc } from '@/types'
  *
  * Enter 提交并聚焦到正文，符合"标题写完就开始写内容"的直觉。
  *
- * 提交时机（缺陷6/7）：
- * - **不在 onInput 提交**。逐字符写 store 会为每个字符记一份撤销快照
+ * 提交时机（缺陷6/7 + P2-12）：
+ * - **不在 onInput 逐字符提交**。每个字符写 store 会记一份撤销快照
  *   （updateDocContent 里 title 变化会 recordSnapshot），撤销栈被标题刷屏。
- *   输入期间 DOM 就是本地真实值，Enter / 失焦时才提交。
+ *   改为 **onInput 排 800ms 防抖**：连续输入只在停顿后落一次，
+ *   Enter / 失焦仍立即提交；卸载与 beforeunload 再兜一次底 ——
+ *   旧实现「改完标题没失焦就退出」会让标题只停在 DOM 里，存盘与草稿读到的都是旧值。
  * - **提交不 trim**。旧实现先 trim 再写 store，而 effect 又把 store 回写到
  *   DOM，于是输入首尾空格会被实时抹掉、光标跟着跳；现在只有**比对时** trim。
  * - **DOM 只在文档切换时同步**（见下方 effect），title 每次变化不再回写 DOM。
@@ -45,6 +47,27 @@ export const EditorDocTitle: React.FC<EditorDocTitleProps> = ({
   const skipBlurCommitRef = useRef(false)
   /** 最新标题（effect 里同步，避免把 title 作为同步 effect 的依赖反复回写 DOM） */
   const titleRef = useRef(activeDoc.title)
+  /*
+   * P2-12：标题的防抖提交（800ms）。
+   *
+   * 旧实现只在 Enter / blur 提交，于是「改完标题不点别处直接关窗口 / 崩溃」
+   * 这段时间里标题只存在于 DOM —— 草稿与自动保存读的都是 store，标题回退成旧值。
+   * 现在输入后 800ms 落一次 store：既不会逐字符写（撤销栈不被标题刷屏），
+   * 也不会把未提交的标题留在窗口里。
+   * 定时器回调要拿到**最新**的 commit，因此经 commitRef 中转（渲染期写 ref 被
+   * react-hooks/refs 拦，所以放在无依赖的 effect 里同步，与 useFocusTrap 同款写法）。
+   */
+  const TITLE_COMMIT_DELAY = 800
+  const timerRef = useRef<number | null>(null)
+  const commitRef = useRef<() => void>(() => {})
+  /**
+   * 最近一次输入得到的标题文本。
+   *
+   * 卸载时 React 会**先**把 ref 置空（mutation 阶段）再跑 effect 清理（passive 阶段），
+   * 那时 ref.current 已经是 null —— 只读 ref 的"卸载兜底提交"会静默变成空操作。
+   * 所以在 onInput 时把文本记下来，卸载兜底走这一份。
+   */
+  const latestTextRef = useRef<string | null>(null)
 
   useEffect(() => {
     titleRef.current = activeDoc.title
@@ -59,6 +82,8 @@ export const EditorDocTitle: React.FC<EditorDocTitleProps> = ({
     if (el.textContent !== next) {
       el.textContent = next
     }
+    // 同步兜底文本：换文档后 latestTextRef 不能还留着上一篇的标题
+    latestTextRef.current = next
     // 换了文档：快照与去重标记都作废
     snapshotRef.current = next
     committedRef.current = null
@@ -77,41 +102,94 @@ export const EditorDocTitle: React.FC<EditorDocTitleProps> = ({
     if (el.textContent !== activeDoc.title) {
       el.textContent = activeDoc.title
     }
+    latestTextRef.current = activeDoc.title
     snapshotRef.current = activeDoc.title
   }, [activeDoc.title])
 
+  /** 撤掉挂起的防抖提交（Enter / blur / Esc 已同步提交时不必再来一次） */
+  const cancelScheduled = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }, [])
+
+  /** P2-12：输入后 800ms 把标题写进 store（见 TITLE_COMMIT_DELAY 注释） */
+  const scheduleCommit = useCallback(() => {
+    cancelScheduled()
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null
+      commitRef.current()
+    }, TITLE_COMMIT_DELAY)
+  }, [cancelScheduled])
+
   /**
-   * 回写标题（Enter / 失焦时调用）。
+   * 回写标题（Enter / 失焦 / 防抖到点时调用）。
    *
    * 不 trim：DOM 里首尾空格原样保留，只有比对时用 trim 判等 ——
    * 这样"只多敲了个空格"不会产生一次 store 写入。
    */
   const commit = useCallback(() => {
+    cancelScheduled()
     const el = ref.current
-    if (!el) return
     // 取纯文本：粘贴富文本时不能把标签也塞进标题
-    const next = (el.textContent ?? '').replace(/\n/g, ' ')
+    // 卸载兜底时 ref 已被 React 置空，退回 onInput 记下的最新文本
+    const raw = el ? el.textContent : latestTextRef.current
+    if (raw === null || raw === undefined) return
+    const next = raw.replace(/\n/g, ' ')
     if (committedRef.current === next) return
     if (next.trim() !== activeDoc.title.trim()) {
       committedRef.current = next
       updateDocContent({ title: next })
     }
-  }, [activeDoc.title, updateDocContent])
+  }, [activeDoc.title, updateDocContent, cancelScheduled])
+
+  // 定时器只持有「最新一次 commit」：activeDoc.title 每次渲染都变，不能进 timeout 闭包
+  useEffect(() => {
+    commitRef.current = commit
+  }, [commit])
+
+  // 卸载（切视图 / 关面板）时把挂起的提交立刻落盘 —— blur 此时不一定触发
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current)
+        timerRef.current = null
+        commitRef.current()
+      }
+    }
+  }, [])
+
+  // 关窗 / 刷新前补一次：标题只改了还没等到 800ms 就退出
+  useEffect(() => {
+    const flush = (): void => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current)
+        timerRef.current = null
+        commitRef.current()
+      }
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [])
 
   /** 还原到进入编辑时的标题 */
   const restoreSnapshot = useCallback(() => {
+    cancelScheduled()
     const el = ref.current
     const snapshot = snapshotRef.current
     skipBlurCommitRef.current = true
     if (el && el.textContent !== snapshot) {
       el.textContent = snapshot
     }
+    latestTextRef.current = snapshot
     committedRef.current = null
     if (snapshot !== activeDoc.title) {
       updateDocContent({ title: snapshot })
     }
-  }, [activeDoc.title, updateDocContent])
+  }, [activeDoc.title, updateDocContent, cancelScheduled])
 
+  // P2-12：输入即排一次 800ms 防抖提交，不再把标题押在 blur/Enter 上
   return (
     <div
       ref={ref}
@@ -122,6 +200,10 @@ export const EditorDocTitle: React.FC<EditorDocTitleProps> = ({
       aria-label="文档标题"
       spellCheck={false}
       data-placeholder="无标题"
+      onInput={(e) => {
+        latestTextRef.current = (e.target as HTMLElement).textContent ?? ''
+        scheduleCommit()
+      }}
       onFocus={() => {
         // 快照"开始编辑前"的标题：Esc 要还原的是这一份，而不是刚敲进去的内容。
         // 不在这里动光标位置 —— 点击标题的哪一处就该把光标放在哪一处。

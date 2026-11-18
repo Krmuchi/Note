@@ -89,7 +89,8 @@ describe('SettingsPanel - 关闭守卫（缺陷10）', () => {
     fireEvent.change(tempInput, { target: { value: '0.8' } })
     expect(getUIState().aiSettingsDirty).toBe(true)
 
-    fireEvent.click(screen.getByRole('button', { name: '×' }))
+    // P2-14：关闭按钮补了可访问名（原先是裸的 ×，读屏只能念"乘号"）
+    fireEvent.click(screen.getByRole('button', { name: '关闭设置' }))
     expect(onClose).not.toHaveBeenCalled()
     expect(confirmMock).toHaveBeenCalledTimes(1)
     expect(confirmMock.mock.calls[0][0].title).toContain('未保存')

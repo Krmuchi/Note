@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { JSX } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { useNotesStore } from '@/store'
 import { IconInfo } from '@/components/common/Icon'
@@ -35,13 +36,26 @@ const formatTime = (iso: string | undefined): string => {
 }
 
 export function DocInfoPanel({ notebookId, docId, onClose }: DocInfoPanelProps): JSX.Element | null {
-  const trapRef = useFocusTrap<HTMLDivElement>()
+  /*
+   * P1-5：接上 useFocusTrap 的 onEscape。
+   * 这个面板是 Editor 内的局部状态，全局 Esc 白名单（App 的 onEscape）不认识它，
+   * 而 Editor 的 Esc 又只在「焦点位于正文」时生效 —— 焦点被焦点陷阱移进面板后，
+   * 按 Esc 既不关面板也不关别的，键盘用户只能摸鼠标点 ✕。
+   */
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose)
 
-  const { doc, notebookTitle } = useNotesStore((s) => {
-    const notebook = s.notebooks.find((nb) => nb.id === notebookId)
-    const found = notebook?.docs.find((d) => d.id === docId)
-    return { doc: found, notebookTitle: notebook?.title ?? '' }
-  })
+  /*
+   * 选择器返回对象字面量必须套 useShallow —— 否则每次通知都产出"新对象"，
+   * React 判定 getSnapshot 结果不缓存 → 渲染期无限循环
+   * （实测：面板一打开就 "Maximum update depth exceeded"）。
+   */
+  const { doc, notebookTitle } = useNotesStore(
+    useShallow((s) => {
+      const notebook = s.notebooks.find((nb) => nb.id === notebookId)
+      const found = notebook?.docs.find((d) => d.id === docId)
+      return { doc: found, notebookTitle: notebook?.title ?? '' }
+    }),
+  )
 
   const tagNames = useNotesStore((s) => s.tags)
 

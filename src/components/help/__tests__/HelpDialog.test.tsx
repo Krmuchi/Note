@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 vi.mock('@/services/storage', () => ({
+  isWebMode: false,
   getAppInfo: vi.fn(async () => ({
     ok: true,
     info: { version: '0.1.0', dataPath: 'C:/u/notes-data.json', dataDir: 'C:/u', backupDir: 'C:/u/backups' },
@@ -14,7 +15,7 @@ vi.mock('@/utils/clipboard', () => ({
 }))
 
 import HelpDialog from '@/components/help/HelpDialog'
-import { openDataDir } from '@/services/storage'
+import { getAppInfo, openDataDir } from '@/services/storage'
 import { copyToClipboard } from '@/utils/clipboard'
 import { subscribeOnboardingRequest } from '@/utils/onboarding'
 
@@ -84,5 +85,32 @@ describe('HelpDialog', () => {
   it('未打开时不渲染', () => {
     const { container } = render(<HelpDialog isOpen={false} onClose={vi.fn()} onOpenShortcuts={vi.fn()} />)
     expect(container.firstChild).toBeNull()
+  })
+
+  it('P2-10：备份频率如实描述为「最多每分钟一次」，与 60s 节流实现一致', async () => {
+    render(<HelpDialog isOpen onClose={vi.fn()} onOpenShortcuts={vi.fn()} />)
+
+    expect(
+      screen.getByText('保存后最多每分钟自动备份一次（保留最近 10 份），恢复前还会额外留一份当前快照'),
+    ).toBeInTheDocument()
+    // 旧文案「每次保存后」与实现不符，必须消失
+    expect(screen.queryByText(/每次保存后自动生成备份/)).toBeNull()
+    await screen.findByText(/C:\/u/)
+  })
+
+  it('P1-9：数据目录读取未完成时显示「读取中…」，不冒充浏览器模式', async () => {
+    const mockedGetAppInfo = getAppInfo as unknown as ReturnType<typeof vi.fn>
+    mockedGetAppInfo.mockImplementation(() => new Promise(() => {}))
+
+    render(<HelpDialog isOpen onClose={vi.fn()} onOpenShortcuts={vi.fn()} />)
+
+    expect(screen.getByText('（读取中…）')).toBeInTheDocument()
+    expect(screen.queryByText('（浏览器模式下存在 IndexedDB）')).toBeNull()
+    // 读到之后仍然显示真实路径
+    mockedGetAppInfo.mockResolvedValue({
+      ok: true,
+      info: { version: '0.1.0', dataPath: 'C:/u/notes-data.json', dataDir: 'C:/u', backupDir: 'C:/u/backups' },
+    })
+    mockedGetAppInfo.mockClear()
   })
 })

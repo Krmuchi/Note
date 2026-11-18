@@ -162,7 +162,7 @@ describe('coreSlice - moveDocToNotebook', () => {
     expect(state2.activeNotebookId).toBe(targetId)
   })
 
-  it('should reassign children of moved document to moved doc parent', () => {
+  it('移动父文档时子文档连同整棵子树一起过去（P0-3，旧实现会把子文档留在原库）', () => {
     const { createNotebook, createDoc, moveDocToNotebook } = useNotesStore.getState()
     createNotebook('Source')
     createNotebook('Target')
@@ -174,13 +174,81 @@ describe('coreSlice - moveDocToNotebook', () => {
     createDoc(sourceId, null, { title: 'Parent Doc' })
     const parentId = useNotesStore.getState().notebooks[0].docs[0].id
     createDoc(sourceId, parentId, { title: 'Child Doc' })
+    const childId = useNotesStore.getState().notebooks[0].docs[1].id
+    createDoc(sourceId, childId, { title: 'Grandchild Doc' })
 
     moveDocToNotebook(sourceId, parentId, targetId)
 
     const state2 = useNotesStore.getState()
-    expect(state2.notebooks[0].docs).toHaveLength(1)
-    expect(state2.notebooks[0].docs[0].parentId).toBeNull()
-    expect(state2.notebooks[1].docs).toHaveLength(1)
+    // 原知识库被搬空，目标知识库里父子孙三级齐全且层级保持
+    expect(state2.notebooks[0].docs).toHaveLength(0)
+    expect(state2.notebooks[1].docs).toHaveLength(3)
+    const parent = state2.notebooks[1].docs.find(d => d.id === parentId)
+    const child = state2.notebooks[1].docs.find(d => d.id === childId)
+    const grandchild = state2.notebooks[1].docs.find(d => d.title === 'Grandchild Doc')
+    expect(parent?.parentId).toBeNull()
+    expect(child?.parentId).toBe(parentId)
+    expect(grandchild?.parentId).toBe(childId)
+  })
+
+  it('父子同选时对已随父移动的子文档再次调用是安全的 no-op', () => {
+    const { createNotebook, createDoc, moveDocToNotebook } = useNotesStore.getState()
+    createNotebook('Source')
+    createNotebook('Target')
+
+    const state1 = useNotesStore.getState()
+    const sourceId = state1.notebooks[0].id
+    const targetId = state1.notebooks[1].id
+
+    createDoc(sourceId, null, { title: 'Parent Doc' })
+    const parentId = useNotesStore.getState().notebooks[0].docs[0].id
+    createDoc(sourceId, parentId, { title: 'Child Doc' })
+    const childId = useNotesStore.getState().notebooks[0].docs[1].id
+
+    // 模拟批量移动里的"父子同选"：父先搬、子后搬
+    moveDocToNotebook(sourceId, parentId, targetId)
+    moveDocToNotebook(sourceId, childId, targetId)
+
+    const state2 = useNotesStore.getState()
+    expect(state2.notebooks[0].docs).toHaveLength(0)
+    expect(state2.notebooks[1].docs).toHaveLength(2)
+    expect(state2.notebooks[1].docs.find(d => d.id === childId)?.parentId).toBe(parentId)
+  })
+
+  it('打开中的标签跟随文档换库，不被 pruneOpenTabs 清掉', () => {
+    const { createNotebook, createDoc, moveDocToNotebook, openTab } = useNotesStore.getState()
+    createNotebook('Source')
+    createNotebook('Target')
+
+    const state1 = useNotesStore.getState()
+    const sourceId = state1.notebooks[0].id
+    const targetId = state1.notebooks[1].id
+
+    createDoc(sourceId, null, { title: 'Doc' })
+    const docId = useNotesStore.getState().notebooks[0].docs[0].id
+
+    // pruneOpenTabs 的闸门：lastSavedAt 非 null 才代表数据已加载完成
+    // openTabs 不在本 describe 的 beforeEach 里复位（setActiveDocId 会顺手开标签），这里显式清空
+    useNotesStore.setState({ openTabs: [], lastSavedAt: new Date().toISOString(), loadFailed: false })
+    openTab(sourceId, docId)
+    expect(useNotesStore.getState().openTabs).toHaveLength(1)
+
+    moveDocToNotebook(sourceId, docId, targetId)
+
+    expect(useNotesStore.getState().openTabs).toEqual([{ notebookId: targetId, docId }])
+  })
+
+  it('同知识库内的"移动"直接返回，不重排子树', () => {
+    const { createNotebook, createDoc, moveDocToNotebook } = useNotesStore.getState()
+    createNotebook('Only')
+    const notebookId = useNotesStore.getState().notebooks[0].id
+    createDoc(notebookId, null, { title: 'Doc' })
+    const docId = useNotesStore.getState().notebooks[0].docs[0].id
+    const before = useNotesStore.getState().notebooks[0].docs
+
+    moveDocToNotebook(notebookId, docId, notebookId)
+
+    expect(useNotesStore.getState().notebooks[0].docs).toBe(before)
   })
 })
 

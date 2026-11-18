@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 
 export type ViewType = 'notebooks' | 'trash' | 'favorite' | 'recent'
-export type LeftMenuType = 'start' | 'note' | 'notebooks' | 'favorite' | 'tags' | 'recent'
+export type LeftMenuType = 'start' | 'note' | 'notebooks' | 'favorite' | 'tags' | 'recent' | 'trash'
 
 /** 设置面板页签。定义在 hooks 层供 SettingsPanel 与「去设置」入口共用（组件不得被 hooks 反向依赖） */
 export type SettingsTabId = 'general' | 'editor' | 'ai' | 'shortcuts'
@@ -22,6 +22,8 @@ export interface UIState {
   settingsTab: SettingsTabId
   /** AI 设置存在未保存修改（草稿或密钥输入）。全局 Esc / 遮罩关闭前据此弹确认 */
   aiSettingsDirty: boolean
+  /** 全局快速打开面板（Ctrl+P）。放进 store 让侧栏等入口可以直接打开，不必层层透传 */
+  showQuickOpen: boolean
 }
 
 const UI_STATE_KEY = 'notes-ui-state'
@@ -64,9 +66,23 @@ const persistUIState = (patch: Partial<UIState>): void => {
 
 const persisted = loadPersistedUIState()
 
+/*
+ * activeView / activeLeftMenu 是一对必须同步的状态（MainContent 先判 leftMenu
+ * 的 start/note/tags，再判 view）。历史实现两者独立写入，出现过
+ * 「侧栏点回收站停在开始页」（footer 只写 view）。这里的归一化同时兜住
+ * 旧版本持久化下来的脏组合：view 已是 trash/favorite/recent 而 leftMenu
+ * 还停在 start/notebooks —— 以 view 为准对齐。
+ * view 为 notebooks 时 leftMenu 可以合法地是 start/note/tags（开始页等），保持原值。
+ */
+const normalizedView = (persisted.activeView as ViewType | undefined) ?? 'notebooks'
+const normalizedMenu: LeftMenuType =
+  normalizedView !== 'notebooks'
+    ? (normalizedView as LeftMenuType)
+    : ((persisted.activeLeftMenu as LeftMenuType | undefined) ?? 'start')
+
 let state: UIState = {
-  activeView: (persisted.activeView as ViewType | undefined) ?? 'notebooks',
-  activeLeftMenu: (persisted.activeLeftMenu as LeftMenuType | undefined) ?? 'start',
+  activeView: normalizedView,
+  activeLeftMenu: normalizedMenu,
   fontSize: persisted.fontSize ?? '15px',
   showSearchPanel: false,
   showSharePanel: false,
@@ -78,6 +94,7 @@ let state: UIState = {
   showSettings: false,
   settingsTab: 'general',
   aiSettingsDirty: false,
+  showQuickOpen: false,
 }
 
 const listeners = new Set<() => void>()
@@ -117,8 +134,23 @@ function getSnapshot(): UIState {
 /* ---------------- 命令式读写（供事件处理器 / 非组件代码使用） ---------------- */
 
 export const uiActions = {
-  setActiveView: (view: ViewType) => setState({ activeView: view }),
-  setActiveLeftMenu: (menu: LeftMenuType) => setState({ activeLeftMenu: menu }),
+  /*
+   * 视图与左菜单是一对联动状态，两个 setter 都必须写全，否则会出现
+   * 「点了回收站停在开始页」这类单写一侧的失配（MainContent 先判
+   * leftMenu 的 start/note/tags，再判 view）：
+   * - view=notebooks ⟹ leftMenu=notebooks（打开文档/文档库）
+   * - view=trash/favorite/recent ⟹ leftMenu 同名（这两个值同时是合法 LeftMenuType）
+   * - leftMenu=start/note/tags ⟹ view=notebooks（这三项有自己的渲染分支，view 取兜底值，
+   *   同时避免 footer 的回收站高亮在开始页上残留）
+   */
+  setActiveView: (view: ViewType) =>
+    setState({ activeView: view, activeLeftMenu: view }),
+  setActiveLeftMenu: (menu: LeftMenuType) =>
+    setState({
+      activeLeftMenu: menu,
+      activeView: menu === 'start' || menu === 'note' || menu === 'tags' ? 'notebooks' : menu,
+    }),
+  setShowQuickOpen: (v: boolean) => setState({ showQuickOpen: v }),
   setFontSize: (size: string) => setState({ fontSize: size }),
   setShowSearchPanel: (v: boolean) => setState({ showSearchPanel: v }),
   setShowSharePanel: (v: boolean) => setState({ showSharePanel: v }),
@@ -137,7 +169,7 @@ export const uiActions = {
   openSettings: (tab: SettingsTabId = 'general') => setState({ showSettings: true, settingsTab: tab }),
   /** 供测试重置 */
   reset: () => {
-    state = { ...state, showSearchPanel: false, showSharePanel: false, showTagPanel: false, showCommentsPanel: false, showOutlinePanel: false, showVersionHistory: false, showShortcutHelp: false, showSettings: false, settingsTab: 'general', aiSettingsDirty: false }
+    state = { ...state, showSearchPanel: false, showSharePanel: false, showTagPanel: false, showCommentsPanel: false, showOutlinePanel: false, showVersionHistory: false, showShortcutHelp: false, showSettings: false, settingsTab: 'general', aiSettingsDirty: false, showQuickOpen: false }
     emit()
   },
 }

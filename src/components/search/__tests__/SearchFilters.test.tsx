@@ -36,6 +36,27 @@ describe('SearchFilters - 快捷时间（S3）', () => {
   })
 })
 
+describe('SearchFilters - 标签全展示（P1-8）', () => {
+  it('第 6 个之后的标签也渲染出来（旧版 slice(0,5) 让它们永远选不到）', () => {
+    const onFilterChange = vi.fn()
+    const tags = Array.from({ length: 8 }, (_, i) => ({
+      id: 't' + i,
+      name: '标签' + i,
+      color: '#f00',
+      icon: '',
+      parentId: null,
+      usageCount: 0,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }))
+    render(<SearchFilters filters={{ type: 'all' }} tags={tags} onFilterChange={onFilterChange} />)
+
+    expect(screen.getAllByRole('button', { name: /标签\d/ }).length).toBe(8)
+    fireEvent.click(screen.getByRole('button', { name: '标签7' }))
+    expect(onFilterChange).toHaveBeenCalledWith('tags', ['t7'])
+  })
+})
+
 describe('SearchFilters - 排序（S4）', () => {
   it('默认为相关度优先，可切换为最近更新', () => {
     const onFilterChange = renderFilters()

@@ -38,6 +38,11 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
+/** 界面缩放范围与步进：与 electron/app-settings.cjs 的 clampZoom 一致（0.75~2） */
+const ZOOM_MIN = 0.75;
+const ZOOM_MAX = 2;
+const ZOOM_STEP = 0.1;
+
 // 预设主题色
 const PRESET_COLORS = [
   { name: '蓝色', value: '#1677ff' },
@@ -78,6 +83,10 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
   const [aiConfig, setAiConfig] = useState<AiConfigView | AiFailure | null>(null);
   /** D5 崩溃记录：进入面板时读一次，清空/刷新后同步 */
   const [crashLog, setCrashLog] = useState<CrashLogResult>({ ok: true, latest: null });
+  /** P1-9：崩溃日志是否真的读到了 —— 读取中不能显示成"暂无记录" */
+  const [crashLogLoaded, setCrashLogLoaded] = useState(false);
+  /** 设置内搜索：只过滤当前已渲染的分区（AI/快捷键含本地状态，不因搜索被挂载） */
+  const [searchQuery, setSearchQuery] = useState('');
   /** D3 更新检查结果：只在用户点「检查更新」后才有值 */
   const [updateState, setUpdateState] = useState<UpdateCheckResult | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -113,7 +122,10 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
     if (!isOpen || isWebModeRaw) return;
     let alive = true;
     void readCrashLog().then((result) => {
-      if (alive) setCrashLog(result);
+      if (alive) {
+        setCrashLog(result);
+        setCrashLogLoaded(true);
+      }
     });
     return () => {
       alive = false;
@@ -143,12 +155,14 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
 
   const refreshCrashLog = useCallback(async () => {
     setCrashLog(await readCrashLog());
+    setCrashLogLoaded(true);
   }, []);
 
   const handleClearCrashLog = useCallback(async () => {
     const result = await clearCrashLog();
     if (result.ok) {
       setCrashLog({ ok: true, latest: null, entries: [] });
+      setCrashLogLoaded(true);
       toast.success('崩溃记录已清空');
     } else {
       toast.error(result.error || '清空失败');
@@ -242,8 +256,8 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
     const lines = [
       '# 笔记 · 诊断信息',
       '时间：' + new Date().toLocaleString('zh-CN'),
-      '版本：' + (appInfo?.version || '开发版'),
-      '数据目录：' + (appInfo?.dataDir || '浏览器模式'),
+      '版本：' + (appInfo?.version || (isWebModeRaw ? '浏览器模式' : '（读取中）')),
+      '数据目录：' + (appInfo?.dataDir || (isWebModeRaw ? '浏览器模式（数据存在 IndexedDB）' : '（读取中）')),
       '错误日志条数：' + errorLogs.length,
       '启动耗时：' + formatPerfSnapshot(),
       '崩溃记录：' + (crashLog.latest ? crashLog.summary || crashLog.latest.message : '（无）'),
@@ -260,8 +274,35 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
     toast.success('错误日志已清空');
   }, []);
 
-  const handleSelectTab = useCallback((tabId: SettingsTabId): void => {
-    uiActions.setSettingsTab(tabId);
+  /*
+   * P0-1：切页签同样会丢草稿 —— AI 页签是条件渲染，切走即卸载，草稿与已输入的 API Key
+   * 随之消失。关闭面板已有 aiSettingsDirty 守卫（requestClose、App 的全局 Esc 链），
+   * 切页签必须走同一语义，否则"关不掉"的守卫拦不住"点一下页签"这条最常见的路径。
+   */
+  const handleSelectTab = useCallback(
+    (tabId: SettingsTabId): void => {
+      if (tabId === activeTab) return;
+      if (aiSettingsDirty) {
+        confirmAction({
+          title: '放弃未保存的 AI 配置？',
+          message: 'AI 设置页还有未保存的修改（可能包含尚未保存的 API Key），切换页签会丢失这些修改。',
+          confirmText: '放弃并切换',
+          cancelText: '留在 AI 设置',
+          variant: 'danger',
+          onConfirm: () => {
+            uiActions.setAiSettingsDirty(false);
+            uiActions.setSettingsTab(tabId);
+          },
+        });
+        return;
+      }
+      uiActions.setSettingsTab(tabId);
+    },
+    [activeTab, aiSettingsDirty],
+  );
+
+  const handleSearchChange = useCallback((value: string): void => {
+    setSearchQuery(value);
   }, []);
 
   /**
@@ -301,6 +342,16 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
     }
     onClose();
   }, [aiSettingsDirty, onClose]);
+
+  /*
+   * 面板卸载 == 设置真正关闭（AppPanels 只在 showSettings 时挂载本面板）。
+   * dirty 的清理点必须在这里，而不是 AiSettingsTab 的卸载 cleanup ——
+   * 后者在切页签时也会执行，会把"有未保存的 AI 配置"守卫提前失效（P0-1）。
+   */
+  useEffect(() => () => {
+    uiActions.setAiSettingsDirty(false);
+  }, []);
+
   const [customColor, setCustomColor] = useState(() => {
     // 从 localStorage 加载自定义颜色
     try {
@@ -323,6 +374,65 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
     applyCustomPrimaryColor(null);
   };
 
+  /*
+   * P1-6：界面缩放此前唯一入口是原生菜单（设置里只读显示 100%）——
+   * 浏览器模式没有菜单栏，等于该设置不可达。范围与 electron/app-settings.cjs 的
+   * clampZoom 一致（0.75~2，步进 0.1），写入经 notes:app-settings:set 由主进程
+   * 同步应用到窗口（webContents.setZoomFactor）。
+   */
+  const handleZoomStep = useCallback(
+    async (delta: number): Promise<void> => {
+      const base = appSettings?.zoomFactor ?? 1;
+      const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((base + delta) * 100) / 100));
+      if (next === base) return;
+      const result = await saveAppSettings({ zoomFactor: next });
+      if (!result.ok) {
+        toast.error(result.error || '调整缩放失败');
+        if (result.settings) setAppSettings(result.settings);
+        return;
+      }
+      setAppSettings(result.settings);
+    },
+    [appSettings],
+  );
+
+  /*
+   * 设置内搜索：按文本过滤当前已渲染的分区。
+   * 不 setState —— 面板内容里有异步到位的行（appInfo / 崩溃日志 / 备份），
+   * 每次渲染后重跑一遍，新到的行才会被同一份查询继续过滤。
+   * AI / 快捷键页签含本地状态（草稿、录制中的按键），只在自己页签打开时渲染，
+   * 不为了搜索把它们挂载出来 —— 那会重演"卸载丢草稿"（P0-1）。
+   */
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const q = searchQuery.trim().toLowerCase();
+    const sections = Array.from(panel.querySelectorAll<HTMLElement>('.settings-section'));
+    for (const section of sections) {
+      const children = Array.from(section.children) as HTMLElement[];
+      let title: HTMLElement | null = null;
+      let matched = 0;
+      const flush = (): void => {
+        if (title) title.hidden = q !== '' && matched === 0;
+      };
+      for (const child of children) {
+        if (child.classList.contains('settings-section-title')) {
+          flush();
+          title = child;
+          matched = 0;
+          child.hidden = false;
+          continue;
+        }
+        const hit = q === '' || (child.textContent ?? '').toLowerCase().includes(q);
+        child.hidden = !hit;
+        if (hit) matched += 1;
+      }
+      flush();
+      const anyVisible = children.some((child) => !child.hidden);
+      section.hidden = q !== '' && !anyVisible;
+    }
+  });
+
   if (!isOpen) return null;
 
   const tabs = [
@@ -332,18 +442,80 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
     { id: 'shortcuts' as const, label: '快捷键', icon: '⌨️' },
   ];
 
+  /** 搜索生效时把「通用 / 编辑器」两个纯外部状态页签一并铺开，跨页签定位分区 */
+  const filterActive = searchQuery.trim() !== '';
+
+  /*
+   * P1-9：异步信息未到位时不能显示成"浏览器模式 / 开发版 / 暂无记录" ——
+   * 数据位置是信任最敏感的字段，桌面版闪一句"数据存在 IndexedDB"会被当成数据存错了地方。
+   * 浏览器模式的分支由 isWebMode 决定，与 getAppInfo 是否返回无关（web 下它恒为失败信封）。
+   */
+  const LOADING_TEXT = '读取中…';
+  const dataPathText = isWebModeRaw ? '浏览器模式（数据存在 IndexedDB）' : appInfo ? appInfo.dataPath : LOADING_TEXT;
+  const backupDirText = isWebModeRaw ? '浏览器模式没有本地备份' : appInfo ? appInfo.backupDir : LOADING_TEXT;
+  const dataDirText = isWebModeRaw ? '浏览器模式（数据存在 IndexedDB）' : appInfo ? appInfo.dataDir : LOADING_TEXT;
+  const versionText = appInfo ? appInfo.version : isWebModeRaw ? '浏览器模式（未打包运行）' : LOADING_TEXT;
+  const crashLogText = !isElectronMode
+    ? '浏览器模式没有崩溃日志'
+    : !crashLogLoaded
+      ? LOADING_TEXT
+      : crashLog.ok && crashLog.latest
+        ? crashLog.latest.message || '有记录'
+        : '暂无记录';
+  const zoomPercent = Math.round((appSettings?.zoomFactor ?? 1) * 100);
+
   return (
     <div className="settings-overlay" onClick={requestClose}>
       <div className="settings-panel" ref={panelRef} onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
           <h2 className="settings-title">⚙️ 设置</h2>
-          <button className="settings-close" onClick={requestClose}>×</button>
+          <button
+            className="settings-close"
+            onClick={requestClose}
+            aria-label="关闭设置"
+            title="关闭设置（Esc）"
+          >
+            ×
+          </button>
         </div>
 
-        <div className="settings-tabs">
+        {/* 设置内搜索：只过滤已渲染的分区；AI / 快捷键页签含本地状态，不因搜索被挂载 */}
+        <div className="settings-search">
+          <input
+            type="text"
+            className="settings-search-input"
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="搜索设置项，如：缩放、备份、富文本"
+            aria-label="搜索设置项"
+          />
+          {filterActive && (
+            <button
+              type="button"
+              className="settings-search-clear"
+              aria-label="清除设置搜索"
+              onClick={() => handleSearchChange('')}
+            >
+              ×
+            </button>
+          )}
+        </div>
+        {filterActive && (
+          <p className="settings-search-hint" role="status">
+            正在「通用 / 编辑器」{activeTab !== 'general' && activeTab !== 'editor' && ' 与当前页签'}中筛选；
+            AI 与快捷键页签含未保存状态，未自动展开，请切换页签继续查找。
+          </p>
+        )}
+
+        <div className="settings-tabs" role="tablist" aria-label="设置页签">
           {tabs.map(tab => (
             <button
               key={tab.id}
+              id={`settings-tab-${tab.id}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls="settings-body"
               className={`settings-tab ${activeTab === tab.id ? 'active' : ''}`}
               onClick={() => handleSelectTab(tab.id)}
             >
@@ -353,8 +525,13 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
           ))}
         </div>
 
-        <div className="settings-body">
-          {activeTab === 'general' && (
+        <div
+          className="settings-body"
+          id="settings-body"
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${activeTab}`}
+        >
+          {(activeTab === 'general' || filterActive) && (
             <div className="settings-section">
               <h3 className="settings-section-title">外观</h3>
               <div className="settings-item">
@@ -408,6 +585,73 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
                   </button>
                 </div>
               </div>
+
+              {/*
+                P2-14：字体选择原在「编辑器」页签，但 [data-font] 定义的是 --font-family-base
+                并作用于 body（index.css / themes.css）—— 它改的是**整个界面**的字体。
+                放在编辑器页签下名实不符：想换界面字体的用户在「通用 → 外观」里找不到。
+              */}
+              <div className="settings-item" style={{ marginTop: '16px' }}>
+                <div className="settings-item-info">
+                  <span className="settings-item-label">界面与编辑器字体</span>
+                  <span className="settings-item-desc">同时作用于整个界面与编辑器的正文字体</span>
+                </div>
+              </div>
+              <div className="font-grid">
+                {FONT_OPTIONS.map(option => (
+                  <button
+                    key={option.id}
+                    className={`font-option ${font === option.id ? 'active' : ''}`}
+                    onClick={() => setCustomFont(option.id)}
+                    title={option.description}
+                  >
+                    <span className="font-option-preview" style={{ fontFamily: option.id === 'mono' ? 'var(--font-family-mono)' : option.id === 'serif' ? 'var(--font-family-serif)' : 'inherit' }}>
+                      {option.preview}
+                    </span>
+                    <span className="font-option-name">{option.name}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/*
+                P1-6：界面缩放此前唯一入口是原生菜单（这里只读显示百分比）——
+                浏览器模式没有菜单栏，该设置等于不可达。现在提供可直接点击的控件。
+              */}
+              {appSettings && (
+                <div className="settings-zoom-block">
+                  <div className="settings-item">
+                    <div className="settings-item-info">
+                      <span className="settings-item-label" id="settings-zoom-label">界面缩放</span>
+                      <span className="settings-item-desc">只影响本应用窗口，重启后保持</span>
+                    </div>
+                    <div className="zoom-controls" role="group" aria-labelledby="settings-zoom-label">
+                      <button
+                        type="button"
+                        className="settings-zoom-btn"
+                        aria-label="缩小界面（10%）"
+                        disabled={zoomPercent <= Math.round(ZOOM_MIN * 100)}
+                        onClick={() => void handleZoomStep(-ZOOM_STEP)}
+                      >
+                        −
+                      </button>
+                      <span className="zoom-value" aria-live="polite">{zoomPercent}%</span>
+                      <button
+                        type="button"
+                        className="settings-zoom-btn"
+                        aria-label="放大界面（10%）"
+                        disabled={zoomPercent >= Math.round(ZOOM_MAX * 100)}
+                        onClick={() => void handleZoomStep(ZOOM_STEP)}
+                      >
+                        ＋
+                      </button>
+                    </div>
+                  </div>
+                  <p className="settings-hint">
+                    也可以按 <kbd>Ctrl</kbd>+<kbd>=</kbd> 放大、<kbd>Ctrl</kbd>+<kbd>-</kbd> 缩小，
+                    或用菜单栏「视图」里的放大 / 缩小 / 重置缩放。
+                  </p>
+                </div>
+              )}
 
               {appSettings && (
                 <>
@@ -473,10 +717,6 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
                         </span>
                       </label>
                     )}
-                    <div className="settings-hint">
-                      当前界面缩放 {Math.round(appSettings.zoomFactor * 100)}%。用菜单栏「视图」里的放大 /
-                      缩小 / 重置缩放调整，比例会被记住，重启后保持。
-                    </div>
                   </div>
                 </>
               )}
@@ -487,13 +727,13 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
                 <div className="settings-about-row">
                   <span className="settings-about-label">数据文件</span>
                   <span className="settings-about-value settings-about-path" title={appInfo?.dataPath ?? ''}>
-                    {appInfo?.dataPath ?? '浏览器模式（数据存在 IndexedDB）'}
+                    {dataPathText}
                   </span>
                 </div>
                 <div className="settings-about-row">
                   <span className="settings-about-label">备份目录</span>
                   <span className="settings-about-value settings-about-path" title={appInfo?.backupDir ?? ''}>
-                    {appInfo?.backupDir ?? '浏览器模式没有本地备份'}
+                    {backupDirText}
                   </span>
                 </div>
                 <div className="settings-about-actions">
@@ -550,9 +790,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
                 {/* D5：崩溃记录。只存本机，什么时候发出去由用户决定 */}
                 <div className="settings-about-row">
                   <span className="settings-about-label">崩溃记录</span>
-                  <span className="settings-about-value">
-                    {crashLog.ok && crashLog.latest ? crashLog.latest.message || '有记录' : '暂无记录'}
-                  </span>
+                  <span className="settings-about-value">{crashLogText}</span>
                 </div>
                 <div className="settings-about-actions">
                   <button
@@ -580,12 +818,12 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
               <div className="settings-about">
                 <div className="settings-about-row">
                   <span className="settings-about-label">版本</span>
-                  <span className="settings-about-value">{appInfo?.version || '开发版（未打包）'}</span>
+                  <span className="settings-about-value">{versionText}</span>
                 </div>
                 <div className="settings-about-row">
                   <span className="settings-about-label">数据目录</span>
                   <span className="settings-about-value settings-about-path" title={appInfo?.dataDir ?? ''}>
-                    {appInfo?.dataDir ?? '浏览器模式（数据存在 IndexedDB）'}
+                    {dataDirText}
                   </span>
                 </div>
                 {/* D3：检查更新。只提示，不静默下载安装（当前没有签名与发布通道） */}
@@ -639,15 +877,17 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
             </div>
           )}
 
-          {activeTab === 'editor' && (
+          {(activeTab === 'editor' || filterActive) && (
             <div className="settings-section">
               <h3 className="settings-section-title">编辑器设置</h3>
               <div className="settings-item">
                 <div className="settings-item-info">
-                  <span className="settings-item-label">字号大小</span>
+                  {/* P2-14：label 关联（读屏此前只念"组合框"，界面上的标签是 span） */}
+                  <label className="settings-item-label" htmlFor="settings-font-size">字号大小</label>
                   <span className="settings-item-desc">调整编辑器文字大小</span>
                 </div>
                 <select
+                  id="settings-font-size"
                   className="settings-select"
                   value={fontSize}
                   onChange={(e) => setFontSize(e.target.value)}
@@ -676,27 +916,6 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
                   />
                   <span>{richEditorEnabled ? '已开启' : '已关闭'}</span>
                 </label>
-              </div>
-              <div className="settings-item">
-                <div className="settings-item-info">
-                  <span className="settings-item-label">字体选择</span>
-                  <span className="settings-item-desc">选择喜欢的字体风格</span>
-                </div>
-              </div>
-              <div className="font-grid">
-                {FONT_OPTIONS.map(option => (
-                  <button
-                    key={option.id}
-                    className={`font-option ${font === option.id ? 'active' : ''}`}
-                    onClick={() => setCustomFont(option.id)}
-                    title={option.description}
-                  >
-                    <span className="font-option-preview" style={{ fontFamily: option.id === 'mono' ? 'var(--font-family-mono)' : option.id === 'serif' ? 'var(--font-family-serif)' : 'inherit' }}>
-                      {option.preview}
-                    </span>
-                    <span className="font-option-name">{option.name}</span>
-                  </button>
-                ))}
               </div>
             </div>
           )}

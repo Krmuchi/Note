@@ -10,6 +10,7 @@
 - **store「已加载」闸门**（lastSavedAt===null 跳过）：既有 setState 夹具默认 lastSavedAt=null 会被静默跳过，断言清理行为的用例必须显式设非 null。
 - **虚拟化列表**：querySelector+scrollIntoView 对窗口外目标静默失效，用命令式 scrollToIndex；jsdom 不派发 scroll 事件需显式 setScrollTop；clientHeight 恒 0，容器高度走代码回退值。
 - jsdom 缺 `Range.getBoundingClientRect`：在**本测试文件** beforeAll 补零矩形桩，别改共享 tests/setup.ts（并发所有权风险）。
+- **异步重排的 rAF 断言必 flaky**：被测代码若对同一事件源做 cancel+reschedule（如 selectionchange 的 rAF 合并），jsdom 会**异步补发**原生事件、在「手动派发 → 等一帧 → 断言」之间重排 rAF —— 单跑过、多跑挂（实测三跑一挂）。断言改 `waitFor(() => expect(…))` 轮询到重排后的那次调用；「等一帧立刻断言」只适用于纯同步链路。
 
 ## 反面清单
 - 靠整体 tsc exit code 判断"我的改动干净"（多代理并行时错误集每次不同，看错误行归属）。

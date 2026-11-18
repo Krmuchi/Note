@@ -492,18 +492,53 @@
   display: none;
 }
 
+/* 触屏没有 hover：按钮常显（responsive.css），时间戳让位，避免两层文字叠在一起 */
+@media (hover: none) {
+  .doc-actions {
+    display: flex;
+  }
+
+  .doc-time {
+    display: none;
+  }
+}
+
 .docs-sidebar-compact .doc-time {
   display: none;
 }
 
+/*
+  P1-11：按钮现在由 JSX **常驻挂载**（不再按 isHovered 条件渲染），
+  可见性完全交给这里 —— 否则 responsive.css 的 :focus-within / hover:none 兜底
+  规则作用于根本不存在的节点，键盘与触屏用户等于没有这组操作。
+
+  默认 display:none 同时解决了两件事：不为隐藏按钮白占一行宽度；
+  Tab 也不会钻进每个节点的 4 个按钮里（键盘入口 = Shift+F10 / 菜单键打开右键菜单）。
+*/
 .doc-actions {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 2px;
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--transition-fast);
   flex-shrink: 0;
+}
+
+.doc-item:hover .doc-actions,
+.doc-item:focus-within .doc-actions {
+  display: flex;
+}
+
+/* P0-2：过滤结果里的父路径前缀与「只作上下文」的祖先行 */
+.doc-context-path {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.doc-item-context,
+.doc-item-context .doc-title {
+  color: var(--text-tertiary);
 }
 
 .doc-action-btn {
@@ -622,6 +657,30 @@
 .move-target-item:hover {
   border-color: var(--border-active);
   background: var(--primary-50);
+}
+
+/* P1-13：两级移动对话框 —— 已选中的目标知识库必须看得出来（旧版点了就直接搬走，
+   没有选中态也没有确认步骤） */
+.move-target-item.active {
+  border-color: var(--primary-500);
+  background: var(--primary-50);
+  font-weight: 500;
+}
+
+.move-parent-select {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+}
+
+.move-subtree-hint {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
 }
 
 /* 批量选择复选框 */

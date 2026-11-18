@@ -266,7 +266,15 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
   }, [cursorInfoProvider, richEditorRoot]);
 
   return (
-    <div className={`editor-status-bar ${className}`}>
+    /*
+     * P2-10：状态栏做成可聚焦的分组（tabIndex=0）。
+     *
+     * 次要统计（字符/段落/阅读时长）默认收起、只有 :hover 才展开 ——
+     * 触屏（无 hover）与键盘用户此前**永远看不到**这些数据。
+     * 配合 editor.css 的 :focus-within 与 @media (hover:none) 规则，
+     * Tab 到状态栏同样能展开，与 A1/A4 那轮覆盖的 hover 控件同一口径。
+     */
+    <div className={`editor-status-bar ${className}`} tabIndex={0} role="group" aria-label="文档统计（悬停或聚焦展开完整信息）">
       <div className="status-bar-left">
         <span
           className="status-item"

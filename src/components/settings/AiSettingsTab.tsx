@@ -130,7 +130,12 @@ export default function AiSettingsTab({ initial, onViewChange }: AiSettingsTabPr
   useEffect(() => {
     uiActions.setAiSettingsDirty(dirty)
   }, [dirty])
-  useEffect(() => () => uiActions.setAiSettingsDirty(false), [])
+  /*
+   * P0-1：这里**不能**在卸载时把 dirty 清成 false。
+   * 页签切换是条件渲染，切到「通用」本组件就卸载 —— 卸载即清会让关闭守卫提前失效：
+   * 草稿与已输入的密钥已经被卸载丢掉，用户再关设置却不再收到"有未保存的 AI 配置"提示。
+   * dirty 的清理点上移到设置面板生命周期（SettingsPanel 卸载 = 面板真正关闭）。
+   */
 
   const applyView = useCallback(
     (next: AiConfigView): void => {

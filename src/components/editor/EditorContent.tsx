@@ -11,6 +11,8 @@ import { useSmartInput } from '@/hooks/useSmartInput';
 import { useEditorKeys } from '@/hooks/useEditorKeys';
 import { useEditorPasteDrop } from '@/hooks/useEditorPasteDrop';
 import { markPerf } from '@/utils/perfMarks';
+import { toast } from '@/services/toast';
+import { armFocusEscape, consumeFocusEscape, resetFocusEscape } from './focusEscape';
 
 /** 斜杠命令触发状态（由编辑区检测后上抛给 Editor 统一持有） */
 export interface SlashTriggerState {
@@ -129,6 +131,8 @@ export const EditorContent: React.FC<EditorContentProps> = ({
   }, [onSlashChange]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
+    // P1-8：继续输入即解除 Tab 逃生武装
+    resetFocusEscape();
     if (activeDoc) {
       updateDocContent({ content: e.target.value });
     }
@@ -152,6 +156,28 @@ export const EditorContent: React.FC<EditorContentProps> = ({
     plainTextPasteRef,
     copyAsMarkdownRef,
   });
+
+  /**
+   * P1-8：与富文本内核同一套 Tab 逃生（详见 ./focusEscape）。
+   *
+   * 旧内核的 Tab 交给 useSmartInput 做缩进，同样是"键盘用户出不了正文"。
+   * Esc 武装后 1.5 秒内的第一个 Tab 直接放行 —— 不再进 handleKeyDown，
+   * 让浏览器执行默认焦点导航（全局 useKeyboard 对未命中的键不做 preventDefault）。
+   */
+  const handleKeyDownWithEscape = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+      if (e.key === 'Escape') {
+        if (armFocusEscape()) {
+          toast.info('提示：按 Esc 后再按 Tab，可以把焦点移出编辑器', 4000);
+        }
+        // 继续往下：Esc 还要交给 Editor 收起工具栏 / 全局链关面板
+      } else if (e.key === 'Tab' && consumeFocusEscape()) {
+        return;
+      }
+      handleKeyDown(e);
+    },
+    [handleKeyDown],
+  );
 
   const {
     isDragging,
@@ -192,7 +218,7 @@ export const EditorContent: React.FC<EditorContentProps> = ({
             onClick={handleCursorMove}
             onPaste={handlePasteLocal}
             onCopy={handleCopy}
-            onKeyDown={handleKeyDown}
+            onKeyDown={handleKeyDownWithEscape}
             placeholder="开始编写你的文章..."
             aria-label="文档内容编辑器"
             spellCheck={false}

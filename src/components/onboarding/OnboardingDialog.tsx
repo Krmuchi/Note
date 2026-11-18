@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useNotesStore } from '@/store'
-import { getAppInfo, importMarkdownDocs, openDataDir } from '@/services/storage'
+import { getAppInfo, importMarkdownDocs, isWebMode, openDataDir } from '@/services/storage'
 import { toast } from '@/components/common/Toast'
 import { markOnboardingDone } from '@/utils/onboarding'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
@@ -21,7 +21,19 @@ const STEPS = ['欢迎', '导入已有笔记', '写下第一篇'] as const
  * 「重看引导」入口在设置 → 通用 → 关于。
  */
 export const OnboardingDialog: React.FC<OnboardingDialogProps> = ({ onClose, onCreateFirstDoc }) => {
-  const trapRef = useFocusTrap<HTMLDivElement>()
+  /**
+   * 任何离开路径都算"看过引导"（P1-4：Esc 此前是全应用唯一没有反应的弹窗 ——
+   * 组件没挂 Esc 监听，App 的全局 Esc 链里也没有它的分支）。
+   * 声明必须在 useFocusTrap 之前：Esc 回调要作为参数传进焦点陷阱。
+   */
+  const finish = useCallback(() => {
+    markOnboardingDone()
+    onClose()
+  }, [onClose])
+
+  // onEscape：容器内按 Esc 等同「跳过」，并由 useFocusTrap 阻断全局链，
+  // 不会顺带关掉背后可能开着的设置面板
+  const trapRef = useFocusTrap<HTMLDivElement>(true, finish)
   const [step, setStep] = useState(0)
   const [title, setTitle] = useState('我的第一篇笔记')
   const [busy, setBusy] = useState(false)
@@ -39,12 +51,6 @@ export const OnboardingDialog: React.FC<OnboardingDialogProps> = ({ onClose, onC
       alive = false
     }
   }, [])
-
-  /** 任何离开路径都算"看过引导"，避免下次启动重复弹出（需要时可从设置里重看） */
-  const finish = useCallback(() => {
-    markOnboardingDone()
-    onClose()
-  }, [onClose])
 
   const handleOpenDataDir = useCallback(async () => {
     const result = await openDataDir()
@@ -102,11 +108,14 @@ export const OnboardingDialog: React.FC<OnboardingDialogProps> = ({ onClose, onC
             <ul className="onboarding-points">
               <li>
                 <strong>数据位置</strong>
-                <span>{dataDir ?? '（浏览器模式下没有本地数据目录）'}</span>
+                {/* P1-9：桌面版读取未完成时是"读取中"，不能先显示成"浏览器模式" */}
+                <span>
+                  {isWebMode ? '（浏览器模式下没有本地数据目录）' : dataDir ?? '（读取中…）'}
+                </span>
               </li>
               <li>
                 <strong>自动备份</strong>
-                <span>每次保存后自动生成备份（最多保留 10 份），可从侧栏「更多 → 从备份恢复」找回</span>
+                <span>保存后最多每分钟自动备份一次（保留最近 10 份），可从侧栏「更多 → 从备份恢复」找回</span>
               </li>
               {version && (
                 <li>

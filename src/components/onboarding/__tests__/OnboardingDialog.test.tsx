@@ -47,4 +47,24 @@ describe('OnboardingDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '上一步' }))
     expect(screen.getByText('欢迎使用「笔记」')).toBeInTheDocument()
   })
+
+  it('P1-4：Esc 等同「跳过」——全应用唯一没有 Esc 的弹窗已补齐', () => {
+    const onClose = vi.fn()
+    render(<OnboardingDialog onClose={onClose} onCreateFirstDoc={vi.fn()} />)
+
+    // 焦点陷阱把初始焦点移进容器内（第一个可聚焦元素＝「跳过」）；
+    // role=dialog 挂在遮罩上，Esc 监听挂在内层容器，所以按键要发给容器内的元素
+    const inside = screen.getByRole('button', { name: '跳过' })
+    fireEvent.keyDown(inside, { key: 'Escape' })
+
+    expect(onClose).toHaveBeenCalled()
+    // 与「任何离开路径都算看过引导」对齐：Esc 关闭也标记已引导
+    expect(localStorage.getItem('notes-onboarding-done')).toBe('1')
+  })
+
+  it('P1-9：桌面版数据位置读取中显示「读取中…」，不冒充浏览器模式', () => {
+    render(<OnboardingDialog onClose={vi.fn()} onCreateFirstDoc={vi.fn()} />)
+    // 测试环境没有 window.notesApi => isWebMode 为 true，浏览器分支按设计显示
+    expect(screen.getByText('（浏览器模式下没有本地数据目录）')).toBeInTheDocument()
+  })
 })

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNotesStore, selectActiveDoc } from '@/store'
+import { checkForUpdate } from '@/services/storage'
+import { toast } from '@/services/toast'
 import { loadLatestDraft, clearDrafts, saveDraft } from '@/utils/autoSaveUtils'
 import { beginSession, endSession } from '@/utils/sessionGuard'
 import { markPerf } from '@/utils/perfMarks'
@@ -46,6 +48,32 @@ export function useAppInit({ onError, onAbnormalExit }: UseAppInitOptions): UseA
   const loadNotes = useNotesStore(s => s.loadNotes)
   const saveNotes = useNotesStore(s => s.saveNotes)
   const setSaveStatus = useNotesStore(s => s.setSaveStatus)
+
+  /*
+   * 启动静默检查一次更新（D3）：只提示、不弹窗、不下载 ——
+   * 设置 → 关于 的手动检查路径保持不变。延迟 4 秒发起，不与首屏数据加载抢资源；
+   * 失败（离线 / 404 / 尚无 Release）一律静默，本机网络问题不该打扰用户。
+   */
+  useEffect(() => {
+    let alive = true
+    const timer = setTimeout(() => {
+      void checkForUpdate()
+        .then((result) => {
+          if (!alive || !result.ok || !result.hasUpdate) return
+          toast.info(
+            '发现新版本 ' + (result.latest || '') + '：到 设置 → 关于 点「检查更新」可打开下载页',
+            8000,
+          )
+        })
+        .catch(() => {
+          /* 静默：启动检查只是一次提示，网络失败不打扰 */
+        })
+    }, 4000)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [])
 
   useEffect(() => {
     const draft = loadLatestDraft()

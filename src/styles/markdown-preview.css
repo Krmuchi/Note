@@ -303,3 +303,62 @@
     font-size: 1.1em;
   }
 }
+
+/* ===== 预览图片点击放大（lightbox）=====
+   图片用**原本的地址**（self / data: file: 均为 CSP 允许），不引入 blob:。 */
+.md-preview-img {
+  cursor: zoom-in;
+  border-radius: var(--radius-sm, 4px);
+}
+
+.md-preview-img:focus-visible {
+  outline: 2px solid var(--primary-500, #1677ff);
+  outline-offset: 2px;
+}
+
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 78%);
+  cursor: zoom-out;
+}
+
+.lightbox-image {
+  max-width: 96vw;
+  max-height: 92vh;
+  object-fit: contain;
+  /* 透明 PNG 在暗背景上垫白底，才看得清边界 */
+  background: #fff;
+  border-radius: 6px;
+  cursor: default;
+  box-shadow: 0 8px 40px rgb(0 0 0 / 45%);
+}
+
+.lightbox-close {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 14%);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lightbox-close:hover {
+  background: rgb(255 255 255 / 26%);
+}
+
+.lightbox-close:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}

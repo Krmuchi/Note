@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { uiActions } from '@/hooks/useUIState';
 import { useNotesStore } from '@/store';
 import { modKey } from '@/utils/platform';
 import { IconBook } from '@/components/common/Icon';
@@ -26,7 +27,6 @@ export const SidebarHeader: React.FC<SidebarHeaderProps> = ({
   menuOpen = false,
   onToggleMenu,
 }) => {
-  const [searchFocused, setSearchFocused] = useState(false);
 
   return (
     <div className="sidebar-header">
@@ -76,22 +76,62 @@ export const SidebarHeader: React.FC<SidebarHeaderProps> = ({
       </div>
 
       <div className="sidebar-search-wrapper">
-        <div className={`sidebar-search ${searchFocused ? 'focused' : ''}`}>
-          <svg className="search-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {/*
+          P1-4 语义分离：这里是**全局搜索**的按钮式入口，就地过滤在文档列表顶部
+          （DocsSidebar 的「过滤当前知识库文档…」）。旧版是一个受控输入框、
+          又在 onClick 里打开搜索面板 —— 点一下焦点就被面板抢走，根本没法在框里打字，
+          与下面那个同占位的过滤框也完全分不清。
+        */}
+        <button
+          type="button"
+          className="sidebar-search"
+          onClick={onSearchPanelOpen}
+          title="搜索全部知识库的标题与正文"
+          aria-label="打开全局搜索"
+        >
+          <svg
+            className="search-icon-svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
             <circle cx="11" cy="11" r="8" />
             <path d="M21 21l-4.35-4.35" />
           </svg>
-          <input
-            className="search-input"
-            placeholder="搜索文档..."
-            value={searchText}
-            onChange={(e) => onSearchChange(e.target.value)}
-            onClick={onSearchPanelOpen}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
-          />
+          <span className="sidebar-search-label">搜索文档…</span>
           <span className="search-shortcut">{modKey}+K</span>
-        </div>
+        </button>
+        {/* 当前的文档树过滤是个独立状态：给它一个看得见、点得掉的出口 */}
+        {searchText && (
+          <button
+            type="button"
+            className="sidebar-filter-clear"
+            onClick={() => onSearchChange('')}
+            title="清除文档过滤"
+            aria-label={`清除文档过滤：${searchText}`}
+          >
+            ×
+          </button>
+        )}
+        {/*
+          P1-12：快速打开（Ctrl+P）此前只有快捷键入口 —— 不记快捷键、用触屏的人
+          永远见不到这个「1 击直达」功能。这里给一个与搜索并排的鼠标入口。
+        */}
+        <button
+          type="button"
+          className="sidebar-quick-open-btn"
+          onClick={() => uiActions.setShowQuickOpen(true)}
+          title={`快速打开（${modKey}+P）`}
+          aria-label="快速打开文档"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 0 0 0-6z" />
+          </svg>
+        </button>
         <button
           className="sidebar-add-btn"
           onClick={() => {

@@ -19,7 +19,12 @@ import type { CommentAnchor } from '@/types';
 import { useShallow } from 'zustand/react/shallow';
 import { useNotesStore } from '@/store';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
-import { useEditorFormatting } from '@/hooks/useEditorFormatting';
+import {
+  useEditorFormatting,
+  localizeRemoteImages,
+  remoteImageUrls,
+  warnRemainingRemoteImages,
+} from '@/hooks/useEditorFormatting';
 import { useAiSelectionAction } from '@/hooks/useAiSelectionAction';
 import { useFormatPainter } from '@/hooks/useFormatPainter';
 import { usePreviewScrollSync } from '@/hooks/usePreviewScrollSync';
@@ -36,6 +41,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { LinkDialog } from '@/components/dialogs/LinkDialog';
 import { Loading } from '@/components/common/Loading';
 import AiSelectionMenu from '@/components/ai/AiSelectionMenu';
+import AiWriter from '@/components/ai/AiWriter';
 import { DocInfoPanel } from './DocInfoPanel';
 import { IconDocument, IconPlus } from '@/components/common/Icon';
 import { EditorDocTitle } from './EditorDocTitle';
@@ -320,6 +326,75 @@ export const Editor: React.FC<EditorProps> = ({
     [activeNotebookId, activeDocId, updateDoc, recordSnapshot]
   );
 
+  /*
+   * P0-1：查找/替换后，在**内容重建完成之后**恢复光标。
+   *
+   * 替换回写 → RichEditor 的同步 effect 发现"外部改写" → 用新 Markdown 整体重建
+   * contenteditable（innerHTML 整个换掉）。此刻若在 effect 里直接 selectRange，
+   * 选区只落在马上被销毁的旧 DOM 上：重建后光标丢失，接着打字会落到文档开头。
+   *
+   * 时序依赖 React 的 effect 顺序（同一 commit 内先子后父）：
+   * FindBar 登记目标区间 → RichEditor 重建 → 本组件（父）恢复选区。
+   * 父 effect 晚于子 effect 执行，这是确定的保证，比 rAF 排队可靠。
+   */
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null);
+  /** 本次替换是否真的改变了内容：没变就不登记，避免下一次击键时错位恢复 */
+  const replaceChangedRef = useRef(false);
+
+  const handleReplaceContent = useCallback(
+    (next: string) => {
+      const before = activeDocRef.current?.content ?? '';
+      replaceChangedRef.current = next !== before;
+      updateDocContent({ content: next });
+    },
+    [updateDocContent],
+  );
+
+  /** 由 EditorFindBar 在替换动作里登记"重建后要选中的区间" */
+  const deferRichSelection = useCallback((start: number, end: number) => {
+    if (!replaceChangedRef.current) return;
+    pendingSelectionRef.current = { start, end };
+  }, []);
+
+  useEffect(() => {
+    const pending = pendingSelectionRef.current;
+    if (!pending) return;
+    pendingSelectionRef.current = null;
+    if (!richEditorEnabled) return;
+    // 到这里子组件的重建 effect 已跑完，DOM 与 store 内容一致
+    richEditorRef.current?.focus();
+    richEditorRef.current?.selectRange(pending.start, pending.end);
+  }, [activeDoc?.content, richEditorEnabled]);
+
+  /**
+   * P1-3：拿到"可用的选区"，拿不到时先自救、再明确提示。
+   *
+   * 旧写法是 `if (!range) return` —— 打开文档后正文常常还没获得焦点
+   * （从文档树 / 标签点开文档不经过 requestDocOpen 那条聚焦通道），
+   * 用户直接点「加粗 / H1 / 列表」就毫无反应，没有任何提示。
+   * 现在的顺序：已有选区 → 聚焦正文再取 → 聚焦失败退到文末 → 都不行才 toast。
+   * 返回 null 表示"这次命令不会执行"，调用方无需再补提示。
+   */
+  const ensureRichRange = useCallback((): { start: number; end: number } | null => {
+    const handle = richEditorRef.current;
+    if (!handle) {
+      // 纯预览视图下编辑器未挂载：提示切回编辑，而不是按了没反应
+      toast.warning('当前是预览视图，切回编辑后再套用格式');
+      return null;
+    }
+    const existing = handle.getSelectionRange();
+    if (existing) return existing;
+    handle.focus();
+    const focused = handle.getSelectionRange();
+    if (focused) return focused;
+    // 聚焦后仍取不到（选区对象不在正文内）：退到文末，保证按钮一定有作用对象
+    handle.focusAtEnd();
+    const atEnd = handle.getSelectionRange();
+    if (atEnd) return atEnd;
+    toast.warning('请先点击正文，再使用格式按钮');
+    return null;
+  }, []);
+
   // 插入链接：点击工具栏时捕获选区并弹出 LinkDialog，确认后用 [文本](url) 替换选区
   const handleOpenLinkDialog = useCallback(() => {
     /*
@@ -328,9 +403,11 @@ export const Editor: React.FC<EditorProps> = ({
      * `if (!ta) return` 会让**链接弹窗根本不出现**（实测的功能缺口）。
      */
     if (richEditorEnabled) {
-      const range = richEditorRef.current?.getSelectionRange();
+      const range = ensureRichRange();
       if (range) {
-        const content = activeDoc?.content ?? '';
+        // 内容经 activeDocRef 即时读取：本回调被 applyFormat 依赖，
+        // 绑 activeDoc.content 会让 EditorHeader 的 memo 每次击键失效（P2-14）
+        const content = activeDocRef.current?.content ?? '';
         setLinkDialog({ start: range.start, end: range.end, text: content.substring(range.start, range.end) });
       } else {
         setLinkDialog(null);
@@ -342,7 +419,7 @@ export const Editor: React.FC<EditorProps> = ({
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
     setLinkDialog({ start, end, text: ta.value.substring(start, end) });
-  }, [textareaRef, richEditorEnabled, activeDoc?.content]);
+  }, [textareaRef, richEditorEnabled, ensureRichRange]);
 
   const handleLinkConfirm = useCallback((text: string, url: string) => {
     const sel = linkDialog;
@@ -451,7 +528,42 @@ export const Editor: React.FC<EditorProps> = ({
       richEditorRef.current?.focus();
       richEditorRef.current?.selectRange(caret, caret);
     });
+
+    /*
+     * P0-2：粘贴 / 拖入带来的外链图片，先尽力转存到本机，再对确实没落地的如实提示。
+     *
+     * 此前这条链路只有 textarea 内核做了转存（localizeRemoteImages 挂在 handlePaste 里），
+     * 默认的富文本内核直接把 ![](https://…) 写进文档 —— 而应用 CSP 是
+     * img-src 'self' data: file:，外链图**永远是裂图**且没有任何提示。
+     */
+    if (remoteImageUrls(md).length > 0) {
+      void localizeRemoteImages(md).then(({ replacements, failed }) => {
+        if (replacements.length > 0) {
+          const latest = activeDocRef.current?.content ?? '';
+          let next = latest;
+          replacements.forEach(({ from, to }) => {
+            next = next.split(from).join(to);
+          });
+          if (next !== latest) updateDocContent({ content: next });
+        }
+        warnRemainingRemoteImages(failed);
+      });
+    }
   }, [updateDocContent]);
+
+  /**
+   * 富文本内核下"当前选中的文字"（P2-15）。
+   *
+   * contenteditable 没有 selectionStart/End，插图片时读不到选区，
+   * 于是 alt 被硬编码成字面量 image、选中的原文被直接替换掉。
+   * 这里按 Markdown 偏移取，与插入链接 / 评论锚点同一坐标系。
+   */
+  const getRichSelectionText = useCallback(() => {
+    const range = richEditorRef.current?.getSelectionRange();
+    if (!range || range.end <= range.start) return '';
+    const content = activeDocRef.current?.content ?? '';
+    return content.substring(range.start, range.end);
+  }, []);
 
   // 使用格式化 hook
   const {
@@ -463,6 +575,7 @@ export const Editor: React.FC<EditorProps> = ({
   } = useEditorFormatting({
     textareaRef,
     textareaNode,
+    getRichSelectionText,
     activeDoc,
     updateDocContent,
     onLinkInsert: handleOpenLinkDialog,
@@ -516,9 +629,12 @@ export const Editor: React.FC<EditorProps> = ({
         handleOpenLinkDialog();
         return;
       }
-      const range = richEditorRef.current?.getSelectionRange();
+      // P1-3：拿不到选区先聚焦/落位，仍不行给提示 —— 不再静默 return
+      const range = ensureRichRange();
       if (!range) return;
-      const content = activeDoc?.content ?? '';
+      // 内容一律经 activeDocRef 即时读取：applyFormat 是 EditorHeader 的 props，
+      // 依赖 activeDoc.content 会让 memo 每次击键都失效（P2-14）
+      const content = activeDocRef.current?.content ?? '';
       const result = applyMarkdownFormat(content, range.start, range.end, type, options);
       if (!result) {
         // 未知类型：回退到旧实现，保证不静默失败
@@ -533,7 +649,7 @@ export const Editor: React.FC<EditorProps> = ({
         richEditorRef.current?.selectRange(result.start, result.end);
       });
     },
-    [richEditorEnabled, activeDoc?.content, updateDocContent, applyFormatLegacy, pickImage, handleOpenLinkDialog],
+    [richEditorEnabled, ensureRichRange, updateDocContent, applyFormatLegacy, pickImage, handleOpenLinkDialog],
   );
 
   /**
@@ -552,7 +668,8 @@ export const Editor: React.FC<EditorProps> = ({
         types.forEach((t) => applyFormatLegacy(t, options));
         return;
       }
-      const range = richEditorRef.current?.getSelectionRange();
+      // P1-3：与 applyFormat 同一套"先自救后提示"的选区获取
+      const range = ensureRichRange();
       if (!range) return;
       let content = activeDocRef.current?.content ?? '';
       let start = range.start;
@@ -573,7 +690,7 @@ export const Editor: React.FC<EditorProps> = ({
         richEditorRef.current?.selectRange(start, end);
       });
     },
-    [richEditorEnabled, applyFormatLegacy, updateDocContent],
+    [richEditorEnabled, ensureRichRange, applyFormatLegacy, updateDocContent],
   );
 
   // 格式刷：复制 / 套用行内格式。
@@ -840,12 +957,14 @@ export const Editor: React.FC<EditorProps> = ({
 
       if (mod && !e.altKey && !e.shiftKey && key === 'f') {
         e.preventDefault();
-        setFindBar({ open: true, replace: false });
+        // 用函数式更新保留已输入的 query：直接写对象会把 query 字段抹成 undefined，
+        // 下方 key 随之变化 → 查找栏重挂载 → 用户刚输入的查找词被清空
+        setFindBar((s) => ({ ...s, open: true, replace: false }));
         return;
       }
       if (mod && !e.altKey && !e.shiftKey && key === 'h') {
         e.preventDefault();
-        setFindBar({ open: true, replace: true });
+        setFindBar((s) => ({ ...s, open: true, replace: true }));
         return;
       }
       /*
@@ -904,6 +1023,27 @@ export const Editor: React.FC<EditorProps> = ({
       else requestAnimationFrame(focusEditor);
     });
   }, [richEditorEnabled]);
+
+  /*
+   * P1-3：从文档树 / 标签切到另一篇后，若焦点正停在 body 上，把光标交给正文。
+   *
+   * 上面那条只覆盖 requestDocOpen 通道（面包屑 / 反链 / 快速打开 / 搜索）；
+   * 最常见的入口——文档树点击、标签点击——走的是 App.handleViewDoc，不经该通道
+   * （App.tsx 不在本次写域内），于是打开文档后焦点仍停在侧栏，直接打字没反应、
+   * 直接点格式按钮也没反应（配合 ensureRichRange 的提示才彻底闭环）。
+   *
+   * 只在 activeElement 是 body / 空时聚焦：用户若正在搜索框、标题栏或任何
+   * 面板里输入，绝不抢焦点。
+   */
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      if (richEditorEnabled) richEditorRef.current?.focus();
+      else textareaRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeDocId, richEditorEnabled]);
 
   /**
    * 预览里点击 [[双链]]（K1）：先在本知识库内按标题找，再跨库找。
@@ -1023,28 +1163,63 @@ export const Editor: React.FC<EditorProps> = ({
   const [pendingAnchor, setPendingAnchor] = useState<CommentAnchor | null>(null);
   /** 文档信息面板（字数/版本/评论/标签的集中视图） */
   const [showDocInfo, setShowDocInfo] = useState(false);
+  // P2-14：传给 EditorHeader 的回调必须稳定，内联箭头会让它的 memo 每次击键失效
+  const handleShowDocInfo = useCallback(() => setShowDocInfo(true), []);
+
+  /*
+   * P1-9：编辑器内也能用「AI 帮你写」。
+   *
+   * AiWriter 此前只挂在开始页 —— 写到一半要生成内容必须退回开始页，
+   * 编辑器里唯一的 AI 入口还藏在「⋯ 更多格式」里。现在标题栏主工具条
+   * 直接给两个入口：AI 帮你写（新内容）与 AI 处理选中文本（划词改写）。
+   */
+  const [showAiWriter, setShowAiWriter] = useState(false);
+  const handleOpenAiWriter = useCallback(() => setShowAiWriter(true), []);
+  const handleCloseAiWriter = useCallback(() => setShowAiWriter(false), []);
+
+  /** 生成结果按块插到当前光标处（与插图 / 粘贴同一套坐标系），并给出落点提示 */
+  const handleAiInsert = useCallback(
+    (title: string, content: string) => {
+      const text = content.trim();
+      if (!text) return;
+      const heading = title.trim();
+      // AI 自带标题时不重复套一层；否则给一个二级标题，便于回看这段的来源
+      insertMarkdownAtCursor(heading && !text.startsWith('#') ? `## ${heading}
+
+${text}` : text);
+      setShowAiWriter(false);
+      toast.success('AI 内容已插入到光标处');
+    },
+    [insertMarkdownAtCursor],
+  );
 
   const handleCommentSelection = useCallback(() => {
-    // 新内核：用 Markdown 偏移取选区（与评论锚点的坐标系一致）
+    /*
+     * P1-4：面板已打开 + 有选区时，**只更新引用、不关面板**。
+     *
+     * 本回调直接绑在标题栏「评论」按钮上，而那个按钮的语义是 toggle ——
+     * 旧实现无条件调用 onToggleCommentsPanel，于是用户选中一段文字再点「评论」，
+     * 打开的面板反而被关掉，刚捕获的引用也没处看（"点了反而没了"）。
+     * 保留的 toggle 只有一种情况：面板开着、又没有选区 —— 那时用户的意图就是关闭。
+     */
+    let hasSelection = false;
     if (richEditorEnabled) {
       const range = richEditorRef.current?.getSelectionRange();
+      hasSelection = !!range && range.end > range.start;
       setPendingAnchor(
-        range && range.end > range.start
-          ? anchorFromSelection(activeDoc?.content ?? '', range.start, range.end)
-          : null,
+        hasSelection ? anchorFromSelection(activeDocRef.current?.content ?? '', range!.start, range!.end) : null,
       );
-      onToggleCommentsPanel?.();
-      return;
-    }
-    const ta = textareaRef.current;
-    if (ta) {
-      const anchor = anchorFromSelection(ta.value, ta.selectionStart, ta.selectionEnd);
-      setPendingAnchor(anchor);
     } else {
-      setPendingAnchor(null);
+      const ta = textareaRef.current;
+      if (ta) {
+        hasSelection = ta.selectionStart !== ta.selectionEnd;
+        setPendingAnchor(anchorFromSelection(ta.value, ta.selectionStart, ta.selectionEnd));
+      } else {
+        setPendingAnchor(null);
+      }
     }
-    onToggleCommentsPanel?.();
-  }, [onToggleCommentsPanel, richEditorEnabled, activeDoc?.content]);
+    if (!showCommentsPanel || !hasSelection) onToggleCommentsPanel?.();
+  }, [onToggleCommentsPanel, richEditorEnabled, textareaRef, showCommentsPanel]);
 
   /** 点击评论里的引用片段 → 选中并滚动到正文对应位置 */
   const handleJumpToAnchor = useCallback((start: number, end: number) => {
@@ -1159,12 +1334,14 @@ export const Editor: React.FC<EditorProps> = ({
           onFormatPainter={handleFormatPainter}
           formatPainterActive={!!painterFormats}
           onAiAction={handleAiAction}
+          /* P1-9：编辑器内新增「AI 帮你写」入口（此前只在开始页） */
+          onOpenAiWriter={handleOpenAiWriter}
           activeFormats={richEditorEnabled ? richActiveFormats : activeFormats}
           showOutlinePanel={showOutlinePanel}
           onToggleOutlinePanel={onToggleOutlinePanel}
           showCommentsPanel={showCommentsPanel}
           onToggleCommentsPanel={handleCommentSelection}
-          onShowDocInfo={() => setShowDocInfo(true)}
+          onShowDocInfo={handleShowDocInfo}
           /* 富文本内核下标题在正文里，顶部栏不再重复渲染标题输入框 */
           richEditorTitleInBody={richEditorEnabled}
           isFullscreen={isFullscreen}
@@ -1182,26 +1359,38 @@ export const Editor: React.FC<EditorProps> = ({
         {findBar.open && (
           <EditorFindBar
             /*
-             * key 必须同时含 query 与「替换行是否展开」两个维度。
+             * key 只含 query（searchJump 预填变化时才需要重挂载拿新初值）。
              *
-             * 旧 key 只有 query：Ctrl+F 打开→输入关键词→按 Ctrl+H 时 query 没变，
-             * key 相同 → 组件不重挂载 → initialShowReplace 这个**仅作初值**的 prop
-             * 被忽略 → 界面毫无反应（用户以为没有替换功能）。
-             * 把 replace 纳入 key 后，Ctrl+H 会以「已展开替换行」重新挂载。
+             * **绝不能再把 replace 放进 key**：用户输入的查找词存在 FindBar 组件内部，
+             * replace 进 key 意味着按 Ctrl+H 就重挂载 → 内部 query 从 initialQuery（空）
+             * 重新初始化 —— 表现为「输入关键词后按 Ctrl+H，查找词被清空、命中归零」。
+             * 替换行的开合改由 initialShowReplace prop + FindBar 内的 prevInitialShowReplace
+             * 同步承担（纯 props 流，无重挂载），Esc 收行经 onShowReplaceChange 回流。
              */
-            key={`${findBar.query ?? 'find'}:${findBar.replace ? 'r' : 'n'}`}
+            key={findBar.query ?? 'find'}
             content={activeDoc.content || ''}
             initialShowReplace={findBar.replace}
             initialQuery={findBar.query}
             textareaRef={textareaRef}
-            onReplaceContent={(next) => updateDocContent({ content: next })}
+            onReplaceContent={handleReplaceContent}
             onClose={() => setFindBar({ open: false, replace: false })}
+            /*
+             * 替换行状态回流（与 FindBar 内的 prop 同步配对）：FindBar 里 Esc 收起替换行、
+             * 或点 Aa 按钮切换时，Editor 这边的 findBar.replace 必须跟着走 —— 否则下一次
+             * Ctrl+H 的 setFindBar({replace:true}) 是个 no-op，prop 不变化 → 界面毫无反应
+             * （key-remount 方案时代靠重挂载掩盖了这个缺口，去掉 replace-in-key 后必须显式接）。
+             */
+            onShowReplaceChange={(v) =>
+              setFindBar((s) => (s.replace === v ? s : { ...s, replace: v }))
+            }
             onMatchesChange={setFindMatches}
             selectRangeInRichEditor={
               richEditorEnabled
                 ? (start, end) => richEditorRef.current?.selectRange(start, end) ?? false
                 : undefined
             }
+            /* P0-1：富文本下替换后的光标交给"重建之后"的父 effect 恢复 */
+            deferRichSelection={richEditorEnabled ? deferRichSelection : undefined}
             onRegisterJump={registerFindJump}
             /* 关闭查找栏后把焦点还给编辑器（缺陷9）：富文本下 textareaRef 为 null */
             onFocusEditor={() => {
@@ -1244,6 +1433,8 @@ export const Editor: React.FC<EditorProps> = ({
                     onInsertFile={handleInsertFile}
                     onInsertMarkdown={insertMarkdownAtCursor}
                     resolveShortcut={resolveShortcut}
+                    /* 编辑态 Ctrl/Cmd+点击 [[双链]] 跳转（复用预览的解析与提示） */
+                    onWikiLink={handleWikiLink}
                     onFormatShortcut={applyFormat}
                     /* 缺陷4：菜单打开期间 RichEditor 监听 selectionchange，光标移开即关闭 */
                     slashActive={!!slashState}
@@ -1380,9 +1571,18 @@ export const Editor: React.FC<EditorProps> = ({
           root={richEditorNode}
           onFormat={(type) => applyFormat(type as FormatType)}
           onLink={handleOpenLinkDialog}
+          /* P1-9：划词后最常用的两件事就在选区旁，不必再把手移回顶部工具栏 */
+          onAi={handleAiAction}
+          onComment={handleCommentSelection}
           enabled={previewMode !== 'preview'}
         />
       )}
+
+      {/*
+        P1-9：编辑器内的「AI 帮你写」—— 常驻挂载（useAiWriter 依赖 isOpen 关闭时取消在途流），
+        与开始页共用同一组件与状态机，生成完成由 useAiWriter 负责后台通知。
+      */}
+      <AiWriter isOpen={showAiWriter} onClose={handleCloseAiWriter} onInsert={handleAiInsert} />
     </>
   );
 };

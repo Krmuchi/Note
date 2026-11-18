@@ -37,7 +37,6 @@ interface EditorToolbarOverflowProps {
   fontSizeMenuRef: React.RefObject<HTMLDivElement | null>;
   onFormatPainter?: () => void;
   formatPainterActive?: boolean;
-  onAiAction?: () => void;
   showCodeLangMenu: boolean;
   setShowCodeLangMenu: (open: boolean) => void;
   codeLangMenuRef: React.RefObject<HTMLDivElement | null>;
@@ -75,7 +74,6 @@ export const EditorToolbarOverflow: React.FC<EditorToolbarOverflowProps> = ({
   fontSizeMenuRef,
   onFormatPainter,
   formatPainterActive = false,
-  onAiAction,
   showCodeLangMenu,
   setShowCodeLangMenu,
   codeLangMenuRef,
@@ -109,10 +107,6 @@ export const EditorToolbarOverflow: React.FC<EditorToolbarOverflowProps> = ({
   const runPainter = (): void => {
     onAction?.();
     onFormatPainter?.();
-  };
-  const runAi = (): void => {
-    onAction?.();
-    onAiAction?.();
   };
   const runFontSize = (size: string): void => {
     onAction?.();
@@ -190,14 +184,6 @@ export const EditorToolbarOverflow: React.FC<EditorToolbarOverflowProps> = ({
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 4l2 2-9.5 9.5a2.12 2.12 0 0 1-3-3z" />
               <path d="M6 14c-1.5 1.5-1 4-1 4s2.5.5 4-1" />
-            </svg>
-          </IconBtn>
-        )}
-        {onAiAction && (
-          <IconBtn title="AI 处理选中文本（润色 / 改写 / 扩写 / 总结 / 风格转换）" onClick={runAi} role="menuitem">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z" />
-              <path d="M18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z" />
             </svg>
           </IconBtn>
         )}

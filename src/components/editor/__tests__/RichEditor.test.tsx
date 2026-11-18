@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
-import { render, fireEvent, act } from '@testing-library/react'
+import { render, fireEvent, act, waitFor } from '@testing-library/react'
 import { RichEditor } from '@/components/editor/RichEditor'
 import { useNotesStore } from '@/store'
 import type { NoteDoc } from '@/types'
@@ -474,8 +474,19 @@ describe('RichEditor 斜杠菜单 selectionchange 同步（缺陷4）', () => {
     onSlashChange.mockClear()
     await flushSelectionChange()
 
-    // 必须上报 null + 'cursor'，Editor 据此关闭菜单
-    expect(onSlashChange).toHaveBeenCalledWith(null, 'cursor')
+    /*
+     * 必须上报 null + 'cursor'，Editor 据此关闭菜单。
+     *
+     * 不能用「等一帧然后立刻断言」：syncSlash 的 rAF 是 cancel + 重排语义，
+     * 而 jsdom 对 caretToEnd 设置选区后会**异步补发**原生 selectionchange ——
+     * 它若排在我们这次手动 dispatch 之后到达，就会取消刚排的 rAF 再重排一个，
+     * 断言恰好跑在两帧之间 → 偶发 0 调用（实测三跑一挂）。
+     * waitFor 轮询到重排后的那次上报为止，真浏览器行为不受影响。
+     */
+    await waitFor(
+      () => expect(onSlashChange).toHaveBeenCalledWith(null, 'cursor'),
+      { timeout: 1000 },
+    )
   })
 
   it('slashActive=false 时不挂监听（打字零开销）', async () => {

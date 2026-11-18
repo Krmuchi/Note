@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   DOC_SORT_STORAGE_KEY,
+  collectSubtreeIds,
+  dedupeToTopLevel,
+  docMatchesFilters,
   filterAndSortDocs,
   readDocSortMode,
   sortDocs,
@@ -122,5 +125,75 @@ describe('排序偏好持久化', () => {
   it('存储里是非法值时回落到默认', () => {
     localStorage.setItem(DOC_SORT_STORAGE_KEY, 'nonsense')
     expect(readDocSortMode()).toBe('updated')
+  })
+})
+
+describe('docMatchesFilters（P0-2 全层级过滤的唯一命中判定）', () => {
+  it('标题包含即命中，大小写不敏感', () => {
+    expect(docMatchesFilters(doc({ id: 'a', title: 'Meeting Notes' }), 'meeting')).toBe(true)
+    expect(docMatchesFilters(doc({ id: 'a', title: '会议纪要' }), '项目')).toBe(false)
+  })
+
+  it('标签是与关系：必须同时带全部所选标签', () => {
+    const target = doc({ id: 'a', title: 'A', tags: ['t1', 't2'] })
+    expect(docMatchesFilters(target, '', ['t1', 't2'])).toBe(true)
+    expect(docMatchesFilters(target, '', ['t1', 't3'])).toBe(false)
+    expect(docMatchesFilters(target, '', [])).toBe(true)
+  })
+
+  it('标题与标签同时给定时两者都要满足', () => {
+    const target = doc({ id: 'a', title: '项目计划', tags: ['t1'] })
+    expect(docMatchesFilters(target, '项目', ['t1'])).toBe(true)
+    expect(docMatchesFilters(target, '会议', ['t1'])).toBe(false)
+    expect(docMatchesFilters(target, '项目', ['t2'])).toBe(false)
+  })
+})
+
+describe('collectSubtreeIds（P0-3 子树收集）', () => {
+  const tree = [
+    doc({ id: 'root', title: 'Root' }),
+    doc({ id: 'child1', title: 'Child1', parentId: 'root' }),
+    doc({ id: 'grand', title: 'Grand', parentId: 'child1' }),
+    doc({ id: 'child2', title: 'Child2', parentId: 'root' }),
+    doc({ id: 'other', title: 'Other' }),
+  ]
+
+  it('收集自己 + 全部后代（含孙级）', () => {
+    expect([...collectSubtreeIds(tree, 'root')].sort()).toEqual(['child1', 'child2', 'grand', 'root'])
+    expect([...collectSubtreeIds(tree, 'child1')]).toEqual(['child1', 'grand'])
+  })
+
+  it('无子文档时只有自己', () => {
+    expect([...collectSubtreeIds(tree, 'other')]).toEqual(['other'])
+  })
+
+  it('parentId 成环的脏数据不会死循环', () => {
+    const cyc = [
+      doc({ id: 'a', title: 'A', parentId: 'b' }),
+      doc({ id: 'b', title: 'B', parentId: 'a' }),
+    ]
+    const ids = collectSubtreeIds(cyc, 'a')
+    expect([...ids].sort()).toEqual(['a', 'b'])
+  })
+})
+
+describe('dedupeToTopLevel（P1-13 批量移动的父子同选去重）', () => {
+  const docs = [
+    doc({ id: 'p', title: 'Parent' }),
+    doc({ id: 'c', title: 'Child', parentId: 'p' }),
+    doc({ id: 'g', title: 'Grand', parentId: 'c' }),
+    doc({ id: 'x', title: 'Other' }),
+  ]
+
+  it('祖先在集合里时丢掉后代（含中间层），保持入参顺序', () => {
+    expect(dedupeToTopLevel(['g', 'c', 'p', 'x'], docs)).toEqual(['p', 'x'])
+  })
+
+  it('没有父子关系时原样返回', () => {
+    expect(dedupeToTopLevel(['p', 'x'], docs)).toEqual(['p', 'x'])
+  })
+
+  it('只有子文档被选中时保留', () => {
+    expect(dedupeToTopLevel(['c'], docs)).toEqual(['c'])
   })
 })

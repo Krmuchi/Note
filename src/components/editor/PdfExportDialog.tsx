@@ -19,7 +19,12 @@ interface PdfExportDialogProps {
  * 样式复用既有的 .confirm-dialog / .link-dialog-field / .settings-toggle-row，不新增 CSS。
  */
 export default function PdfExportDialog({ isOpen, onClose, onExport, onPrint }: PdfExportDialogProps): JSX.Element | null {
-  const trapRef = useFocusTrap<HTMLDivElement>()
+  /*
+   * P1-5：与文档信息面板同理 —— 全局 Esc 链不认识这个弹窗，
+   * 焦点又被移进了容器，不接 onEscape 就没有任何键盘关闭路径。
+   * active 传 isOpen：关闭状态不挂陷阱、不抢焦点归还。
+   */
+  const trapRef = useFocusTrap<HTMLDivElement>(isOpen, onClose)
   const [options, setOptions] = useState<PdfExportOptions>(DEFAULT_PDF_OPTIONS)
 
   if (!isOpen) return null

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNotesStore } from '@/store'
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { buildQuickOpenIndex, rankQuickOpenItems, type QuickOpenItem } from '@/utils/quickOpen'
 import { requestDocOpen } from '@/utils/docNavigation'
 import { formatDateTime } from '@/utils/formatters'
@@ -23,6 +24,8 @@ export default function QuickOpenPanel({ isOpen, onClose }: QuickOpenPanelProps)
   const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  // P1-3：浮层统一接 useFocusTrap（Tab 循环 + Esc 关闭 + 关闭归还焦点）
+  const panelRef = useFocusTrap<HTMLDivElement>(true, onClose)
 
   const index = useMemo(() => buildQuickOpenIndex(notebooks), [notebooks])
   const items = useMemo(() => rankQuickOpenItems(index, query), [index, query])
@@ -69,7 +72,7 @@ export default function QuickOpenPanel({ isOpen, onClose }: QuickOpenPanelProps)
   if (!isOpen) return null
 
   return (
-    <div className="quick-open-overlay" onClick={onClose}>
+    <div className="quick-open-overlay" onClick={onClose} ref={panelRef}>
       <div
         className="quick-open-panel"
         role="dialog"

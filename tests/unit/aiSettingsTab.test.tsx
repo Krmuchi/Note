@@ -90,12 +90,19 @@ describe('AiSettingsTab - dirty 上报（缺陷10）', () => {
     expect(getUIState().aiSettingsDirty).toBe(true)
   })
 
-  it('组件卸载时把 dirty 复位，避免残留影响下次关闭判断', () => {
+  /*
+   * P0-1：这条断言原先锁的是**缺陷行为**。页签切换是条件渲染，切走即卸载 ——
+   * 卸载就把 dirty 清成 false，等于草稿已经被丢掉、关闭守卫却同时失效，
+   * 用户再也收不到"有未保存的 AI 配置"提示。
+   * 正确契约：组件卸载**不**清 dirty；清理点在设置面板真正关闭时
+   * （SettingsPanel 单测里覆盖）。
+   */
+  it('组件卸载时不复位 dirty（切页签卸载不能顺手关掉关闭守卫）', () => {
     const { unmount } = render(<AiSettingsTab initial={configuredView} onViewChange={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('temperature（0-2）'), { target: { value: '0.8' } })
     expect(getUIState().aiSettingsDirty).toBe(true)
     unmount()
-    expect(getUIState().aiSettingsDirty).toBe(false)
+    expect(getUIState().aiSettingsDirty).toBe(true)
   })
 })
 

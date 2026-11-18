@@ -137,13 +137,38 @@ export const BlockHandle: React.FC<BlockHandleProps> = ({
       if (draggingRef.current || menuOpenRef.current) return
       setState(null)
     }
+    /*
+     * P2-11（触屏热区）：触摸屏没有 mousemove —— 此前手柄只在鼠标悬停时出现，
+     * 触屏用户**根本叫不出**块操作菜单。点一下正文块即可把手柄定位到该块旁，
+     * 再点手柄执行（tap 会派发合成 mouse 事件，onClick 照常工作）。
+     * passive: true：这里只读取坐标，不阻止默认滚动。
+     */
+    const onTouchStart = (e: TouchEvent): void => {
+      if (draggingRef.current || menuOpenRef.current) return
+      const touch = e.touches[0]
+      if (!touch) return
+      locate(touch.clientX, touch.clientY)
+    }
+    // 点到编辑器之外（侧栏 / 预览）时收起手柄，否则它会一直挂在上次的位置上
+    const onDocTouchStart = (e: TouchEvent): void => {
+      const target = e.target as HTMLElement | null
+      if (!target) return
+      if (target.closest('.block-handle, .block-menu')) return
+      if (root.contains(target)) return
+      setState(null)
+    }
+
     root.addEventListener('mousemove', onMouseMove)
     root.addEventListener('mouseleave', onLeave)
+    root.addEventListener('touchstart', onTouchStart, { passive: true })
+    document.addEventListener('touchstart', onDocTouchStart, { passive: true })
     // 滚动后块位置变了，重新定位（用捕获阶段覆盖内部滚动容器）
     window.addEventListener('scroll', onLeave, true)
     return () => {
       root.removeEventListener('mousemove', onMouseMove)
       root.removeEventListener('mouseleave', onLeave)
+      root.removeEventListener('touchstart', onTouchStart)
+      document.removeEventListener('touchstart', onDocTouchStart)
       window.removeEventListener('scroll', onLeave, true)
     }
   }, [enabled, root, locate])

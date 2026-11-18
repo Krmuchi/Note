@@ -236,6 +236,16 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
           onChange={(e) => setNewComment(e.target.value)}
           placeholder={pendingAnchor ? '针对选中内容写评论…' : '写下你的评论...'}
           rows={3}
+          /*
+           * P2-13：与下方回复框保持同一套键盘约定（Ctrl/Cmd+Enter 提交，Enter 换行）。
+           * 此前只有回复支持，主表单写完必须摸鼠标点「发表评论」。
+           */
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault()
+              handleSubmit(e)
+            }
+          }}
         />
         <div className="comment-form-actions">
           <button type="submit" className="comment-submit-btn">

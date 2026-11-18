@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useNotesStore } from '@/store'
-import { getPrimarySearchTerm, sortSearchHistory } from '@/store/slices/searchSlice'
+import {
+  consumeTagSearch,
+  getPrimarySearchTerm,
+  requestTagSearch,
+  resetTagSearch,
+  sortSearchHistory,
+} from '@/store/slices/searchSlice'
 import type { NoteDoc, Notebook, SearchHistory, Tag } from '@/types'
 
 /**
@@ -240,5 +246,81 @@ describe('getSearchSuggestions - 输出顺序与分组渲染一致', () => {
     const suggestions = useNotesStore.getState().getSearchSuggestions('项目')
     expect(suggestions.map(s => s.type)).toEqual(['history', 'title', 'tag'])
     expect(suggestions.map(s => s.text)).toEqual(['项目历史', '项目文档', '项目标签'])
+  })
+})
+
+/**
+ * P1-9「按标签看文档」：关键词可以为空，但必须有标签/日期这类范围约束兜底 ——
+ * 否则空查询会命中整库（这正是旧实现 return [] 要防的事故）。
+ */
+describe('search - 空关键词 + 范围筛选', () => {
+  beforeEach(() => {
+    setStore([
+      doc({ id: 'd1', title: '工作日报', tags: ['t-work'] }),
+      doc({ id: 'd2', title: '旅行计划', tags: ['t-life'] }),
+      doc({ id: 'd3', title: '无标签文档' }),
+    ])
+    useNotesStore.setState({ tags: [{ id: 't-work', name: '工作', color: '#f00', icon: '', parentId: null, usageCount: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }] })
+  })
+
+  it('空关键词 + 标签：返回该标签下的全部文档', () => {
+    const results = useNotesStore.getState().search('', { type: 'all', tags: ['t-work'] })
+    expect(results.map(r => r.id)).toEqual(['d1'])
+  })
+
+  it('空关键词 + 无任何约束：仍然返回空，不会命中整库', () => {
+    expect(useNotesStore.getState().search('', { type: 'all' })).toEqual([])
+    expect(useNotesStore.getState().search('   ', {})).toEqual([])
+  })
+
+  it('空关键词 + 日期范围：只按日期收窄', () => {
+    const results = useNotesStore.getState().search('', {
+      type: 'all',
+      dateRange: { start: '2025-12-31', end: '2026-01-02' },
+    })
+    expect(results.map(r => r.id).sort()).toEqual(['d1', 'd2', 'd3'])
+  })
+})
+
+describe('搜索历史 - 清空可撤销（restoreSearchHistory）', () => {
+  const history: SearchHistory[] = [
+    { id: 'h1', query: '普通词', timestamp: '2026-01-01T00:00:00.000Z', resultCount: 2, pinned: false, useCount: 1 },
+    { id: 'h2', query: '置顶词', timestamp: '2026-01-02T00:00:00.000Z', resultCount: 3, pinned: true, useCount: 5 },
+  ]
+
+  beforeEach(() => {
+    useNotesStore.setState({ searchHistory: [...history] })
+  })
+
+  it('清空后可整份还原，且置顶项仍在最前', () => {
+    const snapshot = useNotesStore.getState().searchHistory
+    useNotesStore.getState().clearSearchHistory()
+    expect(useNotesStore.getState().searchHistory).toEqual([])
+
+    useNotesStore.getState().restoreSearchHistory(snapshot)
+    expect(useNotesStore.getState().searchHistory.map(h => h.id)).toEqual(['h2', 'h1'])
+  })
+
+  it('传入非数组时忽略（撤销过期/脏数据不崩）', () => {
+    useNotesStore.getState().clearSearchHistory()
+    useNotesStore.getState().restoreSearchHistory(undefined as unknown as SearchHistory[])
+    expect(useNotesStore.getState().searchHistory).toEqual([])
+  })
+})
+
+describe('requestTagSearch / consumeTagSearch 一次性通道', () => {
+  it('取出即清空，重复消费返回 null', () => {
+    resetTagSearch()
+    requestTagSearch({ tagIds: ['t1'], label: '工作' })
+    expect(consumeTagSearch()).toEqual({ tagIds: ['t1'], label: '工作' })
+    expect(consumeTagSearch()).toBeNull()
+  })
+
+  it('外部修改入参不影响已存下的请求（取值时拷贝）', () => {
+    resetTagSearch()
+    const ids = ['t1']
+    requestTagSearch({ tagIds: ids, label: '工作' })
+    ids.push('t2')
+    expect(consumeTagSearch()?.tagIds).toEqual(['t1'])
   })
 })

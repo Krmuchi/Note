@@ -16,12 +16,39 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
   const [showLaser, setShowLaser] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 分页策略：以标题为分界，标题与其后续正文归入同一页（旧实现把标题与正文拆成两页，
-  // 每页要么只有标题要么只有正文，演示效果割裂）
+  /*
+   * 分页策略（P：演示模式 --- 手动分页）：
+   * 1. 标题为分界 —— 标题与其后续正文归入同一页（旧实现把标题与正文拆成两页，
+   *    每页要么只有标题要么只有正文，演示效果割裂）；
+   * 2. **单独成行的 --- 是手动分页符** —— 想按自己的节奏切页，不必硬凑标题；
+   *    代码围栏里的 --- 是代码内容，不参与分页（旧实现连围栏里的标题都会误分）。
+   * 文首孤立的 --- 没有"上一页"可分，直接忽略。
+   */
   const pages = React.useMemo(() => {
     if (!doc.content) return ['暂无内容'];
-    const rawPages = doc.content.split(/\n(?=#{1,6}\s)/g).map(p => p.trim()).filter(Boolean);
-    return rawPages.length > 0 ? rawPages : [doc.content];
+    const segments: string[] = [];
+    let buf: string[] = [];
+    let inFence = false;
+    for (const line of doc.content.split('\n')) {
+      if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+      if (!inFence && /^---\s*$/.test(line)) {
+        const hasContent = buf.some((l) => l.trim() !== '');
+        if (hasContent) {
+          segments.push(buf.join('\n'));
+          buf = [];
+        }
+        continue;
+      }
+      if (!inFence && /^(#{1,6})\s+/.test(line) && buf.length > 0) {
+        segments.push(buf.join('\n'));
+        buf = [line];
+        continue;
+      }
+      buf.push(line);
+    }
+    segments.push(buf.join('\n'));
+    const trimmed = segments.map((p) => p.trim()).filter(Boolean);
+    return trimmed.length > 0 ? trimmed : [doc.content];
   }, [doc.content]);
 
   useEffect(() => {
@@ -207,7 +234,7 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
             >
               ◀
             </button>
-            <div className="nav-dots">
+            <div className="nav-dots" title="点击跳页；正文中单独成行的 --- 与各级标题都会切一页">
               {pages.map((_, i) => (
                 <button
                   key={i}

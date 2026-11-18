@@ -11,6 +11,12 @@
 - 「开始」页不渲染 NotebooksView（`MainContent` 在 `activeLeftMenu==='start'` 直接返回 StartPage）：要进文档列表必须先点知识库条目；新库没有文档时编辑器不渲染，需先「新建文档」。
 - 480px 下 `isCompact` 为 true 且 `compactExpanded` 初始 false → `DocsSidebar` 走 `.docs-sidebar-rail` 提前返回分支，`.docs-sidebar-mobile` 与 `.docs-search` 都不存在；展开按钮只置 compactExpanded，搜索框仍受 `showBody`（`!mobile || mobileExpanded`）控制。
 - 保存状态是瞬时态：`saving` 只短暂出现，稳定可断言的是侧栏 `.save-indicator`。
+- **`getByTitle` 是子串匹配，`[title="…"]` 属性选择器是全等**：收藏按钮 title 在 点赞后翻成「取消收藏」，
+  `getByTitle('收藏')` 前后都命中（基线靠这个才过），而 `[title="收藏"]` 点击后 0 元素。
+  跨状态按钮用 `.eh-icon-btn[title*="收藏"]`（contains）——两头都成立且天然排除其它按钮。
+- **产品改进会让「隐式唯一」的选择器变歧义**：行内操作按钮从「hover 才挂载」改「常驻 CSS 控显隐」后，
+  同名 title 从 1 个变 2 个 → strict violation。选择器写作用域（`.eh-icon-btn` / `getByRole` + exact），
+  不要依赖「那个按钮恰好不存在」来保证唯一。
 
 ## 反面清单
 - 看到 E2E 失败就改产品代码迁就测试。

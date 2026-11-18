@@ -12,6 +12,8 @@ import { IconSearch } from "@/components/common/Icon";
 import { TAG_DEFAULT_COLORS, TAG_DEFAULT_ICONS } from "@/shared/constants";
 import { confirmAction } from "@/hooks/useConfirmAction";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { requestTagSearch } from "@/store/slices/searchSlice";
+import { uiActions } from "@/hooks/useUIState";
 
 /**
  * 标签面板组件属性接口
@@ -99,8 +101,10 @@ export default function TagPanel({ isOpen, onClose, embedded = false }: TagPanel
    * 处理删除标签
    */
   const handleDeleteTag = (tagId: string): void => {
+    const tagName = tags.find((t) => t.id === tagId)?.name ?? '该标签';
     confirmAction({
-      title: '确认操作',
+      // 确认标题必须点名对象（「确认操作」看不出要删什么）
+      title: `删除标签「${tagName}」`,
       message: '确定要删除这个标签吗？所有使用该标签的文档将失去此标签。',
       variant: 'danger',
       onConfirm: () => {
@@ -112,7 +116,7 @@ export default function TagPanel({ isOpen, onClose, embedded = false }: TagPanel
 
   const handleBatchDelete = (): void => {
     confirmAction({
-      title: '确认操作',
+      title: `删除 ${selectedTags.length} 个标签`,
       message: `确定要删除选中的 ${selectedTags.length} 个标签吗？`,
       variant: 'danger',
       onConfirm: () => {
@@ -121,6 +125,17 @@ export default function TagPanel({ isOpen, onClose, embedded = false }: TagPanel
       },
     })
   }
+
+  /**
+   * P1-9：按标签看文档。标签页此前只有管理动作（改名/删除/统计），
+   * 点标签行只是勾选 —— 用户没有任何入口看到「这个标签下到底有哪些文档」：
+   * 树内标签过滤只作用于当前知识库，搜索侧又要求必须有关键词。
+   * 这里发一个一次性请求并打开搜索面板，SearchPanel 打开时消费它（空关键词按标签筛）。
+   */
+  const handleViewTagDocs = (tagItem: Tag): void => {
+    requestTagSearch({ tagIds: [tagItem.id], label: tagItem.name });
+    uiActions.setShowSearchPanel(true);
+  };
 
   /**
    * 批量更新标签（随机设置颜色和图标）
@@ -180,6 +195,22 @@ export default function TagPanel({ isOpen, onClose, embedded = false }: TagPanel
           <span className="tag-name">{tag.name}</span>
           <span className="tag-count">{tag.usageCount}</span>
           <div className="tag-actions">
+            {/* P1-9：标签的「看文档」入口 —— 此前标签只有改名/删除，没有浏览动作 */}
+            <button
+              className="tag-action-btn view"
+              title={tag.usageCount > 0 ? `查看「${tag.name}」关联的 ${tag.usageCount} 篇文档` : '该标签还没有关联的文档'}
+              aria-label={`查看「${tag.name}」关联的文档`}
+              disabled={tag.usageCount <= 0}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleViewTagDocs(tag);
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+              </svg>
+            </button>
             <button 
               className="tag-action-btn edit"
               onClick={(e) => { e.stopPropagation(); setEditTag(tag); }}

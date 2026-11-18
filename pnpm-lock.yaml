@@ -78,6 +78,9 @@ importers:
       mermaid:
         specifier: ^11.17.0
         version: 11.17.0
+      pinyin-pro:
+        specifier: ^3.29.5
+        version: 3.29.5
       react:
         specifier: ^19.2.5
         version: 19.2.8
@@ -2874,6 +2877,9 @@ packages:
   pify@3.0.0:
     resolution: {integrity: sha512-C3FsVNH1udSEX48gGX1xfvwTWfsYWj5U+8/uK15BGzIGrKoUpghX8hWZwa/OFnakBiiVNmBvemTJR5mcy7iPcg==}
     engines: {node: '>=4'}
+
+  pinyin-pro@3.29.5:
+    resolution: {integrity: sha512-Fk5YoRmtdHqJWqAuzYVG/NzvzeCbaG+ZEwbY6Nbps3QAIrvQQEtcm49frcyCM8i2b5najnzPDtYqrHRYTTiuwQ==}
 
   pkijs@3.4.1:
     resolution: {integrity: sha512-Oo/NZcSWccq8KyoG7gLE9fnltgHns+pNCjCAp/WmjsUySi+sX7y4z4Xqu4fVb42CDHzRPl33fjzT15V1wvcyhA==}
@@ -6861,6 +6867,8 @@ snapshots:
 
   pify@3.0.0:
     optional: true
+
+  pinyin-pro@3.29.5: {}
 
   pkijs@3.4.1:
     dependencies:

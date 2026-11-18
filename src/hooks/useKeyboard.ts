@@ -19,6 +19,10 @@ export interface KeyboardHandlers {
   onQuickOpen?: () => void
   onPrevDoc?: () => void
   onNextDoc?: () => void
+  onCloseTab?: () => void
+  onSwitchTab?: (direction: 'next' | 'prev') => void
+  onReopenTab?: () => void
+  onViewShortcut?: (view: 'start' | 'note' | 'favorite' | 'recent' | 'tags' | 'trash') => void
 }
 
 /** 快捷键动作 id 集合（与 keyboardSlice 的 DEFAULT_SHORTCUTS 对应） */
@@ -37,6 +41,16 @@ type ActionId =
   | 'quickOpen'
   | 'prevDoc'
   | 'nextDoc'
+  | 'closeTab'
+  | 'nextTab'
+  | 'prevTab'
+  | 'reopenTab'
+  | 'openStart'
+  | 'openNote'
+  | 'openFavorite'
+  | 'openRecent'
+  | 'openTags'
+  | 'openTrash'
 
 export const useKeyboard = (handlers: KeyboardHandlers): void => {
   // 持有最新 handlers 引用，使 handleKeyDown 稳定（空依赖），
@@ -70,6 +84,10 @@ export const useKeyboard = (handlers: KeyboardHandlers): void => {
       onQuickOpen,
       onPrevDoc,
       onNextDoc,
+      onCloseTab,
+      onSwitchTab,
+      onReopenTab,
+      onViewShortcut,
     } = handlersRef.current
 
     if (e.key === 'Escape') {
@@ -101,6 +119,16 @@ export const useKeyboard = (handlers: KeyboardHandlers): void => {
       quickOpen: onQuickOpen,
       prevDoc: onPrevDoc,
       nextDoc: onNextDoc,
+      closeTab: onCloseTab,
+      nextTab: onSwitchTab ? () => onSwitchTab('next') : undefined,
+      prevTab: onSwitchTab ? () => onSwitchTab('prev') : undefined,
+      reopenTab: onReopenTab,
+      openStart: onViewShortcut ? () => onViewShortcut('start') : undefined,
+      openNote: onViewShortcut ? () => onViewShortcut('note') : undefined,
+      openFavorite: onViewShortcut ? () => onViewShortcut('favorite') : undefined,
+      openRecent: onViewShortcut ? () => onViewShortcut('recent') : undefined,
+      openTags: onViewShortcut ? () => onViewShortcut('tags') : undefined,
+      openTrash: onViewShortcut ? () => onViewShortcut('trash') : undefined,
     }
 
     for (const shortcut of shortcuts) {

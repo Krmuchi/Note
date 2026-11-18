@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useEffect, useSyncExternalStore } from "react"
+import { Suspense, lazy, useCallback, useMemo, useState, useEffect, useSyncExternalStore } from "react"
 import type { JSX } from "react"
 import { useShallow } from "zustand/react/shallow"
 import type { NoteDoc } from "@/types"
@@ -15,14 +15,19 @@ import { copyToClipboard } from "@/utils/clipboard"
 import { ToastContainer } from "@/components/common/ToastView"
 import { useToast } from "@/components/common/Toast"
 import { toast } from "@/services/toast"
-import { Loading } from "@/components/common/Loading"
+import { SidebarSkeleton, EditorSkeleton } from "@/components/common/Skeleton"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { ResizeHandle } from "@/components/layout/ResizeHandle"
 import { useResizableLayout } from "@/hooks/useResizableLayout"
 import { ConfirmDialog } from "@/components/dialogs/ConfirmDialog"
 import { LoadFailureDialog } from "@/components/dialogs/LoadFailureDialog"
 import { OnboardingDialog } from "@/components/onboarding/OnboardingDialog"
-import QuickOpenPanel from "@/components/search/QuickOpenPanel"
+/*
+ * 懒加载而不是静态 import：QuickOpenPanel → quickOpen → fuzzyMatch → pinyin-pro，
+ * 静态链会把拼音整本字典压进启动 preload（CLAUDE.md 的包预算红线）。
+ * 首次 Ctrl+P 拉一次 chunk，代价远小于每次启动多载几百 KB。
+ */
+const QuickOpenPanel = lazy(() => import("@/components/search/QuickOpenPanel"))
 import HelpDialog from "@/components/help/HelpDialog"
 import { findAdjacentDoc, flattenDocs, subscribeDocOpen } from "@/utils/docNavigation"
 import { resolveTargetNotebookId } from "@/utils/targetNotebook"
@@ -94,7 +99,7 @@ function App(): JSX.Element {
    * 与 AppPanels（19 个 props），绝大多数是纯转发 —— 加一个面板开关要改 3 个文件。
    * 现在 App 只保留它自己真的要用的字段，其余组件按需自行订阅。
    */
-  const { activeView, activeLeftMenu } = useUIState()
+  const { activeView, activeLeftMenu, showQuickOpen } = useUIState()
   const { setActiveView, setActiveLeftMenu, setShowSettings } = uiActions
 
   const { confirmConfig, confirm, handleConfirm, handleCancel } = useConfirmAction()
@@ -256,7 +261,7 @@ function App(): JSX.Element {
     onEscape: () => {
       // 从 store 读取实时状态，而不是闭包里的变量 —— 这些开关不再由 App 持有
       const ui = getUIState()
-      if (showQuickOpen) setShowQuickOpen(false)
+      if (ui.showQuickOpen) uiActions.setShowQuickOpen(false)
       else if (showHelp) setShowHelp(false)
       else if (ui.showShortcutHelp) uiActions.setShowShortcutHelp(false)
       else if (ui.showSearchPanel) uiActions.setShowSearchPanel(false)
@@ -268,14 +273,36 @@ function App(): JSX.Element {
       else if (ui.showSettings) requestCloseSettings()
     },
     onShortcutHelp: () => uiActions.setShowShortcutHelp(!getUIState().showShortcutHelp),
-    onQuickOpen: () => setShowQuickOpen(true),
+    onQuickOpen: () => uiActions.setShowQuickOpen(true),
     onPrevDoc: () => navigateAdjacent('prev'),
     onNextDoc: () => navigateAdjacent('next'),
+    // 标签页快捷键（P1-10）：Ctrl+W 关当前标签、Ctrl+Tab 切换、Ctrl+Shift+T 重开。
+    // 关/切/重开都必须走 handleViewDoc —— 与点击标签同一条链路（记最近浏览 + 同步视图）
+    onCloseTab: () => {
+      const s = useNotesStore.getState()
+      if (!s.activeNotebookId || !s.activeDocId) return
+      const next = s.closeTab({ notebookId: s.activeNotebookId, docId: s.activeDocId })
+      if (next) handleViewDoc(next.notebookId, next.docId)
+    },
+    onSwitchTab: (direction) => {
+      const target = useNotesStore.getState().cycleTab(direction)
+      if (target) handleViewDoc(target.notebookId, target.docId)
+    },
+    onReopenTab: () => {
+      const target = useNotesStore.getState().reopenClosedTab()
+      if (target) handleViewDoc(target.notebookId, target.docId)
+      else toast.info('没有可重开的标签', 1500)
+    },
+    // 视图直达（Alt+1..6）：start/note/tags 走左菜单 setter，其余走视图 setter（两者已同步）
+    onViewShortcut: (view) => {
+      if (view === 'start' || view === 'note' || view === 'tags') uiActions.setActiveLeftMenu(view)
+      else uiActions.setActiveView(view)
+    },
   })
 
   const handleDeleteFromTrash = useCallback((docId: string) => {
     confirm({
-      title: "确认操作",
+      title: "永久删除文档",
       message: "确定要永久删除该文档吗？此操作无法撤销。",
       confirmText: "确认删除",
       variant: "danger",
@@ -285,7 +312,7 @@ function App(): JSX.Element {
 
   const handleClearTrash = useCallback(() => {
     confirm({
-      title: "确认操作",
+      title: "清空回收站",
       message: "确定要清空回收站吗？此操作无法撤销。",
       confirmText: "清空回收站",
       variant: "danger",
@@ -310,14 +337,12 @@ function App(): JSX.Element {
   // 首次启动引导：只在"全新安装"时自动弹一次（判定见 utils/onboarding）。
   // 用派生值而不是「effect 里 setState」：既避免级联渲染（eslint react-hooks/set-state-in-effect），
   // 也让判定天然跟随 isLoading 翻转，只在加载完成那一刻计算一次。
-  const [showQuickOpen, setShowQuickOpen] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
 
   // 托盘菜单 / 全局速记快捷键触发的动作（P3 / P4）。
-  // 必须在 setShowQuickOpen 声明之后：编译器规则不允许在声明前引用（TDZ 检查）
   useEffect(() => onAppAction(({ type, docId, title, content, reason }) => {
     if (type === 'quickNote') setActiveLeftMenu('note')
-    else if (type === 'quickOpen') setShowQuickOpen(true)
+    else if (type === 'quickOpen') uiActions.setShowQuickOpen(true)
     else if (type === 'openFile') {
       // P5：双击 .md 打开 → 作为新文档落进当前知识库（不覆盖任何已有内容）
       const state = useNotesStore.getState()
@@ -403,9 +428,18 @@ function App(): JSX.Element {
   }, [handleCreateDoc, handleCloseOnboarding])
 
   if (isLoading) {
+    /*
+     * 数据加载阶段复用与 main.tsx Suspense 同构的骨架屏（P1-7）：
+     * 旧实现这里是一整屏转圈，与前后两段骨架形态完全不同，
+     * 启动观感是「骨架 → 转圈 → 界面」三段跳变；同构后整条启动链路
+     * 只剩一次视觉切换（骨架 → 真实界面）。
+     */
     return (
       <div className="app-loading">
-        <Loading type="spinner" size="large" text="正在加载笔记..." />
+        <SidebarSkeleton />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <EditorSkeleton />
+        </div>
       </div>
     )
   }
@@ -508,7 +542,11 @@ function App(): JSX.Element {
       />
 
       {/* 全局快速打开（Ctrl+P） */}
-      {showQuickOpen && <QuickOpenPanel isOpen onClose={() => setShowQuickOpen(false)} />}
+      {showQuickOpen && (
+        <Suspense fallback={<div className="lazy-loading">加载中...</div>}>
+          <QuickOpenPanel isOpen onClose={() => uiActions.setShowQuickOpen(false)} />
+        </Suspense>
+      )}
 
       {/* 首次启动引导（加载失败时不弹，先把问题解决掉） */}
       {showOnboarding && (

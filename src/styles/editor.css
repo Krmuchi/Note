@@ -2437,15 +2437,33 @@
   opacity: 1;
 }
 
-/* 次要统计默认收起，悬停展开；避免底栏常态占满一行 */
+/* P2-10：键盘聚焦与触屏同样能展开 —— 只认 :hover 时这两类用户永远看不到完整统计 */
+.editor-status-bar:focus {
+  opacity: 1;
+}
+
+/* 次要统计默认收起，悬停 / 聚焦展开；避免底栏常态占满一行 */
 .status-bar-extra {
   display: none;
   align-items: center;
   gap: 8px;
 }
 
-.editor-status-bar:hover .status-bar-extra {
+.editor-status-bar:hover .status-bar-extra,
+.editor-status-bar:focus .status-bar-extra,
+.editor-status-bar:focus-within .status-bar-extra {
   display: inline-flex;
+}
+
+/* 触屏设备没有 hover：常显，否则"悬停才展开"等于永远看不到 */
+@media (hover: none) {
+  .editor-status-bar {
+    opacity: 1;
+  }
+
+  .status-bar-extra {
+    display: inline-flex;
+  }
 }
 
 .status-bar-left,

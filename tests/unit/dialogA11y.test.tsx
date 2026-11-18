@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 
 vi.mock('@/services/storage', () => ({
+  // HelpDialog 会读 isWebMode 决定"读取中 vs 浏览器模式"文案（P1-9）
+  isWebMode: false,
   getAppInfo: vi.fn(async () => ({
     ok: true,
     info: { version: '0.1.0', dataPath: 'C:/u/notes-data.json', dataDir: 'C:/u', backupDir: 'C:/u/backups' },

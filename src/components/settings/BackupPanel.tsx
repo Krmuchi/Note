@@ -107,7 +107,7 @@ export default function BackupPanel(): JSX.Element {
         {backups === null ? (
           <div className="backup-empty">正在读取备份…</div>
         ) : backups.length === 0 ? (
-          <div className="backup-empty">暂无本地备份（编辑文档并保存后会自动生成）</div>
+          <div className="backup-empty">暂无本地备份（编辑并保存后最多每分钟自动生成一份）</div>
         ) : (
           backups.map((info) => (
             <button key={info.name} type="button" className="backup-item" disabled={restoring} onClick={() => handleRestore(info)}>

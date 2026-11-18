@@ -23,6 +23,12 @@ const OPEN_TABS_KEY = 'notes-open-tabs'
 export interface TabSlice {
   /** 已打开的文档（按打开顺序，末尾是最近使用） */
   openTabs: OpenTab[]
+  /**
+   * 最近关闭的标签（仅供「重开关闭的标签」，不持久化）。
+   * 不进 localStorage：它只是一次误关的后悔药，重启后文档引用仍在树里，
+   * 走 Ctrl+P 即可；持久化反而要处理与 pruneOpenTabs 同款的失效清理。
+   */
+  closedTabs: OpenTab[]
   /** 打开/激活一个标签 */
   openTab: (notebookId: string, docId: string) => void
   /**
@@ -35,6 +41,10 @@ export interface TabSlice {
   loadOpenTabs: () => void
   /** 清理已不存在的文档标签（文档被删除/移动后调用） */
   pruneOpenTabs: () => void
+  /** 按方向切换标签，返回目标标签（openTabs 少于 2 个或无当前标签时返回 null） */
+  cycleTab: (direction: 'next' | 'prev') => OpenTab | null
+  /** 重开最近关闭的标签，返回目标（没有可重开的返回 null）。目标会被压回 openTabs */
+  reopenClosedTab: () => OpenTab | null
 }
 
 type TabSliceCreator = StateCreator<
@@ -52,8 +62,11 @@ function persistTabs(tabs: OpenTab[]): void {
   }
 }
 
+const MAX_CLOSED_TABS = 20
+
 export const createTabSlice: TabSliceCreator = (set, get) => ({
   openTabs: [],
+  closedTabs: [],
 
   openTab: (notebookId, docId) => {
     if (!notebookId || !docId) return
@@ -83,12 +96,64 @@ export const createTabSlice: TabSliceCreator = (set, get) => ({
     const nextActive = pickTabAfterClose(state.openTabs, tab, activeTab)
     const remaining = closeTabInList(state.openTabs, tab)
 
+    // 压入重开栈（去重到最新 + 上限），供 Ctrl+Shift+T 恢复
+    const stack = state.closedTabs.filter(
+      (t) => !(t.notebookId === tab.notebookId && t.docId === tab.docId),
+    )
+
     set((draft) => {
       draft.openTabs = remaining
+      draft.closedTabs = [{ ...tab }, ...stack].slice(0, MAX_CLOSED_TABS)
     })
     persistTabs(remaining)
 
     return nextActive
+  },
+
+  cycleTab: (direction) => {
+    const { openTabs, activeNotebookId, activeDocId } = get()
+    if (openTabs.length < 2) return null
+    const index = openTabs.findIndex(
+      (t) => t.notebookId === activeNotebookId && t.docId === activeDocId,
+    )
+    // 当前文档不在标签列表里（理论不应发生）：从头开始一轮，仍给出可用目标
+    const base = index < 0 ? (direction === 'next' ? -1 : 0) : index
+    const delta = direction === 'next' ? 1 : -1
+    const next = openTabs[(base + delta + openTabs.length) % openTabs.length]
+    return next ?? null
+  },
+
+  reopenClosedTab: () => {
+    const { closedTabs, openTabs, notebooks } = get()
+    let list = closedTabs
+    let target: OpenTab | null = null
+
+    // 栈里可能积着已被删除的文档：逐个丢弃直到找到仍然存在的，找不到就清空
+    while (list.length > 0) {
+      const candidate = list[0]
+      const exists = notebooks.some((nb) =>
+        nb.id === candidate.notebookId &&
+        nb.docs.some((d) => d.id === candidate.docId),
+      )
+      if (exists) {
+        target = candidate
+        list = list.slice(1)
+        break
+      }
+      list = list.slice(1)
+    }
+
+    if (!target) {
+      if (list.length !== closedTabs.length) set((draft) => { draft.closedTabs = list })
+      return null
+    }
+
+    set((draft) => {
+      draft.closedTabs = list
+      draft.openTabs = openTabInList(openTabs, target as OpenTab)
+    })
+    persistTabs(get().openTabs)
+    return target
   },
 
   loadOpenTabs: () => {

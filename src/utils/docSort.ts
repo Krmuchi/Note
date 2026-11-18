@@ -71,6 +71,24 @@ export function sortDocs(docs: NoteDoc[], mode: DocSortMode): NoteDoc[] {
 }
 
 /**
+ * 「文档自身是否命中当前筛选」的唯一判定（标题包含 + 标签与关系）。
+ *
+ * P0-2：文档树要按**全层级**过滤 —— 逐层 filter 只能筛掉当前层，
+ * 折叠的子孙永远不会被看到，因此树会先用本函数算出"自身命中"集合，
+ * 再沿父子关系补齐祖先；filterAndSortDocs 也必须走同一份判定，
+ * 否则"树上看到的"与"过滤依据的"会随实现漂移。
+ */
+export function docMatchesFilters(doc: NoteDoc, searchText: string, tagIds: string[] = []): boolean {
+  const query = searchText.trim().toLowerCase()
+  if (query && !doc.title.toLowerCase().includes(query)) return false
+  if (tagIds.length > 0) {
+    const docTags = doc.tags ?? []
+    if (!tagIds.every((tagId) => docTags.includes(tagId))) return false
+  }
+  return true
+}
+
+/**
  * 搜索过滤（标题匹配）+ 标签过滤 + 排序，文档树与虚拟化列表共用。
  * 标签是"与"关系：选了多个标签时，文档需要同时带上这些标签才留下。
  */
@@ -80,18 +98,60 @@ export function filterAndSortDocs(
   mode: DocSortMode,
   tagIds: string[] = [],
 ): NoteDoc[] {
-  const query = searchText.trim().toLowerCase()
+  return sortDocs(
+    docs.filter((doc) => docMatchesFilters(doc, searchText, tagIds)),
+    mode,
+  )
+}
 
-  let filtered = docs
-  if (query) {
-    filtered = filtered.filter((doc) => doc.title.toLowerCase().includes(query))
-  }
-  if (tagIds.length > 0) {
-    filtered = filtered.filter((doc) => {
-      const docTags = doc.tags ?? []
-      return tagIds.every((tagId) => docTags.includes(tagId))
-    })
+/* ============================================================
+   树结构工具（P0-3 跨库移动 / P1-13 批量移动去重 共用）
+   ============================================================ */
+
+/**
+ * 收集 rootId 及其全部后代的 id。
+ * 防环：parentId 成环的脏数据（A→B→A）靠 result 去重兜住，不会死循环。
+ */
+export function collectSubtreeIds(docs: NoteDoc[], rootId: string): Set<string> {
+  const result = new Set<string>([rootId])
+  const childrenByParent = new Map<string, NoteDoc[]>()
+  for (const doc of docs) {
+    const key = doc.parentId ?? ''
+    const bucket = childrenByParent.get(key)
+    if (bucket) bucket.push(doc)
+    else childrenByParent.set(key, [doc])
   }
 
-  return sortDocs(filtered, mode)
+  const stack = [rootId]
+  while (stack.length > 0) {
+    const id = stack.pop() as string
+    for (const child of childrenByParent.get(id) ?? []) {
+      if (result.has(child.id)) continue
+      result.add(child.id)
+      stack.push(child.id)
+    }
+  }
+  return result
+}
+
+/**
+ * 批量选择里的"父子同选"去重：祖先已在集合中时丢掉后代 ——
+ * 否则跨库移动会先搬走父、再搬一次已不存在的子（或把子丢在原库）。
+ * 返回值保持入参顺序，界面提示的"移动 N 篇"因此与实际一致。
+ */
+export function dedupeToTopLevel(ids: string[], docs: NoteDoc[]): string[] {
+  const selected = new Set(ids)
+  const byId = new Map(docs.map((doc) => [doc.id, doc]))
+
+  return ids.filter((id) => {
+    let parentId = byId.get(id)?.parentId ?? null
+    const seen = new Set<string>()
+    while (parentId) {
+      if (selected.has(parentId)) return false
+      if (seen.has(parentId)) break
+      seen.add(parentId)
+      parentId = byId.get(parentId)?.parentId ?? null
+    }
+    return true
+  })
 }

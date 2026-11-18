@@ -1,6 +1,7 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useNotesStore } from '@/store'
 import { toast } from '@/services/toast'
+import { notify } from '@/services/storage'
 
 function scheduleIdleCallback(callback: () => void, timeout: number = 5000): void {
   if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
@@ -65,6 +66,15 @@ export const useAutoSave = (debounceMs: number = 3000): { scheduleSave: () => vo
             } else {
               // 重试耗尽仍失败：明确告知用户，避免静默丢数据
               toast.error('笔记保存失败，请检查磁盘空间或数据文件是否被占用')
+              /*
+               * notifyWhenBackground 开关此前没有任何调用方（死设置）。
+               * 主进程 notes:notify 自己判断：开关关闭 / 窗口在前台都不弹 ——
+               * 前台时上面的 toast 已经够了，两条通道互不叠加（P7 的既有约定）。
+               */
+              void notify({
+                title: '笔记保存失败',
+                body: '已连续重试 3 次仍未保存，请检查磁盘空间或数据文件是否被占用',
+              })
             }
           } else {
             retryCountRef.current = 0

@@ -231,6 +231,9 @@
   flex-wrap: wrap;
   gap: var(--space-1);
   flex: 1;
+  /* P1-8：标签全量展示后用高度兜底 —— 标签再多也不会把筛选面板顶出屏幕 */
+  max-height: 132px;
+  overflow-y: auto;
 }
 
 .filter-tag {
@@ -585,10 +588,40 @@
   font-weight: 500;
 }
 
+/* P1-6：结果行的「知识库 › 父文档」路径，同名文档靠它分辨在哪个库 */
+.result-path {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .result-meta {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* P1-6：分页加载更多（结果不再被静默截断在 50 条） */
+.load-more-btn {
+  display: block;
+  width: 100%;
+  margin: var(--space-2) 0 var(--space-3);
+  padding: var(--space-2);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.load-more-btn:hover {
+  border-color: var(--primary-400);
+  color: var(--text-primary);
+  background: var(--primary-50);
 }
 
 .result-tags {

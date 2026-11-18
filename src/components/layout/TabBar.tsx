@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useNotesStore } from '@/store'
 import { isSameTab, tabKey, type OpenTab } from '@/utils/openTabs'
@@ -50,11 +50,80 @@ export const TabBar: React.FC<TabBarProps> = ({ onActivate }) => {
     if (next) onActivate(next.notebookId, next.docId)
   }
 
+  /**
+   * P1-10：标签栏的键盘语义。旧版只给当前标签 tabIndex=0、只处理 Enter/Space ——
+   * 其余标签对键盘用户完全不可达（Tab 跳不到，方向键也没反应）。
+   * 按 APG 的 tablist 自动激活模式：←/→ 在标签间移动并直接切换（与鼠标点击等价），
+   * Home/End 跳首尾，Delete 关闭当前聚焦的标签（全局 Ctrl+W 的行内等价物）。
+   *
+   * ref 必须声明在下面的早退之前 —— hooks 不允许出现在条件返回之后。
+   */
+  const listRef = useRef<HTMLDivElement>(null);
+
   // 只有一个标签时不显示：此时标签栏没有切换价值，白占一行高度
   if (openTabs.length <= 1) return null
 
+  /** DOM 顺序的标签元素 → store 里的标签（失效标签不渲染，两者未必一一对应） */
+  const tabOfElement = (el: HTMLElement | undefined): OpenTab | null => {
+    const key = el?.getAttribute('data-tab-key');
+    if (!key) return null;
+    return openTabs.find((tab) => tabKey(tab) === key) ?? null;
+  };
+
+  const handleListKeyDown = (e: React.KeyboardEvent): void => {
+    const tabs = Array.from(
+      listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [],
+    );
+    if (tabs.length === 0) return;
+    const active = document.activeElement;
+    const index = tabs.findIndex((tab) => tab === active);
+
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'ArrowLeft': {
+        e.preventDefault();
+        const current = index < 0 ? 0 : index;
+        const next =
+          e.key === 'ArrowRight'
+            ? (current + 1) % tabs.length
+            : (current - 1 + tabs.length) % tabs.length;
+        tabs[next]?.focus();
+        const target = tabOfElement(tabs[next]);
+        if (target) onActivate(target.notebookId, target.docId);
+        break;
+      }
+      case 'Home':
+      case 'End': {
+        e.preventDefault();
+        const next = e.key === 'Home' ? 0 : tabs.length - 1;
+        tabs[next]?.focus();
+        const target = tabOfElement(tabs[next]);
+        if (target) onActivate(target.notebookId, target.docId);
+        break;
+      }
+      case 'Delete':
+      case 'Backspace': {
+        if (index < 0) return;
+        e.preventDefault();
+        const closing = tabOfElement(tabs[index]);
+        if (!closing) return;
+        const next = closeTab(closing);
+        if (next) onActivate(next.notebookId, next.docId);
+        break;
+      }
+      default:
+        break;
+    }
+  };
+
   return (
-    <div className="doc-tab-bar" role="tablist" aria-label="已打开的文档">
+    <div
+      className="doc-tab-bar"
+      role="tablist"
+      aria-label="已打开的文档"
+      ref={listRef}
+      onKeyDown={handleListKeyDown}
+    >
       {openTabs.map((tab) => {
         const isActive = isSameTab(tab, activeTab)
         const meta = titleMap.get(tabKey(tab))
@@ -64,6 +133,7 @@ export const TabBar: React.FC<TabBarProps> = ({ onActivate }) => {
         return (
           <div
             key={tabKey(tab)}
+            data-tab-key={tabKey(tab)}
             className={`doc-tab ${isActive ? 'active' : ''}`}
             role="tab"
             aria-selected={isActive}

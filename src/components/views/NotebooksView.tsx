@@ -27,6 +27,17 @@ interface NotebooksViewProps {
   isCompact?: boolean
 }
 
+/*
+ * P2-14：标题栏「版本历史 / 分享」入口的回调。
+ *
+ * 写成模块级常量而不是组件内的内联箭头 —— 本视图订阅了 activeDoc，
+ * **每次击键都会重渲染**，内联函数每次都是新引用，EditorHeader（React.memo）
+ * 的 props 永远在变，memo 完全失效，整条工具栏跟着每次按键全量重渲染。
+ * 这里取的是 uiActions 上的稳定方法，引用天然恒定。
+ */
+const showVersionHistory = (): void => uiActions.setShowVersionHistory(true)
+const showSharePanel = (): void => uiActions.setShowSharePanel(true)
+
 export default function NotebooksView({
   searchText,
   onSearchChange,
@@ -41,7 +52,7 @@ export default function NotebooksView({
   isCompact = false,
 }: NotebooksViewProps): JSX.Element {
   const { fontSize, showOutlinePanel, showCommentsPanel } = useUIState()
-  const { setFontSize, toggleShowOutlinePanel, toggleShowCommentsPanel, setShowVersionHistory, setShowSharePanel } = uiActions
+  const { setFontSize, toggleShowOutlinePanel, toggleShowCommentsPanel } = uiActions
   // 正文由本视图自己订阅：App 外壳因此不必跟着每次击键重渲染
   const activeDoc = useNotesStore(selectActiveDoc)
   return (
@@ -70,8 +81,8 @@ export default function NotebooksView({
         activeDocId={activeDocId}
         fontSize={fontSize}
         onFontSizeChange={setFontSize}
-        onShowVersionHistory={() => setShowVersionHistory(true)}
-        onShowSharePanel={() => setShowSharePanel(true)}
+        onShowVersionHistory={showVersionHistory}
+        onShowSharePanel={showSharePanel}
         showOutlinePanel={showOutlinePanel}
         onToggleOutlinePanel={toggleShowOutlinePanel}
         showCommentsPanel={showCommentsPanel}

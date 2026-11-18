@@ -33,6 +33,16 @@
   --error-500: #ff4d4f;
   --error-600: #cf1322;
 
+  /* 危险操作语义色（V3/P1-8）：此前全仓 11 处 var(--danger-*) 都没有定义，
+     一直靠 fallback 硬编码 —— 暗色主题下加载失败横幅因此是亮粉硬块。
+     各档与 error 对齐，暗色下单独覆写为可读值。 */
+  --danger-50: #fdf0f0;
+  --danger-100: #f8d7da;
+  --danger-300: #f3b4b4;
+  --danger-500: #e74c3c;
+  --danger-600: #c0392b;
+  --danger-700: #a93226;
+
   /* 中性色 */
   --gray-50: #fafafa;
   --gray-100: #f5f5f5;
@@ -171,6 +181,14 @@
   --error-100: #3d1a1e;
   --error-500: #ff7875;
   --error-600: #ff9c9a;
+
+  /* 暗色 danger：底/边降暗、文字提亮 —— 加载失败横幅在暗色下不再是一块亮粉 */
+  --danger-50: #2a1215;
+  --danger-100: #3d1a1e;
+  --danger-300: #5c2b30;
+  --danger-500: #ff7875;
+  --danger-600: #ff9c9a;
+  --danger-700: #ffb4b0;
 
   --gray-50: #1f1f1f;
   --gray-100: #262626;
@@ -746,10 +764,10 @@ a:hover {
   gap: var(--space-2);
   max-width: min(680px, calc(100vw - 32px));
   padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--danger-300, #f3b4b4);
+  border: 1px solid var(--danger-300);
   border-radius: var(--border-radius-md, 8px);
-  background: var(--danger-50, #fdf0f0);
-  color: var(--danger-700, #a33);
+  background: var(--danger-50);
+  color: var(--danger-700);
   box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.12));
   font-size: 13px;
 }
@@ -764,14 +782,14 @@ a:hover {
   padding: 4px 12px;
   border: none;
   border-radius: var(--border-radius-md, 8px);
-  background: var(--danger-600, #c0392b);
-  color: #fff;
+  background: var(--danger-600);
+  color: var(--text-inverse);
   font-size: 13px;
   cursor: pointer;
 }
 
 .load-failure-banner-action:hover {
-  background: var(--danger-700, #a33);
+  background: var(--danger-700);
 }
 
 /* ===== 无障碍：晕动症豁免 =====

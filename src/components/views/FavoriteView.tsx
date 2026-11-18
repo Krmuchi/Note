@@ -7,7 +7,7 @@ import { uiActions, useUIState } from '@/hooks/useUIState'
 import { recordRecentView } from '@/services/recentViews'
 import { Editor } from '@/components/editor/Editor'
 import { EmptyState } from '@/components/common/EmptyState'
-import { IconStar } from '@/components/common/Icon'
+import { IconSearch, IconStar } from '@/components/common/Icon'
 
 type SortType = 'updated' | 'created' | 'name' | 'notebook'
 type GroupType = 'none' | 'notebook'
@@ -56,13 +56,26 @@ export default function FavoriteView({
   // 收藏列表订阅 notebooks（每次击键都会变），所以只在本视图里订阅，
   // 不能让 App 外壳代算 —— 否则整棵外壳跟着输入重渲染
   const favoriteDocs = useFavoriteDocs()
+  /** P2-15：收藏多了只能肉眼扫 —— 补一个与最近/回收站同款的就地过滤 */
+  const [favoriteQuery, setFavoriteQuery] = useState('')
   const [sortBy, setSortBy] = useState<SortType>('updated')
   const [groupBy, setGroupBy] = useState<GroupType>('none')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
+  // 过滤后的收藏文档（标题 / 所属知识库，大小写不敏感）
+  const filteredDocs = useMemo(() => {
+    const query = favoriteQuery.trim().toLowerCase();
+    if (!query) return favoriteDocs;
+    return favoriteDocs.filter(
+      ({ doc, notebook }) =>
+        doc.title.toLowerCase().includes(query) ||
+        notebook.title.toLowerCase().includes(query),
+    );
+  }, [favoriteDocs, favoriteQuery]);
+
   // 排序后的收藏文档
   const sortedDocs = useMemo(() => {
-    const sorted = [...favoriteDocs]
+    const sorted = [...filteredDocs]
     
     sorted.sort((a, b) => {
       let comparison = 0
@@ -86,7 +99,7 @@ export default function FavoriteView({
     })
     
     return sorted
-  }, [favoriteDocs, sortBy, sortOrder])
+  }, [filteredDocs, sortBy, sortOrder])
 
   // 分组后的收藏文档
   const groupedDocs = useMemo(() => {
@@ -158,6 +171,20 @@ export default function FavoriteView({
           </div>
         </div>
 
+        {/* P2-15：收藏列表的就地过滤（最近/回收站早就有，这里补齐） */}
+        {favoriteDocs.length > 0 && (
+          <div className="favorite-search">
+            <input
+              type="text"
+              className="favorite-search-input"
+              placeholder="搜索收藏…"
+              aria-label="搜索收藏文档"
+              value={favoriteQuery}
+              onChange={(e) => setFavoriteQuery(e.target.value)}
+            />
+          </div>
+        )}
+
         <div className="docs-list">
           {favoriteDocs.length === 0 ? (
             <EmptyState
@@ -176,6 +203,23 @@ export default function FavoriteView({
                     ]
                   : undefined
               }
+            />
+          ) : filteredDocs.length === 0 ? (
+            // 有过滤就必须有过滤的空态，否则列表区一片空白，看不出是筛没了
+            <EmptyState
+              icon={<IconSearch size={32} />}
+              title="没有匹配的收藏"
+              description={
+                '没有标题或知识库包含「' + favoriteQuery.trim() + '」的收藏'
+              }
+              actions={[
+                {
+                  label: '清除搜索',
+                  icon: '✕',
+                  variant: 'secondary',
+                  onClick: () => setFavoriteQuery(''),
+                },
+              ]}
             />
           ) : (
             Object.entries(groupedDocs).map(([groupName, docs]) => (

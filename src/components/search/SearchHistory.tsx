@@ -53,8 +53,11 @@ export default function SearchHistory({
           <button 
             className="history-text"
             onClick={() => {
-              onQueryChange(history.query);
-              onSearch();
+              // 同步输入框但不排队防抖搜索，再用显式关键词立刻搜一次：
+              // 旧版 onSearch() 读的是还没提交的 query（空串 → 直接 return），
+              // 点历史词要干等 400ms 防抖、也不会更新这条历史的使用计数
+              onQueryChange(history.query, { skipSearch: true });
+              onSearch(history.query);
             }}
           >
             {history.query}

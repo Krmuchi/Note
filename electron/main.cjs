@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage, screen, Tray, nativeImage, globalShortcut, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage, screen, Tray, nativeImage, globalShortcut, shell, nativeTheme, clipboard } = require("electron");
 const path = require("node:path");
 const { createStorageHandlers } = require("./ipc/handlers-storage.cjs");
 const { createExportHandlers } = require("./ipc/handlers-export.cjs");
@@ -16,6 +16,10 @@ const {
   buildRegistryCommands,
 } = require("./file-open.cjs");
 const { titleFromImportPath } = require("./ipc/import-content.cjs");
+// P1-5 / P1-7：启动失败与渲染崩溃的处置决策、窗口原生背景色（纯逻辑，可单测）
+const { createLoadGuard, resolveWindowBackgroundColor, SHOW_FALLBACK_MS, MAX_RENDER_RELOADS } = require("./startup-guard.cjs");
+// 应用菜单 / 托盘菜单模板（纯数据 + 回调注入，可单测：Ctrl+W 让位、托盘快速打开）
+const { buildAppMenuTemplate, buildTrayMenuTemplate } = require("./menu-template.cjs");
 const fsp = require("node:fs/promises");
 const { spawn } = require("node:child_process");
 // Notification 用于 P7：长任务完成时在后台提醒
@@ -36,6 +40,9 @@ let permissionHandlerInstalled = false;
 
 // keep a global reference to the main window to avoid it being garbage collected
 let mainWindow = null;
+
+// P1-5：加载失败 / 渲染崩溃的计数与决策（成功加载后由 did-finish-load 复位）
+const loadGuard = createLoadGuard();
 
 console.log("[main] starting main process", { node: process.version, platform: process.platform, argv: process.argv });
 
@@ -488,26 +495,22 @@ function createTray() {
 
   tray = new Tray(image);
   tray.setToolTip("笔记");
+  // 模板抽到 electron/menu-template.cjs：托盘项的顺序与"发的是哪个 app:action"可以被单测钉住
   tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: "打开笔记", click: () => showMainWindow() },
-      { label: "新建便签", click: () => sendAppAction("quickNote") },
-      { type: "separator" },
-      {
-        label: "打开数据目录",
-        click: () => {
+    Menu.buildFromTemplate(
+      buildTrayMenuTemplate({
+        onOpen: () => showMainWindow(),
+        onQuickNote: () => sendAppAction("quickNote"),
+        onQuickOpen: () => sendAppAction("quickOpen"),
+        onOpenDataDir: () => {
           if (dataPath) void shell.openPath(path.dirname(dataPath));
         },
-      },
-      { type: "separator" },
-      {
-        label: "退出",
-        click: () => {
+        onQuit: () => {
           isQuitting = true;
           app.quit();
         },
-      },
-    ]),
+      }),
+    ),
   );
 
   // 单击：窗口可见时收起、不可见时唤起（符合托盘图标的普遍预期）
@@ -529,6 +532,15 @@ function createWindow() {
     minWidth: MIN_BOUNDS.width,
     minHeight: MIN_BOUNDS.height,
     title: "笔记",
+    /*
+     * P1-7 首帧：
+     *  - show:false，内容就绪（ready-to-show）才显示，此前不再是一块空白窗口；
+     *  - backgroundColor 给中性灰 —— BrowserWindow 默认纯白，深色主题用户会在
+     *    窗口出现的第一帧看到白闪。渲染层 theme-init.js 只管文档首帧，管不到这层；
+     *    主进程读不到 localStorage 里的主题，因此按系统深浅色取值。
+     */
+    backgroundColor: resolveWindowBackgroundColor(nativeTheme.shouldUseDarkColors),
+    show: false,
     // 打包后由安装包写入的 exe 图标接管；开发模式下显式指定，
     // 否则任务栏会是 Electron 默认图标（build/ 不进 asar，故只在 dev 设置）
     ...(isDev ? { icon: path.join(__dirname, "../build/icon.ico") } : {}),
@@ -557,6 +569,20 @@ function createWindow() {
   });
 
   if (windowState.readMaximized()) win.maximize();
+
+  /*
+   * P1-7：内容就绪才显示窗口；ready-to-show 不触发（加载失败 / 极端卡顿）时
+   * 兜底计时器必须放行，否则"加载失败"会表现成"应用根本没启动"。
+   */
+  let revealed = false;
+  const revealWindow = () => {
+    if (revealed || win.isDestroyed()) return;
+    revealed = true;
+    if (!win.isVisible()) win.show();
+  };
+  win.once("ready-to-show", revealWindow);
+  const revealTimer = setTimeout(revealWindow, SHOW_FALLBACK_MS);
+  win.on("closed", () => clearTimeout(revealTimer));
 
   // 窗口状态持久化：拖动/缩放过程中事件非常密集，统一防抖 400ms 写盘。
   // 最大化/全屏时保存 getNormalBounds()，否则下次"还原"会把窗口还原成整屏大小。
@@ -624,10 +650,68 @@ function createWindow() {
     });
   }
 
-  // 加载结果诊断对开发/生产都要生效，否则生产启动失败时只剩空白窗口、无任何日志
-  win.webContents.on('did-finish-load', () => console.log('[main] did-finish-load'));
-  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
-    console.error('[main] did-fail-load', errorCode, errorDescription);
+  /*
+   * P1-5：界面加载失败的**可见**出口。
+   * 此前只写 console —— 页面没跑起来，渲染层的 LoadFailureDialog / ErrorBoundary
+   * 全都够不着，生产环境用户只能对着永远的白窗猜。
+   * 「查看日志」没有对应物：主进程日志只在 stdout、渲染层日志在 localStorage
+   * （这一页根本没执行），所以给的是"复制错误信息"——可直接粘贴反馈。
+   */
+  const showLoadFailureDialog = (errorCode, errorDescription, validatedURL) => {
+    revealWindow();
+    loadGuard.recordLoadFail();
+    const detail = [
+      errorDescription + '（错误码 ' + errorCode + '）',
+      '地址：' + validatedURL,
+      '',
+      '点「重试」重新加载；反复失败时可复制错误信息反馈，或退出后重新安装（开发环境请先执行 npm run build）。',
+    ].join('\n');
+    void dialog
+      .showMessageBox(win, {
+        type: 'error',
+        title: '笔记启动失败',
+        message: '应用界面未能加载',
+        detail,
+        buttons: ['重试', '复制错误信息', '退出应用'],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      })
+      .then(async ({ response }) => {
+        if (win.isDestroyed()) return;
+        if (response === 0) {
+          win.webContents.reload();
+        } else if (response === 1) {
+          // 复制必须有反馈：否则又是一处"点了没反应"（与 P2-12 同类）
+          try {
+            clipboard.writeText('笔记启动失败：\n' + detail);
+            await dialog.showMessageBox(win, {
+              type: 'info',
+              message: '错误信息已复制到剪贴板',
+              buttons: ['确定'],
+              noLink: true,
+            });
+          } catch (err) {
+            console.error('[main] 复制启动失败信息失败：', err && err.message ? err.message : err);
+          }
+        } else {
+          isQuitting = true;
+          app.quit();
+        }
+      });
+  };
+
+  win.webContents.on('did-finish-load', () => {
+    console.log('[main] did-finish-load');
+    // 成功加载即视为恢复：崩溃计数重新开始
+    loadGuard.reset();
+    revealWindow();
+  });
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    console.error('[main] did-fail-load', errorCode, errorDescription, validatedURL, isMainFrame);
+    // 子框架失败不该被当成"应用没加载起来"
+    if (isMainFrame === false) return;
+    showLoadFailureDialog(errorCode, errorDescription, validatedURL);
   });
 
   win.webContents.on('will-navigate', (event, url) => {
@@ -648,12 +732,44 @@ function createWindow() {
     }
   })
 
-  // 渲染进程崩溃/无响应时的自愈与诊断日志，避免静默白屏
+  /*
+   * P1-5：渲染进程崩溃先自动重载，最多 MAX_RENDER_RELOADS 次（决策在纯模块
+   * startup-guard.cjs），超限后弹框给用户可操作的出口 —— 此前是无上限 reload，
+   * 渲染层反复崩溃时用户只看到窗口自己"闪一下"，全程不知道发生了什么。
+   */
   win.webContents.on('render-process-gone', (_event, details) => {
     console.error('[main] render-process-gone:', details.reason, details.exitCode);
-    if (details.reason !== 'clean-exit' && details.reason !== 'killed') {
+    if (details.reason === 'clean-exit' || details.reason === 'killed') return;
+    const decision = loadGuard.recordRenderGone();
+    if (decision.action === 'reload') {
+      console.warn('[main] 渲染进程崩溃，自动重载 ' + decision.count + '/' + MAX_RENDER_RELOADS);
       win.webContents.reload();
+      return;
     }
+    revealWindow();
+    void dialog
+      .showMessageBox(win, {
+        type: 'error',
+        title: '应用反复崩溃',
+        message: '渲染进程连续崩溃 ' + decision.count + ' 次，已停止自动重载',
+        detail:
+          '原因：' + details.reason + '（退出码 ' + details.exitCode + '）\n\n' +
+          '可以「重新加载」再试一次；如果每次都崩，请到 设置 → 诊断 复制诊断信息后反馈。',
+        buttons: ['重新加载', '退出应用'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      })
+      .then(({ response }) => {
+        if (win.isDestroyed()) return;
+        if (response === 0) {
+          loadGuard.reset();
+          win.webContents.reload();
+        } else {
+          isQuitting = true;
+          app.quit();
+        }
+      });
   });
   win.webContents.on('unresponsive', () => {
     console.error('[main] renderer unresponsive');
@@ -759,70 +875,29 @@ app.whenReady().then(async () => {
 
   // 设置中文菜单（开发模式下也可见）
   try {
-    const template = [
-      {
-        label: "文件",
-        submenu: [
-          { role: "quit", label: "退出" },
-        ],
+    /*
+     * 菜单模板抽到 electron/menu-template.cjs（纯数据 + 回调注入）：
+     * "窗口 → 关闭」的加速键让位给标签栏（Ctrl+W）这类约束需要可断言，
+     * 只写在 main.cjs 里没人测得住。这里只注入「关于」的实现（要用到 BrowserWindow/dialog）。
+     */
+    const template = buildAppMenuTemplate({
+      onAbout: () => {
+        const win = BrowserWindow.getFocusedWindow();
+        // 版本与数据目录都要能追溯：出问题时用户能直接说出「装的是哪版、数据在哪」
+        const options = {
+          type: "info",
+          title: "关于",
+          message: "笔记",
+          detail: [
+            `版本：${typeof app.getVersion === "function" ? app.getVersion() : "开发版"}`,
+            `数据目录：${dataPath ? path.dirname(dataPath) : "(尚未初始化)"}`,
+          ].join("\n"),
+          buttons: ["确定"],
+        };
+        if (win) dialog.showMessageBox(win, options);
+        else dialog.showMessageBox(options);
       },
-      {
-        label: "编辑",
-        submenu: [
-          { role: "undo", label: "撤销" },
-          { role: "redo", label: "重做" },
-          { type: "separator" },
-          { role: "cut", label: "剪切" },
-          { role: "copy", label: "复制" },
-          { role: "paste", label: "粘贴" },
-          { role: "selectAll", label: "全选" },
-        ],
-      },
-      {
-        label: "视图",
-        submenu: [
-          { role: "reload", label: "重新加载" },
-          { role: "toggleDevTools", label: "切换开发者工具" },
-          { type: "separator" },
-          { role: "resetZoom", label: "重置缩放" },
-          { role: "zoomIn", label: "放大" },
-          { role: "zoomOut", label: "缩小" },
-          { type: "separator" },
-          { role: "togglefullscreen", label: "切换全屏" },
-        ],
-      },
-      {
-        label: "窗口",
-        submenu: [
-          { role: "minimize", label: "最小化" },
-          { role: "close", label: "关闭" },
-        ],
-      },
-      {
-        label: "帮助",
-        submenu: [
-          {
-            label: "关于",
-            click: () => {
-              const win = BrowserWindow.getFocusedWindow();
-              // 版本与数据目录都要能追溯：出问题时用户能直接说出"装的是哪版、数据在哪"
-              const options = {
-                type: "info",
-                title: "关于",
-                message: "笔记",
-                detail: [
-                  `版本：${typeof app.getVersion === "function" ? app.getVersion() : "开发版"}`,
-                  `数据目录：${dataPath ? path.dirname(dataPath) : "(尚未初始化)"}`,
-                ].join("\n"),
-                buttons: ["确定"],
-              };
-              if (win) dialog.showMessageBox(win, options);
-              else dialog.showMessageBox(options);
-            },
-          },
-        ],
-      },
-    ];
+    });
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   } catch (err) {
     console.warn("设置应用菜单失败", err);

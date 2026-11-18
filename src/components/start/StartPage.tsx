@@ -1,6 +1,7 @@
 // 导入 React 相关 hooks 和类型定义
 import { useState, useMemo } from "react";
-import type { JSX, ReactNode } from "react";
+import type { JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import {
   IconDocument,
   IconBook,
@@ -83,6 +84,9 @@ const quickActions: QuickAction[] = [
 /**
  * 过滤标签配置
  */
+/** P2-15：开始页文档列表分页显示的步长（大库下整页铺几千行会明显卡顿） */
+const DOC_PAGE_SIZE = 50;
+
 const filterTabs: { id: FilterType; label: string }[] = [
   { id: "edited", label: "编辑过" },
   { id: "viewed", label: "浏览过" },
@@ -111,6 +115,10 @@ export default function StartPage({
   const [activeFilter, setActiveFilter] = useState<FilterType>("edited"); // 当前激活的过滤器
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showAiWriter, setShowAiWriter] = useState(false);
+  /** P1-3：模板中心浮层接统一的焦点陷阱（Tab 不跑到背后的开始页上） */
+  const templateModalRef = useFocusTrap<HTMLDivElement>(showTemplateModal, () => setShowTemplateModal(false));
+  /** P2-15：文档列表分页（大库不再一次性铺几千行） */
+  const [visibleDocs, setVisibleDocs] = useState(DOC_PAGE_SIZE);
   const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(null); // 按知识库筛选
 
   /**
@@ -173,6 +181,26 @@ export default function StartPage({
           .map(item => ({ ...item.doc, notebook: item.notebook }));
     }
   }, [notebooks, recentViews, activeFilter, selectedNotebookId]);
+
+  /** P2-15：只渲染当前页，避免「编辑过」筛选在大库下把整页撑爆 */
+  const shownDocs = filteredDocs.slice(0, visibleDocs);
+  const hiddenDocs = filteredDocs.length - shownDocs.length;
+
+  // 切换筛选/知识库时回到第一页（渲染期按签名调整，与 DocsSidebar 的 prevCompact 同款写法）
+  const filterKey = `${activeFilter}:${selectedNotebookId ?? ''}`;
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (prevFilterKey !== filterKey) {
+    setPrevFilterKey(filterKey);
+    setVisibleDocs(DOC_PAGE_SIZE);
+  }
+
+  /** 卡片/行的键盘激活：两者都是 div 容器，Enter 与空格必须等价于点击 */
+  const activateOnKey = (e: ReactKeyboardEvent, run: () => void): void => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      run();
+    }
+  };
 
   /**
    * 处理快捷操作点击
@@ -267,10 +295,17 @@ export default function StartPage({
         {/* 第一行：新建文档、新建知识库、模板中心 */}
         <div className="quick-actions-row">
           {quickActions.slice(0, 3).map((action) => (
+            // P2-15：卡片是导航入口，必须能被键盘聚焦并回车激活（旧版是纯 div，Tab 根本到不了）
             <div
               key={action.id}
               className={`quick-action-card ${!action.enabled ? 'disabled' : ''}`}
+              role="button"
+              tabIndex={action.enabled ? 0 : -1}
+              aria-disabled={!action.enabled}
               onClick={() => action.enabled && handleActionClick(action.id)}
+              onKeyDown={(e) =>
+                activateOnKey(e, () => action.enabled && handleActionClick(action.id))
+              }
             >
               <div className="action-header">
                 <span className="action-icon">{action.icon}</span>
@@ -291,7 +326,15 @@ export default function StartPage({
           <div
             key={quickActions[3].id}
             className={`quick-action-card ${!quickActions[3].enabled ? 'disabled' : ''}`}
+            role="button"
+            tabIndex={quickActions[3].enabled ? 0 : -1}
+            aria-disabled={!quickActions[3].enabled}
             onClick={() => quickActions[3].enabled && handleActionClick(quickActions[3].id)}
+            onKeyDown={(e) =>
+              activateOnKey(e, () =>
+                quickActions[3].enabled && handleActionClick(quickActions[3].id),
+              )
+            }
           >
             <div className="action-header">
               <span className="action-icon">{quickActions[3].icon}</span>
@@ -352,12 +395,16 @@ export default function StartPage({
               </button>
             </div>
           ) : (
+            // P2-15：只渲染当前页；列表行可 Tab 聚焦并回车打开（旧版只有 onClick）
             <div className="docs-list">
-              {filteredDocs.map((doc) => (
+              {shownDocs.map((doc) => (
                 <div
                   key={doc.id}
                   className="doc-list-item"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => handleDocClick(doc)}
+                  onKeyDown={(e) => activateOnKey(e, () => handleDocClick(doc))}
                 >
                   <span className="doc-list-icon"><IconDocument size={18} /></span>
                   <span className="doc-list-title">{doc.title || "未命名文档"}</span>
@@ -369,6 +416,15 @@ export default function StartPage({
                   </span>
                 </div>
               ))}
+              {hiddenDocs > 0 && (
+                <button
+                  type="button"
+                  className="start-load-more"
+                  onClick={() => setVisibleDocs((count) => count + DOC_PAGE_SIZE)}
+                >
+                  显示更多（还有 {hiddenDocs} 篇）
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -376,8 +432,18 @@ export default function StartPage({
 
       {/* 模板中心模态框 */}
       {showTemplateModal && (
-        <div className="modal-overlay" onClick={() => setShowTemplateModal(false)}>
-          <div className="modal-content template-center-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowTemplateModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="模板中心"
+        >
+          <div
+            ref={templateModalRef}
+            className="modal-content template-center-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <TemplateCenter
               onSelectTemplate={handleSelectTemplate}
               onClose={() => setShowTemplateModal(false)}

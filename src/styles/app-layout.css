@@ -1,10 +1,16 @@
+/*
+ * 数据加载阶段的骨架屏：与 .app-shell 同构的横向布局（侧栏 + 编辑区）。
+ * 旧版这里是居中转圈，与首屏 Suspense 骨架、真实界面都不同形态，
+ * 启动过程观感跳变三次；现在三段共用同一种形态。
+ */
 .app-loading {
   width: 100vw;
   height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-secondary);
+  align-items: stretch;
+  justify-content: flex-start;
+  background: var(--bg-canvas);
+  overflow: hidden;
 }
 
 /*

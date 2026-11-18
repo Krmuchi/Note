@@ -54,4 +54,21 @@ describe('PdfExportDialog', () => {
     expect(onExport).not.toHaveBeenCalled()
     expect(onPrint).not.toHaveBeenCalled()
   })
+
+  /*
+   * P1-5：这个弹窗不在全局 Esc 白名单里（它是 EditorHeader 的局部状态），
+   * 焦点又被焦点陷阱移进了容器 —— 不接 useFocusTrap 的 onEscape，
+   * 键盘用户就没有任何关闭路径，只能摸鼠标点「取消」。
+   */
+  it('焦点在弹窗内时 Esc 也能关闭（P1-5）', () => {
+    const { onClose } = setup()
+    const dialog = screen.getByRole('dialog', { name: '导出 PDF 与打印' })
+    // 打开即把焦点移入容器（否则 Esc 根本到不了容器监听器）
+    const focusable = dialog.querySelector('select') as HTMLElement
+    expect(focusable).not.toBeNull()
+    expect(document.activeElement).toBe(focusable)
+
+    fireEvent.keyDown(focusable, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
 })

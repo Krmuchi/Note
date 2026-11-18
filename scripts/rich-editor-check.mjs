@@ -627,6 +627,207 @@ if (lastLiBox) {
   check('正常 Enter 仍续列表（IME 守卫未误伤）', liAfter === liBefore + 1, `${liBefore} → ${liAfter}`)
 }
 
+/*
+ * 21. P0-1：查找替换之后，光标必须落在**新的命中处**。
+ *
+ * 旧实现：替换回写 → RichEditor 用新 Markdown 整体重建 contenteditable 的 innerHTML，
+ * FindBar 在 effect 里立刻设置的选区落在即将被销毁的旧 DOM 上 —— 重建后光标丢失，
+ * 接着打字会落到文档开头（单测只能验证"登记了区间"，真实时序必须在这里把关）。
+ */
+/*
+ * 必须用真实输入而不是 innerHTML 注入：FindBar 的命中按 **store 里的文档内容** 计算，
+ * 裸改 DOM 不会走 RichEditor 的 commit 链路 —— 查找永远 0 命中，替换按钮恒为 disabled
+ * （本步骤曾以注入版在实机上卡死 30s 点击超时）。
+ */
+await page.locator('.rich-editor').click()
+await page.keyboard.press('Control+a')
+await page.waitForTimeout(150)
+await page.keyboard.type('前言一句')
+await page.keyboard.press('Enter')
+await page.keyboard.type('关键词甲')
+await page.keyboard.press('Enter')
+await page.keyboard.type('关键词乙')
+await page.waitForTimeout(500)
+
+await page.keyboard.press('Control+f')
+await page.waitForTimeout(400)
+const findInput = page.locator('.find-bar-input').first()
+if ((await findInput.count()) > 0) {
+  await findInput.fill('关键词')
+  await page.waitForTimeout(350)
+  // Ctrl+H 展开替换行（Editor 用 capture 阶段接管该键，输入框内按下同样有效）
+  await page.keyboard.press('Control+h')
+  await page.waitForTimeout(350)
+  const replaceInput = page.getByLabel('替换内容')
+  if ((await replaceInput.count()) > 0) {
+    await replaceInput.fill('术语')
+    await page.waitForTimeout(400)
+    /*
+     * 诊断 + 软失败：这颗按钮曾以「disabled 卡死 30s」的形式让整脚本抛错中断，
+     * 而中断又触发 browser 泄漏把进程吊死（见 _preview-server 的必退口）。
+     * 先把命中计数打出来定位根因；点击失败只记日志，让后续断言以 check(false)
+     * 的形式进总报告 —— 实机脚本的价值在于跑完给出全量结论，而不是死在半路。
+     */
+    const diagCount = await page.locator('.find-bar-count').first().textContent().catch(() => 'n/a')
+    console.log('[diag] find count label = ' + JSON.stringify(diagCount))
+    await page
+      .locator('.find-bar-btn[title^="替换并前进"]')
+      .click({ timeout: 8000 })
+      .catch((e) => console.log('[diag] replace click failed: ' + String(e.message).split('\n')[0]))
+    await page.waitForTimeout(500)
+
+    const selAfterReplace = await page.evaluate(() => {
+      const root = document.querySelector('.rich-editor')
+      const sel = window.getSelection()
+      if (!root || !sel || sel.rangeCount === 0) return { text: '', inRoot: false, focused: false }
+      const range = sel.getRangeAt(0)
+      return {
+        text: range.toString(),
+        inRoot: root.contains(range.startContainer),
+        focused: document.activeElement === root,
+      }
+    })
+    /*
+     * P0-1 的核心是「选区没被 DOM 重建打丢、仍落在正文里」——
+     * 「替换并前进」按语义推进到**下一个**未替换的命中（选中 '关键词'），
+     * 只有当替换词本身仍含查询词时才会选中 '术语'。
+     * 断言因此接受两种落点；真正兜底打字位置的是下面那条（Z 落位）。
+     */
+    check(
+      '替换后选区恢复在富文本内的新命中处（P0-1）',
+      selAfterReplace.inRoot &&
+        selAfterReplace.focused &&
+        (selAfterReplace.text === '关键词' || selAfterReplace.text === '术语'),
+      JSON.stringify(selAfterReplace),
+    )
+
+    // 选区在命中处时打字：字符应当替换那一处命中，而不是落到文档开头
+    await page.keyboard.type('Z')
+    await page.waitForTimeout(500)
+    const afterType = (await page.evaluate(() => document.querySelector('.rich-editor')?.textContent)) ?? ''
+    check(
+      '替换后继续打字落在命中处、而不是文档开头（P0-1）',
+      afterType.includes('Z') && !afterType.trimStart().startsWith('Z'),
+      JSON.stringify(afterType.slice(0, 40)),
+    )
+  } else {
+    check('替换后选区恢复在富文本内的新命中处（P0-1）', false, '替换行未展开')
+  }
+  await page.locator('[aria-label="关闭查找"]').first().click().catch(() => {})
+  await page.waitForTimeout(300)
+} else {
+  check('替换后选区恢复在富文本内的新命中处（P0-1）', false, '查找栏未打开')
+}
+
+/*
+ * 21b. P1-9：划词浮层必须带 AI / 评论 / 链接入口。
+ * （jsdom 没有布局，Range 矩形全 0 → 单测里浮层根本不出现，只能实机把关。）
+ */
+/*
+ * 用真实鼠标拖选，不用程序化 Range：浮层的出现依赖真实交互链路（焦点 / selectionchange
+ * / 矩形定位），程序化造的选区在部分上下文里不触发 —— 本步骤曾以 Range 版返回 null。
+ * 与第 9 步（已通过）同款方法。
+ */
+/* 前一步的查找跳转已把编辑器滚动到命中处：首段可能在视口外，先滚进来再取矩形 */
+await page.evaluate(() => {
+  const root = document.querySelector('.rich-editor')
+  const blocks = root ? Array.from(root.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote')) : []
+  const target = blocks.find((b) => (b.textContent || '').trim().length > 0)
+  target?.scrollIntoView({ block: 'center' })
+})
+await page.waitForTimeout(300)
+const selBox = await page.evaluate(() => {
+  const root = document.querySelector('.rich-editor')
+  const blocks = root ? Array.from(root.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote')) : []
+  const target = blocks.find((b) => (b.textContent || '').trim().length > 0)
+  if (!target) return null
+  const r = target.getBoundingClientRect()
+  if (r.width === 0 || r.height === 0 || r.top < -10 || r.bottom > window.innerHeight + 10) return null
+  return { x: r.left, y: r.top + r.height / 2, w: r.width }
+})
+if (selBox) {
+  await page.mouse.move(selBox.x + 2, selBox.y)
+  await page.mouse.down()
+  await page.mouse.move(selBox.x + selBox.w - 4, selBox.y, { steps: 8 })
+  await page.mouse.up()
+} else {
+  const dbg = await page.evaluate(() => {
+    const root = document.querySelector('.rich-editor')
+    const p = root?.querySelector('p')
+    const r = p ? p.getBoundingClientRect() : null
+    return {
+      childTags: root ? Array.from(root.children).slice(0, 6).map((e) => e.tagName) : [],
+      pCount: root ? root.querySelectorAll('p').length : 0,
+      rect: r ? { top: Math.round(r.top), bottom: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) } : null,
+      innerH: window.innerHeight,
+      rootScroll: root ? { top: Math.round(root.scrollTop), sh: root.scrollHeight, ch: root.clientHeight } : null,
+    }
+  })
+  console.log('[diag] 21b dbg = ' + JSON.stringify(dbg))
+}
+await page.waitForTimeout(500)
+const selectionTitles = await page.evaluate(() => {
+  const tb = document.querySelector('.selection-toolbar')
+  if (!tb) return null
+  return Array.from(tb.querySelectorAll('button')).map((b) => b.getAttribute('title'))
+})
+check(
+  '划词浮层提供 加粗 / AI / 评论 / 链接 入口（P1-9）',
+  Array.isArray(selectionTitles) &&
+    selectionTitles.includes('加粗') &&
+    selectionTitles.some((t) => t && t.startsWith('AI 处理')) &&
+    selectionTitles.some((t) => t && t.includes('评论')) &&
+    selectionTitles.includes('插入链接'),
+  JSON.stringify(selectionTitles),
+)
+
+/*
+ * 22. P1-8：Esc 之后 Tab 能把焦点移出编辑器。
+ * 旧实现把 Tab 无条件拦下来做缩进 —— 键盘用户永远到不了工具栏 / 状态栏。
+ */
+await page.locator('.rich-editor').click()
+await page.waitForTimeout(200)
+await page.keyboard.press('Escape')
+await page.waitForTimeout(300)
+await page.keyboard.press('Tab')
+await page.waitForTimeout(300)
+const escapeResult = await page.evaluate(() => {
+  const root = document.querySelector('.rich-editor')
+  const active = document.activeElement
+  return {
+    active: active ? (active.getAttribute('aria-label') || active.className || active.tagName) : 'none',
+    inRoot: !!root && !!active && root.contains(active),
+  }
+})
+check(
+  'Esc 后 Tab 把焦点移出编辑器（P1-8）',
+  !!escapeResult.active && escapeResult.active !== 'none' && !escapeResult.inRoot,
+  JSON.stringify(escapeResult),
+)
+
+/*
+ * 23. P1-9：AI 入口回到主工具条（AI 帮你写 + AI 处理选中文本）。
+ * 旧实现两者都藏在「⋯ 更多格式」里，且编辑器内根本没有 AiWriter 入口。
+ */
+/*
+ * 先展开工具栏：上一步（P1-8 Esc 逃生）可能把整条工具栏收起 —— 收起态下按钮行是
+ * 条件渲染、整个不进 DOM（!toolbarCollapsed && …），直接查会得到 0 而误报缺失。
+ */
+const expandBtn = page.locator('[title="展开工具栏 (Esc)"]')
+if ((await expandBtn.count()) > 0) {
+  await expandBtn.click({ timeout: 5000 })
+  await page.waitForTimeout(300)
+}
+const aiButtons = await page.evaluate(() => ({
+  writer: document.querySelectorAll('.eh-toolbar button[title^="AI 帮你写"]').length,
+  selection: document.querySelectorAll('.eh-toolbar button[title^="AI 处理选中文本"]').length,
+}))
+check(
+  '主工具条同时提供「AI 帮你写」与「AI 处理选中文本」（P1-9）',
+  aiButtons.writer > 0 && aiButtons.selection > 0,
+  JSON.stringify(aiButtons),
+)
+
 // 14. 控制台无报错
 const fatal = errors.filter((e) => !/favicon|DevTools|Download the React/.test(e))
 check('无控制台错误', fatal.length === 0, fatal.slice(0, 3).join(' | '))

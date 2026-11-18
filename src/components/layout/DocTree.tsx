@@ -3,14 +3,19 @@ import { useShallow } from 'zustand/react/shallow';
 import { useNotesStore } from '@/store';
 import { VirtualScroll, type VirtualScrollHandle } from '@/components/VirtualScroll';
 import { EmptyState } from '@/components/common/EmptyState';
-import { IconDocument } from '@/components/common/Icon';
+import { IconDocument, IconSearch } from '@/components/common/Icon';
 import { useDocTreeDrag } from '@/hooks/useDocTreeDrag';
 import { confirmAction } from '@/hooks/useConfirmAction';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { ContextMenu } from '@/components/common/ContextMenu';
 import { setPendingBatchUndo, undoBatch } from '@/utils/batchUndo';
 import { DocTreeNode } from './DocTreeNode';
-import { filterAndSortDocs, type DocSortMode } from '@/utils/docSort';
+import {
+  docMatchesFilters,
+  filterAndSortDocs,
+  sortDocs,
+  type DocSortMode,
+} from '@/utils/docSort';
 import { readExpandedDocs, writeExpandedDocs } from '@/utils/docExpanded';
 import { debounce } from '@/utils/debounce';
 import { exportNotebookZip } from '@/services/storage';
@@ -29,10 +34,26 @@ interface DocTreeProps {
   sortMode: DocSortMode;
   /** 标签过滤（K2）：空数组表示不过滤 */
   tagFilter?: string[];
+  /** P0-2：过滤无结果时「清除筛选」的出口（父级同时清空搜索词与标签） */
+  onClearFilter?: () => void;
 }
 
 const DOC_VIRTUALIZE_THRESHOLD = 200;
 const DOC_ITEM_HEIGHT = 40;
+
+/** 往展开集合里补 id；无变化时返回原引用，避免渲染期 setState 造成额外一轮渲染 */
+function withAddedExpanded(prev: Set<string>, ids: string[]): Set<string> {
+  if (ids.length === 0) return prev;
+  const next = new Set(prev);
+  let changed = false;
+  for (const id of ids) {
+    if (!next.has(id)) {
+      next.add(id);
+      changed = true;
+    }
+  }
+  return changed ? next : prev;
+}
 
 /** 知识库文档树：层级展示、搜索过滤、排序、拖拽、右键菜单、批量操作、键盘导航、虚拟化 */
 export const DocTree: React.FC<DocTreeProps> = ({
@@ -43,6 +64,7 @@ export const DocTree: React.FC<DocTreeProps> = ({
   onBatchMoveRequest,
   sortMode,
   tagFilter = [],
+  onClearFilter,
 }) => {
   const {
     activeDocId,
@@ -263,8 +285,9 @@ export const DocTree: React.FC<DocTreeProps> = ({
     if (!activeNotebookId || selectedDocs.size === 0) return;
     // 与单个删除/清空回收站保持一致的确认交互，避免误操作（走 App 层挂载的唯一 ConfirmDialog）
     confirmAction({
-      title: '批量删除',
-      message: `确定要将选中的 ${selectedDocs.size} 个文档移入回收站吗？`,
+      // 标题具体化：确认框标题不能是「确认操作」这种看不出动了什么的占位词
+      title: `删除 ${selectedDocs.size} 篇文档`,
+      message: `确定要将选中的 ${selectedDocs.size} 篇文档移入回收站吗？可在回收站里恢复。`,
       confirmText: '移入回收站',
       variant: 'danger',
       onConfirm: () => {
@@ -375,23 +398,123 @@ export const DocTree: React.FC<DocTreeProps> = ({
     setContextMenu({ x: e.clientX, y: e.clientY, docId });
   }, []);
 
+  /*
+   * P0-2：全层级过滤。
+   * 旧实现逐层 filterAndSortDocs —— 未命中的祖先在本层就被筛掉，
+   * 折叠层（更别说未展开的深层）里的命中项永远走不到，界面上还一片空白看不出原因。
+   * 现在先算「自身命中」，再向上补齐祖先；过滤期间无视展开态直接下钻到命中项。
+   */
+  const filterActive = searchText.trim().length > 0 || tagFilter.length > 0;
+
+  const matchedIds = useMemo(() => {
+    if (!filterActive || !activeNotebook) return null;
+    const ids = new Set<string>();
+    for (const doc of activeNotebook.docs) {
+      if (docMatchesFilters(doc, searchText, tagFilter)) ids.add(doc.id);
+    }
+    return ids;
+  }, [filterActive, activeNotebook, searchText, tagFilter]);
+
+  /** 可见集合 = 自身命中项 ∪ 命中项的祖先（祖先是路径上下文，必须一起显示） */
+  const visibleIds = useMemo(() => {
+    if (!matchedIds || !activeNotebook) return matchedIds;
+    const parentOf = new Map<string, string | null>();
+    for (const doc of activeNotebook.docs) parentOf.set(doc.id, doc.parentId ?? null);
+    const visible = new Set<string>(matchedIds);
+    for (const id of matchedIds) {
+      const guard = new Set<string>();
+      let parentId = parentOf.get(id) ?? null;
+      while (parentId && !guard.has(parentId)) {
+        guard.add(parentId);
+        visible.add(parentId);
+        parentId = parentOf.get(parentId) ?? null;
+      }
+    }
+    return visible;
+  }, [matchedIds, activeNotebook]);
+
+  /*
+   * P0-2：命中项的祖先自动展开，并把展开状态记进 expandedDocs ——
+   * 过滤期间本来就会无视展开态显示整条链；这里把状态同步下来，
+   * 用户清掉筛选后看到的仍是刚才那棵树，而不是立刻合回去。
+   * 渲染期按签名变化调整 state（DocsSidebar prevCompact 同款写法），
+   * 签名不变就不会再触发 setState，无循环。
+   */
+  const expandSignature =
+    filterActive && visibleIds && matchedIds
+      ? [...visibleIds]
+          .filter((id) => !matchedIds.has(id))
+          .sort()
+          .join(',')
+      : '';
+  const [expandedForFilter, setExpandedForFilter] = useState('');
+  if (expandSignature !== expandedForFilter) {
+    setExpandedForFilter(expandSignature);
+    if (expandSignature) {
+      setExpandedDocs((prev) => withAddedExpanded(prev, expandSignature.split(',')));
+    }
+  }
+
+  /*
+   * P2-14：打开文档后在树里把它找出来 —— 先展开祖先。
+   * 只在 activeDocId 变化那一次执行：否则用户手动收起某个父级，
+   * 下一帧又会被自动撑开（等于收不起）。滚动定位见下面的 effect。
+   */
+  const [expandedForDoc, setExpandedForDoc] = useState<string | null>(null);
+  if (activeDocId && activeNotebook && expandedForDoc !== activeDocId) {
+    setExpandedForDoc(activeDocId);
+    const byId = new Map(activeNotebook.docs.map((d) => [d.id, d]));
+    const missing: string[] = [];
+    const guard = new Set<string>();
+    let parentId = byId.get(activeDocId)?.parentId ?? null;
+    while (parentId && !guard.has(parentId)) {
+      guard.add(parentId);
+      if (!expandedDocs.has(parentId)) missing.push(parentId);
+      parentId = byId.get(parentId)?.parentId ?? null;
+    }
+    if (missing.length > 0) setExpandedDocs((prev) => withAddedExpanded(prev, missing));
+  }
   const flatDocList = useMemo(() => {
-    const result: { doc: NoteDoc; depth: number }[] = [];
-    const walk = (docs: NoteDoc[], depth: number): void => {
-      const sorted = filterAndSortDocs(docs, searchText, sortMode, tagFilter);
-      for (const doc of sorted) {
-        result.push({ doc, depth });
-        // 只在显式展开时下钻，否则子文档会同时出现在根层级和父级内部（重复渲染）
-        if (expandedDocs.has(doc.id)) {
-          const children = childrenMap.get(doc.id) ?? [];
-          if (children.length > 0) walk(children, depth + 1);
-        }
+    const result: { doc: NoteDoc; depth: number; contextPath: string; isContext: boolean }[] = [];
+    const walk = (docs: NoteDoc[], depth: number, context: string[]): void => {
+      // 过滤期间只排序不过滤：该留谁由 visibleIds 决定，
+      // 否则未命中的祖先在这一层就被 filter 掉，它下面的命中项永远到不了
+      const candidates = filterActive
+        ? sortDocs(docs, sortMode)
+        : filterAndSortDocs(docs, searchText, sortMode, tagFilter);
+      for (const doc of candidates) {
+        if (filterActive && !visibleIds!.has(doc.id)) continue;
+        const selfMatch = !filterActive || matchedIds!.has(doc.id);
+        const nextContext = selfMatch ? [] : [...context, doc.title];
+        result.push({
+          doc,
+          depth,
+          // 自身命中、但祖先没命中：把父路径写在标题前（否则深层文档在结果里没有落点）
+          contextPath: selfMatch && context.length > 0 ? context.join(' › ') : '',
+          isContext: !selfMatch,
+        });
+        const children = childrenMap.get(doc.id) ?? [];
+        if (children.length === 0) continue;
+        const descend = filterActive
+          ? children.some((child) => visibleIds!.has(child.id))
+          : expandedDocs.has(doc.id);
+        if (descend) walk(children, depth + 1, nextContext);
       }
     };
     // 顶层只遍历根文档（parentId === null），docs 是含子文档的扁平数组
-    if (activeNotebook) walk(childrenMap.get(null) ?? [], 0);
+    if (activeNotebook) walk(childrenMap.get(null) ?? [], 0, []);
     return result;
-  }, [activeNotebook, searchText, expandedDocs, childrenMap, sortMode, tagFilter]);
+  }, [
+    activeNotebook,
+    searchText,
+    expandedDocs,
+    childrenMap,
+    sortMode,
+    tagFilter,
+    filterActive,
+    matchedIds,
+    visibleIds,
+  ]);
 
   /**
    * docId → 在 flatDocList 中的下标。
@@ -406,6 +529,31 @@ export const DocTree: React.FC<DocTreeProps> = ({
     flatDocList.forEach((item, index) => map.set(item.doc.id, index))
     return map
   }, [flatDocList]);
+
+  /*
+   * P2-14：把当前文档滚进可视区。
+   * 拆开两个动作的原因：祖先展开要先落地，flatDocList 才会包含目标行；
+   * 这里按 docIndexMap 变化重试，找到一次就记账（scrolledDocRef），
+   * 之后输入过滤、排序切换都不会反复把列表拽回当前文档。
+   */
+  const scrolledDocRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeDocId || scrolledDocRef.current === activeDocId) return;
+    const index = docIndexMap.get(activeDocId);
+    // 不在当前知识库 / 被筛选掉了：等下一次列表变化再试（清掉筛选后会自动补上）
+    if (index === undefined) return;
+    scrolledDocRef.current = activeDocId;
+    const frame = requestAnimationFrame(() => {
+      if (flatDocList.length > DOC_VIRTUALIZE_THRESHOLD) {
+        virtualScrollRef.current?.scrollToIndex(index);
+      } else {
+        docsListRef.current
+          ?.querySelector('[data-doc-id="' + activeDocId + '"]')
+          ?.scrollIntoView({ block: 'nearest' });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeDocId, docIndexMap, flatDocList]);
 
   /** 键盘导航（T6）：↑↓ 移动、→← 展开/收起/进父级、Enter 打开、F2 重命名、空格展开 */
   const focusedIndex = useMemo(
@@ -426,6 +574,25 @@ export const DocTree: React.FC<DocTreeProps> = ({
       docsListRef.current?.querySelector(`[data-doc-id="${docId}"]`)?.scrollIntoView({ block: 'nearest' });
     }
   }, [flatDocList]);
+
+  /**
+   * P1-11：键盘打开行的右键菜单（Shift+F10 / 菜单键）。
+   * 行内 4 个操作按钮默认 display:none（对键盘不可见），这四件事在菜单里都有 ——
+   * 键盘用户的等价入口就是这里；坐标拿不到时（jsdom / 虚拟化未渲染）回落到列表左上角。
+   */
+  const openContextMenuFor = useCallback((docId: string) => {
+    const list = docsListRef.current;
+    const row = list?.querySelector<HTMLElement>('[data-doc-id="' + docId + '"]');
+    const rowRect = row?.getBoundingClientRect();
+    const listRect = list?.getBoundingClientRect();
+    const placed = Boolean(rowRect && rowRect.width > 0);
+    setContextMenu({
+      docId,
+      x: (placed ? rowRect!.left + 32 : (listRect?.left ?? 0) + 32),
+      y: (placed ? rowRect!.bottom : (listRect?.top ?? 0) + 40),
+    });
+    setFocusedDocId(docId);
+  }, []);
 
   const handleTreeKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (flatDocList.length === 0) return;
@@ -485,10 +652,18 @@ export const DocTree: React.FC<DocTreeProps> = ({
         e.preventDefault();
         toggleExpand(current.id);
         break;
+      case 'ContextMenu':
+      case 'F10':
+        // Shift+F10 是标准的「打开上下文菜单」键；单独的 F10 在部分平台留给菜单栏
+        if (e.key === 'F10' && !e.shiftKey) return;
+        if (!current) return;
+        e.preventDefault();
+        openContextMenuFor(current.id);
+        break;
       default:
         break;
     }
-  }, [childrenMap, docIndexMap, expandedDocs, flatDocList, focusByIndex, focusedIndex, handleDocClick, startRename, toggleExpand]);
+  }, [childrenMap, docIndexMap, expandedDocs, flatDocList, focusByIndex, focusedIndex, handleDocClick, startRename, toggleExpand, openContextMenuFor]);
 
   const selectAllDocs = useCallback(() => {
     if (selectedDocs.size === flatDocList.length) {
@@ -500,7 +675,12 @@ export const DocTree: React.FC<DocTreeProps> = ({
 
   if (!activeNotebook) return null;
 
-  const renderDocItem = (doc: NoteDoc, depth: number): React.JSX.Element => {
+  const renderDocItem = (
+    doc: NoteDoc,
+    depth: number,
+    contextPath?: string,
+    isContext?: boolean,
+  ): React.JSX.Element => {
     // 箭头可见性只取决于"是否有子文档"，展开与否由 isExpanded 控制
     const hasChildren = (childrenMap.get(doc.id) ?? []).length > 0;
     // 还没用键盘操作过时，把当前打开的文档当作焦点，避免"按方向键没反应"
@@ -511,6 +691,8 @@ export const DocTree: React.FC<DocTreeProps> = ({
         key={doc.id}
         doc={doc}
         depth={depth}
+        contextPath={contextPath}
+        isContext={isContext}
         isActive={activeDocId === doc.id}
         isFocused={highlightId === doc.id}
         isExpanded={expandedDocs.has(doc.id)}
@@ -540,19 +722,23 @@ export const DocTree: React.FC<DocTreeProps> = ({
     );
   };
 
-  const renderDocTree = (docs: NoteDoc[], depth: number = 0): React.JSX.Element[] => {
-    return filterAndSortDocs(docs, searchText, sortMode, tagFilter).map((doc) => {
-      const children = childrenMap.get(doc.id) ?? [];
-      const expanded = expandedDocs.has(doc.id);
+  /*
+   * 非虚拟化路径直接吃 flatDocList：它已经带了层级深度与过滤上下文。
+   * 旧版 renderDocTree 在这里会**再**做一次逐层 filter —— 与 P0-2 的全层级
+   * 过滤结果冲突（过滤态下的路径上下文行会被它筛掉）。
+   */
+  const renderDocList = (): React.JSX.Element[] =>
+    flatDocList.map((item) => (
+      <React.Fragment key={item.doc.id}>
+        {renderDocItem(item.doc, item.depth, item.contextPath, item.isContext)}
+      </React.Fragment>
+    ));
 
-      return (
-        <React.Fragment key={doc.id}>
-          {renderDocItem(doc, depth)}
-          {expanded && children.length > 0 && renderDocTree(children, depth + 1)}
-        </React.Fragment>
-      );
-    });
-  };
+  // 过滤无结果时的空态描述：明确说出是哪个条件把结果筛没了（P0-2）
+  const noMatchDesc =
+    '当前条件下没有文档' +
+    (searchText.trim() ? '（搜索：' + searchText.trim() + '）' : '') +
+    (tagFilter.length > 0 ? '（已按 ' + tagFilter.length + ' 个标签筛选）' : '');
 
   return (
     <>
@@ -645,17 +831,36 @@ export const DocTree: React.FC<DocTreeProps> = ({
               },
             ]}
           />
+        // P0-2：筛选无结果必须给出口，否则整块列表一片空白，看不出是筛没了还是没有数据
+        ) : filterActive && flatDocList.length === 0 ? (
+          <EmptyState
+            icon={<IconSearch size={32} />}
+            title="没有匹配的文档"
+            description={noMatchDesc}
+            actions={onClearFilter
+              ? [
+                  {
+                    label: '清除筛选',
+                    icon: '✕',
+                    variant: 'secondary',
+                    onClick: onClearFilter,
+                  },
+                ]
+              : undefined}
+          />
         ) : flatDocList.length > DOC_VIRTUALIZE_THRESHOLD ? (
           <VirtualScroll
             ref={virtualScrollRef}
             items={flatDocList}
             itemHeight={DOC_ITEM_HEIGHT}
             containerHeight={listHeight}
-            renderItem={({ doc, depth }) => renderDocItem(doc, depth)}
+            renderItem={({ doc, depth, contextPath, isContext }) =>
+              renderDocItem(doc, depth, contextPath, isContext)
+            }
             getKey={(item) => item.doc.id}
           />
         ) : (
-          renderDocTree(childrenMap.get(null) ?? [])
+          renderDocList()
         )}
       </div>
 
@@ -666,6 +871,28 @@ export const DocTree: React.FC<DocTreeProps> = ({
           ariaLabel="文档操作"
           onClose={() => setContextMenu(null)}
           items={[
+            {
+              id: 'new-child',
+              label: '在此新建子文档',
+              title: '在该文档下面创建一篇子文档（P1-13）',
+              icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              ),
+              onSelect: () => {
+                if (!activeNotebookId) return;
+                const created = useNotesStore
+                  .getState()
+                  .createDoc(activeNotebookId, contextMenu.docId);
+                if (!created) return;
+                // 子文档默认是收起的：不展开父级，新建完在树上看不到它
+                setExpandedDocs((prev) => withAddedExpanded(prev, [contextMenu.docId]));
+                setFocusedDocId(created);
+                onViewDoc(activeNotebookId, created);
+              },
+            },
             {
               id: 'rename',
               label: '重命名',

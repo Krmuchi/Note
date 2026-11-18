@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import React, { useEffect, useState } from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import EditorFindBar from '@/components/editor/EditorFindBar'
 
 /**
@@ -380,3 +380,102 @@ describe('EditorFindBar - 替换后前进（缺陷1）', () => {
     expect(textarea.value).toBe('关键词X 关键词X 关键词')
   })
 })
+
+
+/**
+ * P0-1 / P1-7：富文本内核下的两条新约束。
+ *
+ * P0-1：替换回写会让 RichEditor 整体重建 contenteditable，立即设置的选区会落在
+ * 被销毁的旧 DOM 上 —— 本组件改为只"登记目标区间"，由 Editor 在重建后恢复。
+ * P1-7：jumpTo 依赖 content，直接挂在它上面意味着**在正文里每敲一个字**
+ * 光标都被拽回命中处（textarea 与富文本内核都中招）。
+ */
+describe('EditorFindBar - 富文本内核（P0-1 / P1-7）', () => {
+  it('替换当前时通过 deferRichSelection 登记新命中的区间', () => {
+    const defer = vi.fn()
+    const onReplaceContent = vi.fn()
+    render(
+      <EditorFindBar
+        content={content}
+        textareaRef={{ current: textarea }}
+        onReplaceContent={onReplaceContent}
+        onClose={vi.fn()}
+        initialShowReplace
+        deferRichSelection={defer}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('查找内容'), { target: { value: '关键词' } })
+    fireEvent.change(screen.getByLabelText('替换内容'), { target: { value: '术语' } })
+    fireEvent.click(screen.getByRole('button', { name: '替换' }))
+
+    expect(onReplaceContent).toHaveBeenCalledTimes(1)
+    expect(defer).toHaveBeenCalledTimes(1)
+    const [start, end] = defer.mock.calls[0] as [number, number]
+    // 只替换第一处：新正文是 '第一章\n这里提到术语\n关键词再出现一次'，
+    // 登记的区间必须指向**剩下那处命中**（用户下一步就在那里继续）
+    const replaced = '第一章\n这里提到术语\n关键词再出现一次'
+    expect(replaced.slice(start, end)).toBe('关键词')
+  })
+
+  it('正文内容变化不再把选区拽回命中处，计数仍然同步更新', () => {
+    const select = vi.fn()
+    function Harness({ text }: { text: string }): React.JSX.Element {
+      return (
+        <EditorFindBar
+          content={text}
+          textareaRef={{ current: textarea }}
+          onReplaceContent={vi.fn()}
+          onClose={vi.fn()}
+          selectRangeInRichEditor={select}
+        />
+      )
+    }
+    const { rerender } = render(<Harness text={content} />)
+    fireEvent.change(screen.getByLabelText('查找内容'), { target: { value: '关键词' } })
+    // 查询意图变化 → 重定位一次（先证明这条路是通的）
+    expect(select).toHaveBeenCalledTimes(1)
+
+    select.mockClear()
+    // 模拟用户在正文里打字：content 变了，查找意图没变 —— 不能抢光标
+    rerender(<Harness text={content + '\n新输入的句子'} />)
+    expect(select).not.toHaveBeenCalled()
+    expect(screen.getByText('1/2')).toBeInTheDocument()
+  })
+
+  it('刻度带上抛防抖 200ms，计数仍是同步的', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    try {
+      const onMatchesChange = vi.fn()
+      render(
+        <EditorFindBar
+          content={content}
+          textareaRef={{ current: textarea }}
+          onReplaceContent={vi.fn()}
+          onClose={vi.fn()}
+          onMatchesChange={onMatchesChange}
+        />,
+      )
+      fireEvent.change(screen.getByLabelText('查找内容'), { target: { value: '关键词' } })
+
+      // 计数立即可见（用户正在输入查询词）
+      expect(screen.getByText('1/2')).toBeInTheDocument()
+      // 刻度带上抛延后一拍
+      expect(onMatchesChange).not.toHaveBeenCalled()
+
+      act(() => {
+        vi.advanceTimersByTime(250)
+      })
+      expect(onMatchesChange).toHaveBeenCalled()
+      const payload = onMatchesChange.mock.calls.at(-1)?.[0] as {
+        matches: { index: number }[]
+        current: number
+      }
+      expect(payload.matches).toHaveLength(2)
+      expect(payload.current).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+

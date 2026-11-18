@@ -62,7 +62,12 @@ test.describe('笔记应用核心功能', () => {
   test('收藏文档', async ({ page }) => {
     await page.locator('.btn-add-notebook').click();
     await page.getByRole('button', { name: '新建文档' }).first().click();
-    const favBtn = page.getByTitle('收藏');
+    /*
+     * 显式定域到标题栏按钮：文档树行内收藏按钮此前是 hover 才挂载（本测试因此天然唯一），
+     * P1-11 改为「常驻 DOM、CSS 控可见」后 getByTitle('收藏') 命中两个 → strict violation。
+     * 本测试的本意（与基线一致）就是标题栏那个 active 状态。
+     */
+    const favBtn = page.locator('.eh-icon-btn[title*="收藏"]');
     await expect(favBtn).toBeVisible();
     await favBtn.click();
     await expect(favBtn).toHaveClass(/active/);

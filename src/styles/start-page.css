@@ -352,3 +352,31 @@
   color: var(--text-tertiary);
   text-align: right;
 }
+
+/* P2-15：开始页文档列表分页（大库不再一次铺满整页） */
+.start-load-more {
+  display: block;
+  width: calc(100% - 2 * var(--space-4));
+  margin: var(--space-2) var(--space-4) var(--space-4);
+  padding: var(--space-2);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.start-load-more:hover {
+  border-color: var(--primary-400);
+  background: var(--primary-50);
+  color: var(--text-primary);
+}
+
+/* P2-15：卡片与列表行现在可聚焦，补上可见焦点环（键盘用户要看得见落点） */
+.quick-action-card:focus-visible,
+.doc-list-item:focus-visible {
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
+}

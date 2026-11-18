@@ -26,6 +26,38 @@ interface FindMatchGutterProps {
 /** 认为容器"真的能滚"的最小差值（px）；亚像素误差不算 */
 const SCROLL_EPSILON = 1
 
+/**
+ * P1-7：刻度带上限。
+ *
+ * 刻度是"每个命中一个 <button>"，长文档搜一个高频字（"的"）能出上万个命中 ——
+ * 这些节点随每次击键 / 每次"上一处下一处"整体重绘，是查找栏开着时打字卡顿的
+ * 主要来源。超过上限时按比例抽样绘制：刻度本质是"位置分布提示"而不是
+ * 逐条列表，抽样后视觉分布几乎一致，DOM 数量却被硬性封顶。
+ * 命中**总数**仍由查找栏的计数与本容器的 title 如实展示，不丢信息。
+ */
+const MAX_MARKS = 400
+
+/** 按固定步长抽样；保证当前命中一定被画出来（否则"当前在哪"会看不见） */
+function sampleMarks(
+  marks: Array<{ index: number; ratio: number; isCurrent: boolean }>,
+  limit: number,
+): Array<{ index: number; ratio: number; isCurrent: boolean }> {
+  if (marks.length <= limit) return marks
+  const step = marks.length / limit
+  const sampled: typeof marks = []
+  for (let i = 0; i < limit; i++) sampled.push(marks[Math.floor(i * step)])
+  const current = marks.find((m) => m.isCurrent)
+  if (current && !sampled.includes(current)) {
+    // 用真实当前项替换抽样里最接近的一格，保证高亮不丢
+    let nearest = 0
+    for (let i = 1; i < sampled.length; i++) {
+      if (Math.abs(sampled[i].ratio - current.ratio) < Math.abs(sampled[nearest].ratio - current.ratio)) nearest = i
+    }
+    sampled[nearest] = current
+  }
+  return sampled
+}
+
 /** 刻度带与滚动容器共用的一套坐标（全部相对刻度带盒子的顶边） */
 interface GutterLayout {
   /** 正文 top=0 在刻度带坐标系里的 y（已扣掉 scrollTop） */
@@ -163,12 +195,15 @@ export const FindMatchGutter: React.FC<FindMatchGutterProps> = ({
 
   if (marks.length === 0) return null
 
+  // P1-7：命中过多时按比例抽样绘制（总数由 title 与查找栏计数如实展示）
+  const visibleMarks = sampleMarks(marks, MAX_MARKS)
+
   return (
     <div
       className="find-match-gutter"
       ref={trackRef}
       aria-hidden="true"
-      title={`共 ${marks.length} 处命中`}
+      title={marks.length > visibleMarks.length ? `共 ${marks.length} 处命中（刻度已按 ${visibleMarks.length} 处抽样显示）` : `共 ${marks.length} 处命中`}
     >
       {/* 当前可见区间底色：让用户知道刻度对应文档的哪一段 */}
       <div
@@ -178,7 +213,7 @@ export const FindMatchGutter: React.FC<FindMatchGutterProps> = ({
           height: `${viewport.height}%`,
         }}
       />
-      {marks.map((mark) => (
+      {visibleMarks.map((mark) => (
         <button
           key={mark.index}
           type="button"

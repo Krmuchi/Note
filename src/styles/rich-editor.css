@@ -608,6 +608,28 @@
   cursor: grabbing;
 }
 
+/*
+ * P2-11：触屏点按目标。
+ * 手柄的 left/top 由 BlockHandle 按固定尺寸常量回推，所以**只在垂直方向外扩**命中区，
+ * 不改盒子宽度 —— 改宽会让手柄压住正文。左右各 1px 正好填满两个按钮之间 2px 的间隙，
+ * 互不重叠；上下各 8px 后点按区约 26×38，比 22px 高的裸按钮好点得多。
+ */
+@media (hover: none) {
+  .block-handle-btn {
+    position: relative;
+    touch-action: manipulation;
+  }
+
+  .block-handle-btn::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    bottom: -8px;
+    left: -1px;
+    right: -1px;
+  }
+}
+
 .block-handle-grip.active {
   background: var(--bg-hover, rgb(0 0 0 / 5%));
   color: var(--text-primary);
