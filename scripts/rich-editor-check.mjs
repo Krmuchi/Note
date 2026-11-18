@@ -21,6 +21,29 @@ const browser = await chromium.launch()
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const page = await context.newPage()
 
+
+/**
+ * 把光标显式放到包含指定文本的叶子块末尾并聚焦。
+ * 斜杠命令 / undo-redo 的光标恢复是异步的，顺序打字会随机落块 ——
+ * 打字前必须先钉住光标（check 11/12 的失败根因）。
+ */
+async function caretToEndOf(text) {
+  await page.evaluate((t) => {
+    const root = document.querySelector('.rich-editor')
+    const leaves = root ? Array.from(root.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote')) : []
+    const target = leaves.find((b) => (b.textContent || '').includes(t))
+    if (!target) return
+    const r = document.createRange()
+    r.selectNodeContents(target)
+    r.collapse(false)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(r)
+    root?.focus()
+  }, text)
+  await page.waitForTimeout(150)
+}
+
 /** 收集控制台错误：实机验证的核心价值就是发现 jsdom 里不会出现的报错 */
 const errors = []
 page.on('console', (msg) => {
@@ -146,17 +169,29 @@ if (slashMenuVisible) {
 
 // 9. 划词浮层工具栏：选中文字应出现，点加粗应生效
 await page.keyboard.press('Enter')
-await page.waitForTimeout(150)
+// 斜杠命令会重建内容 DOM，等它稳定再打字 —— 150ms 在慢机器上会竞态，
+// 打字落进旧块导致后续划词目标漂移（同一脚本两次跑出不同文档结构）
+await page.waitForTimeout(500)
 await page.keyboard.type('选中这句话', { delay: 15 })
 await page.waitForTimeout(300)
 
-// 用鼠标拖选（模拟真实用户划词）
+// 用鼠标拖选（模拟真实用户划词）。
+// 拖「刚输入文本所在的块」而不是盲取最后一个子块：斜杠命令可能在文档末尾
+// 留下空块（空块上拖不出文本选区，浮层必然不出现，且各平台光标恢复位置不同）
 const pBox = await page.evaluate(() => {
   const root = document.querySelector('.rich-editor')
-  const blocks = root ? Array.from(root.children) : []
-  const last = blocks[blocks.length - 1]
-  if (!last) return null
-  const r = last.getBoundingClientRect()
+  // 叶子块（li/p/h1...）而不是 root.children —— 顶层子块可能是多行的 UL，
+  // 其垂直中线会落在行间隙，拖不出文本选区
+  const leaves = root
+    ? Array.from(root.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote'))
+    : []
+  const target =
+    leaves.find((b) => (b.textContent || '').includes('选中这句话')) ||
+    leaves.filter((b) => (b.textContent || '').trim().length > 0).pop()
+  if (!target) return null
+  target.scrollIntoView({ block: 'center' })
+  const r = target.getBoundingClientRect()
+  if (r.width === 0 || r.height === 0 || r.top < -10 || r.bottom > window.innerHeight + 10) return null
   return { x: r.left, y: r.top + r.height / 2, w: r.width }
 })
 if (pBox) {
@@ -217,17 +252,22 @@ const textAfterRedo = await readText()
 check('重做后待撤销文字回来', textAfterRedo.includes('ZZZ待撤销'), JSON.stringify(textAfterRedo.slice(-12)))
 
 // 11. 插入链接（曾经点按钮没反应：旧实现读 textarea.selectionStart）
-await page.keyboard.press('Enter')
-await page.waitForTimeout(150)
+await caretToEndOf('ZZZ待撤销')
 await page.keyboard.type('链接文字', { delay: 15 })
 await page.waitForTimeout(300)
-// 选中刚输入的文字
+// 选中刚输入的文字（同样拖文本所在的块，不盲取最后一个子块）
 const linkBox = await page.evaluate(() => {
   const root = document.querySelector('.rich-editor')
-  const blocks = root ? Array.from(root.children) : []
-  const last = blocks[blocks.length - 1]
-  if (!last) return null
-  const r = last.getBoundingClientRect()
+  const leaves = root
+    ? Array.from(root.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote'))
+    : []
+  const target =
+    leaves.find((b) => (b.textContent || '').includes('链接文字')) ||
+    leaves.filter((b) => (b.textContent || '').trim().length > 0).pop()
+  if (!target) return null
+  target.scrollIntoView({ block: 'center' })
+  const r = target.getBoundingClientRect()
+  if (r.width === 0 || r.height === 0 || r.top < -10 || r.bottom > window.innerHeight + 10) return null
   return { x: r.left, y: r.top + r.height / 2, w: r.width }
 })
 if (linkBox) {
@@ -254,6 +294,15 @@ if (linkBtnExists) {
     await page.waitForTimeout(300)
   }
 } else {
+  const dbg = await page.evaluate(() => {
+    const root = document.querySelector('.rich-editor')
+    const leaves = root
+      ? Array.from(root.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote')).map((b) => (b.textContent || '').slice(0, 24))
+      : []
+    const sel = window.getSelection()
+    return { leaves, sel: sel ? sel.toString().slice(0, 24) : '' }
+  })
+  console.log('[diag] link-btn dbg = ' + JSON.stringify(dbg))
   check('点链接按钮弹出插入链接弹窗', false, '浮层里没找到链接按钮')
 }
 
@@ -267,11 +316,9 @@ if (outlineVisible) {
 }
 
 // 12. 状态栏行列号（曾经永久停在"行1,列1"：旧实现只认 textarea）
-const statusBefore = await page.evaluate(() => {
-  const el = document.querySelector('.editor-status-bar')
-  return el ? (el.textContent ?? '') : ''
-})
-// 输入多行内容，光标应移到第 3 行
+// 光标放进已知中间块后追加两行，再比较两个已知块的行号读数 ——
+// 全部按内容定位，不依赖打字落点的顺序状态（undo/斜杠命令的光标恢复是异步的）
+await caretToEndOf('ZZZ待撤销')
 await page.keyboard.press('Enter')
 await page.waitForTimeout(120)
 await page.keyboard.type('第二行', { delay: 15 })
@@ -279,6 +326,13 @@ await page.keyboard.press('Enter')
 await page.waitForTimeout(120)
 await page.keyboard.type('第三行', { delay: 15 })
 await page.waitForTimeout(600)
+// 读数对比改为「光标在前部块 vs 后部块」：行号必须不同（后 > 前）
+await caretToEndOf('列表项')
+const statusBefore = await page.evaluate(() => {
+  const el = document.querySelector('.editor-status-bar')
+  return el ? (el.textContent ?? '') : ''
+})
+await caretToEndOf('第三行')
 const statusAfter = await page.evaluate(() => {
   const el = document.querySelector('.editor-status-bar')
   return el ? (el.textContent ?? '') : ''
@@ -293,6 +347,21 @@ check(
   lineOf(statusAfter) > lineOf(statusBefore),
   `${lineOf(statusBefore)} → ${lineOf(statusAfter)}`,
 )
+if (!(lineOf(statusAfter) > lineOf(statusBefore))) {
+  // 诊断：失败时打出状态栏全文与光标所在块，定位是读数没更新还是打字落错了地方
+  const dbg = await page.evaluate(() => {
+    const el = document.querySelector('.editor-status-bar')
+    const sel = window.getSelection()
+    const node = sel && sel.anchorNode
+    const host = node ? (node.nodeType === 3 ? node.parentElement : node) : null
+    return {
+      status: el ? (el.textContent ?? '') : '',
+      anchorTag: host ? host.tagName + '.' + (host.className || '') : null,
+      anchorText: host ? (host.textContent || '').slice(0, 40) : null,
+    }
+  })
+  console.log('[diag] status-bar dbg = ' + JSON.stringify(dbg))
+}
 
 // 13. 粘贴图片（曾经静默无反应：只处理 text/plain，图片根本没被读出来）
 await page.keyboard.press('Enter')

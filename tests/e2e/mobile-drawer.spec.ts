@@ -18,10 +18,10 @@ test.describe('移动端导航抽屉', () => {
     await expect(page.locator('.mobile-nav-backdrop')).toBeVisible();
 
     // 视图切换入口在窄窗口下应可用
-    await expect(panel.getByRole('menuitem', { name: '开始' })).toBeVisible();
-    await expect(panel.getByRole('menuitem', { name: '收藏' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: '开始' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: '收藏' })).toBeVisible();
 
-    await panel.getByRole('menuitem', { name: '收藏' }).click();
+    await panel.getByRole('button', { name: '收藏' }).click();
     await expect(panel).toBeHidden();
   });
 
