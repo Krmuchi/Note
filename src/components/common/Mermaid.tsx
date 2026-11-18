@@ -133,7 +133,7 @@ export const Mermaid: React.FC<MermaidProps> = ({ code, className = '' }) => {
       <div style={{
         padding: '12px',
         background: 'var(--error-50, #fff3f3)',
-        border: '1px solid var(--error-300, #ffcdd2)',
+        border: '1px solid var(--error-100, #ffcdd2)',
         borderRadius: '6px',
         color: 'var(--error-600, #c62828)',
         fontSize: '14px',

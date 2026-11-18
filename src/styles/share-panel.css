@@ -390,7 +390,8 @@
 
 .share-export-btn:hover {
   background: var(--primary-500, var(--primary-color));
-  color: #fff;
+  /* 同 toast-action：主色底上的文字色跟主题走，不写死白字 */
+  color: var(--on-primary, #fff);
 }
 
 .share-link-meta {

@@ -351,7 +351,7 @@
 }
 
 /* ===== 窄屏：演讲者面板改为全覆盖，避免挤压幻灯片 ===== */
-@media (max-width: 900px) {
+@media (max-width: 992px) {
   .presentation-container {
     flex-direction: column-reverse;
   }

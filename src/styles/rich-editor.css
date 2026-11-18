@@ -183,7 +183,7 @@
   padding: 0.15em 0.4em;
   border-radius: var(--radius-sm, 4px);
   background: var(--bg-tertiary);
-  font-family: var(--font-mono, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace);
+  font-family: var(--font-family-mono, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace);
   font-size: 0.92em;
 }
 
@@ -399,7 +399,7 @@
 }
 
 /* 窄屏收回内边距与块提示（与 .editor-textarea 的断点一致） */
-@media (max-width: 900px) {
+@media (max-width: 992px) {
   .rich-editor {
     padding: var(--space-6) var(--space-4);
   }
@@ -471,7 +471,7 @@
 
 /* 键盘用户：浮层里的按钮也要有清晰的焦点态 */
 .selection-toolbar-btn:focus-visible {
-  outline: 2px solid var(--color-primary, #1677ff);
+  outline: 2px solid var(--primary-color, #1677ff);
   outline-offset: -2px;
 }
 
@@ -542,8 +542,14 @@
   outline: none;
 }
 
+.editor-doc-title:focus-visible {
+  /* A3：上面的 outline:none 把全局键盘焦点环也压掉了，键盘导航必须补回 */
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
+}
+
 /* 窄窗口下收窄边距，与正文的响应式规则保持一致 */
-@media (max-width: 900px) {
+@media (max-width: 992px) {
   .editor-doc-title {
     padding: var(--space-6) var(--space-4) var(--space-3);
   }
@@ -823,7 +829,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--text-tertiary);
-  font-family: var(--font-mono, Consolas, monospace);
+  font-family: var(--font-family-mono, Consolas, monospace);
   font-size: 11px;
   cursor: pointer;
 }
@@ -884,7 +890,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--text-secondary);
-  font-family: var(--font-mono, Consolas, monospace);
+  font-family: var(--font-family-mono, Consolas, monospace);
   font-size: 11px;
   text-align: left;
   cursor: pointer;

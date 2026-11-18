@@ -72,6 +72,11 @@
   --bg-elevated: #ffffff;
   --bg-overlay: rgba(0, 0, 0, 0.45);
   --bg-mask: rgba(0, 0, 0, 0.04);
+  /* 悬停/激活底色：全仓 14 处使用但此前从未定义 ——
+     trash.css / version-history.css 无 fallback 的直接失效（透明），
+     其余 fallback 是黑色半透明，暗色下不可见。各主题按明暗分别给值。 */
+  --bg-hover: rgba(0, 0, 0, 0.05);
+  --bg-active: rgba(0, 0, 0, 0.09);
   /* 画布底色：供外壳（.app-shell）使用，比卡片（--bg-primary）深一档，
      让圆角面板"浮"在画布上。每个主题都必须显式声明——暗色主题没有比
      --bg-primary 更深的 token，靠继承会失配。 */
@@ -216,6 +221,8 @@
   --bg-elevated: #2c2c2c;
   --bg-overlay: rgba(0, 0, 0, 0.65);
   --bg-mask: rgba(255, 255, 255, 0.06);
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  --bg-active: rgba(255, 255, 255, 0.14);
   --bg-canvas: #101010;
 
   --border-color: #434343;
@@ -380,11 +387,24 @@ a:hover {
   }
 }
 
-/* 系统要求"更高对比度"时，把弱化的边框与文字提一档 */
+/* 系统要求"更高对比度"时，把弱化的边框与文字提一档。
+   必须按主题拆开给值：此前只覆写 :root，与 [data-theme="dark"] 同特异性但更靠后，
+   暗色主题被强行换上深灰文字/黑色边框（暗底上仅 2.3:1，边框直接隐形）。 */
 @media (prefers-contrast: more) {
-  :root {
+  :root,
+  [data-theme="light"],
+  [data-theme="green"],
+  [data-theme="warm"],
+  [data-theme="deep-blue"] {
     --border-color: rgba(0, 0, 0, 0.34);
     --text-tertiary: #4b5563;
+  }
+
+  [data-theme="dark"],
+  [data-theme="purple-dark"],
+  [data-theme="green-dark"] {
+    --border-color: rgba(255, 255, 255, 0.34);
+    --text-tertiary: #c8c8d0;
   }
 
   :focus-visible {

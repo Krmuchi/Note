@@ -49,13 +49,12 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
   ];
 
   return (
-    <nav className="sidebar-nav" role="menubar">
+    <nav className="sidebar-nav" aria-label="主导航">
       {navItems.map(item => (
         <button
           key={item.id}
           className={`nav-item ${activeLeftMenu === item.id ? 'active' : ''}`}
           onClick={() => handleNavItemClick(item.id)}
-          role="menuitem"
           aria-current={activeLeftMenu === item.id ? 'page' : undefined}
           onMouseEnter={(e) => collapsed && onShowTooltip(item.label, e)}
           onMouseLeave={onHideTooltip}

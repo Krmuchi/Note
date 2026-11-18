@@ -81,7 +81,7 @@ describe('侧栏：开始页 ↔ 回收站 导航（P0-1 回归）', () => {
     expect(document.querySelector('.start-page')).toBeNull();
 
     // 切回开始页，再进一次回收站（两个状态没有被单向带偏）
-    fireEvent.click(screen.getByRole('menuitem', { name: '开始' }));
+    fireEvent.click(screen.getByRole('button', { name: '开始' }));
     await waitFor(() => expect(document.querySelector('.start-page')).not.toBeNull());
     expect(document.querySelector('.trash-panel')).toBeNull();
 

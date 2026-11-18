@@ -194,6 +194,9 @@ const DocTreeNodeInner: React.FC<DocTreeNodeProps> = ({
           onChange={(e) => setEditingTitle(e.target.value)}
           onBlur={handleSaveTitle}
           onKeyDown={(e) => {
+            // 输入框的按键不外冒：空格/方向键会被树键盘处理器劫持，
+            // Esc 也会连带关掉背后的面板（App 的 onEscape 链）
+            e.stopPropagation();
             if (e.key === 'Enter') handleSaveTitle();
             if (e.key === 'Escape') handleCancelTitle();
           }}

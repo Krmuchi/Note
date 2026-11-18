@@ -858,7 +858,7 @@
   transition: background var(--transition-fast);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 992px) {
   .editor-textarea {
     padding: var(--space-6) var(--space-4);
   }
@@ -977,7 +977,11 @@
 }
 
 .outline-item {
-  display: block;
+  /* flex 布局：.outline-item-level 的 margin-left:auto（H 级徽标右对齐）
+     在 block 容器里不生效，长标题还会把徽标一起裁掉 */
+  display: flex;
+  align-items: center;
+  gap: 4px;
   width: 100%;
   padding: var(--space-1) var(--space-4);
   border: none;
@@ -988,14 +992,30 @@
   cursor: pointer;
   transition: all var(--transition-fast);
   line-height: var(--line-height-relaxed);
-  white-space: nowrap;
+}
+
+/* 标题文本自身做省略号裁剪（flex 子项需要 min-width:0 才能收缩） */
+.outline-item-text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .outline-item:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+/* 旧内核懒加载占位（Editor.LegacyEditorFallback）：
+   撑住编辑器区域高度，避免切换瞬间布局塌陷 */
+.editor-content-loading {
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 当前阅读位置所在章节（跟随滚动高亮，对齐语雀大纲的行为）。
