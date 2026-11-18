@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-18
+
 ### 修复
 
 - **侧栏「回收站」在开始页/小记/标签页点了没反应**：`activeLeftMenu` 与 `activeView`

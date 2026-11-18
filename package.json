@@ -1,7 +1,7 @@
 {
   "name": "notes",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "本地优先的桌面笔记应用：知识库 → 文档树 → Markdown 编辑",
   "author": "笔记",
   "type": "module",
