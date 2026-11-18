@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import path from 'node:path'
 import {
   BACKUP_DIR_NAME,
@@ -19,10 +19,30 @@ const inside = path.join(base, 'nested')
 const sibling = path.resolve('C:/Users/test/Documents/notes-data')
 const parent = path.resolve('C:/Users/test/AppData/Roaming')
 
+const ORIGINAL_PLATFORM = process.platform
+
+/** 临时改写 process.platform（可配置属性），测完恢复 —— 让两个分支在任何宿主上都能被测到 */
+function stubPlatform(platform: string): void {
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+}
+
+afterEach(() => {
+  stubPlatform(ORIGINAL_PLATFORM)
+})
+
 describe('isSameDir / isInside', () => {
-  it('同一路径（含大小写差异）判为相同', () => {
+  // 旧版把 Windows 的"大小写不敏感"语义写死在断言里，在 Linux CI 上必挂
+  // （normalizeForCompare 只在 win32 归一化大小写 —— POSIX 本就大小写敏感，实现是对的）
+  it('win32：同一路径（含大小写差异）判为相同', () => {
+    stubPlatform('win32')
     expect(isSameDir(base, base)).toBe(true)
     expect(isSameDir(base, base.toUpperCase())).toBe(true)
+  })
+
+  it('POSIX：大小写不同即不同目录', () => {
+    stubPlatform('linux')
+    expect(isSameDir(base, base)).toBe(true)
+    expect(isSameDir(base, base.toUpperCase())).toBe(false)
   })
 
   it('子路径判为在内部', () => {
