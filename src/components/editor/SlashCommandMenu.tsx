@@ -70,6 +70,19 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   const activeIndex = nav.query === query ? nav.index : 0;
   const setActiveIndex = useCallback((index: number) => setNav({ query, index }), [query]);
   const listRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // 点外部关闭：工具栏按钮的 mousedown 会 preventDefault 保选区、不触发 selectionchange，
+  // 此前菜单只能靠键盘关闭 —— 残留的菜单会在下一次 Enter 把命令执行到旧光标位置
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent): void => {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      onClose();
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [onClose]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent): void => {
@@ -119,7 +132,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
 
   if (matched.length === 0) {
     return (
-      <div className="slash-menu" style={{ top: position.top, left: position.left }} role="listbox">
+      <div ref={menuRef} className="slash-menu" style={{ top: position.top, left: position.left }} role="listbox">
         <div className="slash-empty">无匹配命令</div>
       </div>
     );
@@ -127,6 +140,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
 
   return (
     <div
+      ref={menuRef}
       className="slash-menu"
       style={{ top: position.top, left: position.left }}
       role="listbox"

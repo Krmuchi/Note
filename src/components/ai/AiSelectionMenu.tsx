@@ -55,17 +55,21 @@ export default function AiSelectionMenu({ selection, position, onApply, onClose 
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        // capture 阶段拦截：浮层自己消费 Esc，一次按键不再连带关掉背后的面板
+        event.stopPropagation()
+        onClose()
+      }
     }
     const handleMouseDown = (event: MouseEvent): void => {
       const target = event.target as Node | null
       if (panelRef.current && target && panelRef.current.contains(target)) return
       onClose()
     }
-    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('keydown', handleKeyDown, true)
     document.addEventListener('mousedown', handleMouseDown)
     return () => {
-      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('keydown', handleKeyDown, true)
       document.removeEventListener('mousedown', handleMouseDown)
     }
   }, [onClose])

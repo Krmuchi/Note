@@ -53,10 +53,14 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
   useEffect(() => {
     if (!showBackupList) return;
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setShowBackupList(false);
+      if (e.key === 'Escape') {
+        // capture 阶段拦截：一次 Esc 只关备份面板，不再冒泡去关背后的全局面板
+        e.stopPropagation();
+        setShowBackupList(false);
+      }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [showBackupList]);
 
   const handleOpenBackupList = useCallback(() => {

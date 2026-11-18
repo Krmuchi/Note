@@ -25,9 +25,10 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
   onHideTooltip,
   onExpand,
 }) => {
-  const { notebooks, activeNotebookId, createNotebook, deleteNotebook, updateNotebookTitle, updateNotebookIcon, setActiveNotebookId, setActiveDocId } = useNotesStore(useShallow((s) => ({
+  const { notebooks, activeNotebookId, activeDocId, createNotebook, deleteNotebook, updateNotebookTitle, updateNotebookIcon, setActiveNotebookId, setActiveDocId } = useNotesStore(useShallow((s) => ({
     notebooks: s.notebooks,
     activeNotebookId: s.activeNotebookId,
+    activeDocId: s.activeDocId,
     createNotebook: s.createNotebook,
     deleteNotebook: s.deleteNotebook,
     updateNotebookTitle: s.updateNotebookTitle,
@@ -51,8 +52,12 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
     onLeftMenuChange('notebooks');
     onViewChange('notebooks');
     setActiveNotebookId(notebook.id);
-    setActiveDocId(notebook.docs[0]?.id ?? '');
-  }, [collapsed, onExpand, onLeftMenuChange, onViewChange, setActiveNotebookId, setActiveDocId]);
+    // 只有当正在编辑的文档不在这个知识库时才切文档；
+    // 否则点头会把编辑器从当前文档踢到 docs[0]（还顺带多开一个标签页）
+    if (!notebook.docs.some((d) => d.id === activeDocId)) {
+      setActiveDocId(notebook.docs[0]?.id ?? '');
+    }
+  }, [collapsed, onExpand, onLeftMenuChange, onViewChange, setActiveNotebookId, setActiveDocId, activeDocId]);
 
   const handleStartRenameNotebook = useCallback((notebook: Notebook) => {
     setEditingNotebookId(notebook.id);
@@ -119,9 +124,8 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
 
             return (
               <div key={notebook.id} className="notebook-group">
-                <button
+                <div
                   className={`notebook-header ${isActive ? 'active' : ''}`}
-                  onClick={() => handleNotebookClick(notebook)}
                   onMouseEnter={(e) => {
                     setHoveredNotebook(notebook.id);
                     if (collapsed) {
@@ -132,7 +136,25 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
                     setHoveredNotebook(null);
                     onHideTooltip();
                   }}
+                  onContextMenu={(e) => {
+                    // 右键行 = 与「⋯」同一组操作（此前右键什么都打不开）
+                    e.preventDefault();
+                    setNotebookContextMenu({ x: e.clientX, y: e.clientY, notebookId: notebook.id });
+                  }}
                 >
+                  <button
+                    type="button"
+                    className="notebook-header-main"
+                    onClick={() => handleNotebookClick(notebook)}
+                    onKeyDown={(e) => {
+                      // Shift+F10 / 菜单键：键盘用户也能打开知识库操作菜单
+                      if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+                        e.preventDefault();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setNotebookContextMenu({ x: rect.left + 32, y: rect.bottom, notebookId: notebook.id });
+                      }
+                    }}
+                  >
                   <span className="notebook-icon" aria-hidden="true">
                     {notebook.icon ? (
                       // 自定义图标用 emoji：无需图片资源与落盘路径，与"零新增依赖"一致
@@ -151,6 +173,8 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
                       onChange={(e) => setEditingNotebookTitle(e.target.value)}
                       onBlur={handleSaveNotebookTitle}
                       onKeyDown={(e) => {
+                        // 重命名输入的按键不外冒：Esc 取消不应连带关掉背后的面板
+                        e.stopPropagation();
                         if (e.key === 'Enter') handleSaveNotebookTitle();
                         if (e.key === 'Escape') setEditingNotebookId(null);
                       }}
@@ -160,22 +184,27 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
                     <span className="notebook-name">{notebook.title}</span>
                   )}
                   {!isEditing && <span className="notebook-count">{notebook.docs.length}</span>}
+                  </button>
                   {!isEditing && (
-                    <span
+                    <button
+                      type="button"
                       className={`notebook-more-btn ${hoveredNotebook === notebook.id ? 'visible' : ''}`}
+                      aria-label={`${notebook.title} 的操作`}
+                      title="更多操作"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setNotebookContextMenu({ x: e.clientX, y: e.clientY, notebookId: notebook.id });
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setNotebookContextMenu({ x: rect.left, y: rect.bottom, notebookId: notebook.id });
                       }}
                     >
-                      <svg viewBox="0 0 24 24" fill="currentColor">
+                      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                         <circle cx="12" cy="5" r="1.5" />
                         <circle cx="12" cy="12" r="1.5" />
                         <circle cx="12" cy="19" r="1.5" />
                       </svg>
-                    </span>
+                    </button>
                   )}
-                </button>
+                </div>
               </div>
             );
           })}

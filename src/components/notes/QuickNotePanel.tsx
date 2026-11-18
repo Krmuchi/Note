@@ -153,6 +153,8 @@ export default function QuickNotePanel(): JSX.Element {
                     value={editingContent}
                     onChange={(e) => setEditingContent(e.target.value)}
                     onKeyDown={(e) => {
+                      // 编辑框的按键不外冒：Esc 取消编辑不应连带关掉背后的面板
+                      e.stopPropagation();
                       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                         e.preventDefault();
                         handleSaveEdit();

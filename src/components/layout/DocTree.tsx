@@ -201,6 +201,9 @@ export const DocTree: React.FC<DocTreeProps> = ({
   const startRename = useCallback((docId: string) => {
     setEditingDocId(docId);
     setContextMenu(null);
+    // 重命名期间树焦点同步到该节点：右键菜单路径此前不更新 focusedDocId，
+    // Enter 保存后树的 Enter 分支会把编辑器切到 focusedDocId ?? 第 0 行的另一篇文档
+    setFocusedDocId(docId);
   }, []);
 
   const endRename = useCallback(() => {
@@ -209,9 +212,24 @@ export const DocTree: React.FC<DocTreeProps> = ({
 
   const handleDelete = useCallback((docId: string) => {
     if (!activeNotebookId) return;
-    moveDocToTrash(activeNotebookId, docId);
     setContextMenu(null);
-  }, [activeNotebookId, moveDocToTrash]);
+    // 与批量删除/清空回收站一致的确认交互：单删此前无确认、无反馈、无撤销，
+    // hover 行点删除就直接消失，误触不可恢复（只能去回收站手动找）
+    const doc = activeNotebook?.docs.find((d) => d.id === docId);
+    confirmAction({
+      title: '删除文档',
+      message: `确定要将「${doc?.title || '未命名文档'}」移入回收站吗？可在回收站里恢复。`,
+      confirmText: '移入回收站',
+      variant: 'danger',
+      onConfirm: () => {
+        moveDocToTrash(activeNotebookId, docId);
+        toastWithUndo('已将文档移入回收站', () => {
+          restoreFromTrash(docId);
+          toast.info('已从回收站恢复');
+        });
+      },
+    });
+  }, [activeNotebookId, activeNotebook, moveDocToTrash, restoreFromTrash]);
 
   const handleMove = useCallback((docId: string) => {
     onMoveRequest(docId);
@@ -595,6 +613,13 @@ export const DocTree: React.FC<DocTreeProps> = ({
   }, []);
 
   const handleTreeKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // 行内输入（重命名 input 等）的按键不归树管：空格要能打出来、方向键要移光标。
+    // 否则按键冒泡到这里被 preventDefault + 树语义劫持（空格变展开/收起、
+    // 方向键变树导航、Enter 变打开文档）。
+    const target = e.target as HTMLElement;
+    if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
     if (flatDocList.length === 0) return;
     const index = focusedIndex >= 0 ? focusedIndex : 0;
     const current = flatDocList[index]?.doc;

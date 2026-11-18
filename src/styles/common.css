@@ -129,7 +129,8 @@
 
 .toast-action:hover {
   background: var(--primary-color, #1677ff);
-  color: #fff;
+  /* 主色底上的文字色跟主题走：写死 #fff 在暗色浅蓝/暖色橙主色上只有 ~2.2:1 */
+  color: var(--on-primary, #fff);
 }
 
 .loading-container {

@@ -109,6 +109,15 @@ export const TabBar: React.FC<TabBarProps> = ({ onActivate }) => {
         if (!closing) return;
         const next = closeTab(closing);
         if (next) onActivate(next.notebookId, next.docId);
+        // 焦点跟随到新的激活标签：关闭的元素即将卸载，
+        // 不显式移动的话焦点掉到 body，方向键导航随之失效
+        requestAnimationFrame(() => {
+          const key = next ? tabKey(next) : null;
+          const target = key
+            ? listRef.current?.querySelector<HTMLElement>(`[data-tab-key="${key}"]`)
+            : null;
+          (target ?? listRef.current?.querySelector<HTMLElement>('[role="tab"]'))?.focus();
+        });
         break;
       }
       default:
@@ -151,6 +160,9 @@ export const TabBar: React.FC<TabBarProps> = ({ onActivate }) => {
             <button
               type="button"
               className="doc-tab-close"
+              /* tablist 的 roving tabindex 模型：关闭钮不进 Tab 序，
+                 键盘等价操作是聚焦标签后按 Delete */
+              tabIndex={-1}
               onClick={(e) => handleClose(e, tab)}
               aria-label={`关闭 ${meta.title}`}
               title="关闭标签"

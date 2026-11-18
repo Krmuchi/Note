@@ -743,6 +743,23 @@
   flex-shrink: 0;
 }
 
+/* 主行按钮：承载打开知识库的点击/键盘语义，视觉上与行容器一体 */
+.notebook-header-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
 .notebook-more-btn {
   width: 20px;
   height: 20px;
@@ -754,6 +771,15 @@
   transition: opacity var(--transition-fast);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+/* 悬停行或键盘聚焦到行内元素时都要露出「⋯」，键盘用户才看得见操作入口 */
+.notebook-header:hover .notebook-more-btn,
+.notebook-header:focus-within .notebook-more-btn {
+  opacity: 1;
 }
 
 .notebook-more-btn:hover {
