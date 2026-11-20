@@ -10,6 +10,7 @@ import { debounce } from "@/utils/debounce";
 import {
   consumeTagSearch,
   getPrimarySearchTerm,
+  SEARCH_TOP_K,
   sortSearchHistory,
 } from "@/store/slices/searchSlice";
 import { requestSearchJump } from "@/utils/searchJump";
@@ -20,7 +21,7 @@ import SearchFilters from "./SearchFilters";
 import SearchSuggestions from "./SearchSuggestions";
 import SearchHistory from "./SearchHistory";
 import SearchResults from "./SearchResults";
-import { IconSearch } from "@/components/common/Icon";
+import { IconFilter, IconSearch } from "@/components/common/Icon";
 
 /**
  * 搜索面板属性接口
@@ -30,7 +31,7 @@ interface SearchPanelProps {
   onClose: () => void; // 关闭回调
 }
 
-/** P1-6：每页显示的结果数。结果全量取回、按这个步长展示「加载更多」 */
+/** P1-6：每页显示的结果数。结果按 top-K（SEARCH_TOP_K）取回、按这个步长展示「加载更多」 */
 const RESULT_PAGE = 50;
 
 /**
@@ -45,7 +46,7 @@ const hasScopeFilter = (filter: SearchFilter): boolean =>
  */
 export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): React.JSX.Element | null {
   const {
-    search,
+    searchWithTotal,
     getSearchSuggestions,
     addSearchHistory,
     clearSearchHistory,
@@ -56,7 +57,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
     searchHistory,
     setActiveNotebookId,
   } = useNotesStore(useShallow((s) => ({
-    search: s.search,
+    searchWithTotal: s.searchWithTotal,
     getSearchSuggestions: s.getSearchSuggestions,
     addSearchHistory: s.addSearchHistory,
     clearSearchHistory: s.clearSearchHistory,
@@ -70,6 +71,8 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
+  /** 未截断的命中总数（可能大于 results.length —— 被 top-K 截断时），结果头计数用 */
+  const [resultTotal, setResultTotal] = useState(0);
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -108,6 +111,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
     // 空关键词 + 无任何范围约束时才直接清空；只按标签/日期筛允许空关键词（P1-9 按标签看文档）
     if (!searchQuery.trim() && !hasScopeFilter(searchFilters)) {
       setResults([]);
+      setResultTotal(0);
       setShowResults(false);
       setIsSearching(false);
       return;
@@ -116,12 +120,13 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
     // 让 spinner 先渲染一帧再执行同步搜索，否则 isSearching 一帧内被复位，用户永远看不到加载反馈
     window.setTimeout(() => {
       /*
-       * P1-6：全量取回（search 内部本来就先算完全部命中，再 slice），
-       * 界面用 visibleCount 分页显示。旧实现用默认 limit=50 直接截断，
-       * 结果头却写「找到 50 条」—— 既是错的计数，也没有任何「还有更多」的出口。
+       * P1-6：取回 top-K（SEARCH_TOP_K）而不是全量 —— search 是流式 top-K，
+       * 命中再多也只保留分数最高的前 K 条；界面用 visibleCount 在 K 条内分页显示。
+       * total 是未截断的命中总数，交给结果头「共 N 条」如实报数。
        */
-      const searchResults = search(searchQuery, searchFilters, Number.MAX_SAFE_INTEGER);
+      const { results: searchResults, total } = searchWithTotal(searchQuery, searchFilters, SEARCH_TOP_K);
       setResults(searchResults);
+      setResultTotal(total);
       setVisibleCount(RESULT_PAGE);
       setShowResults(true);
       setShowSuggestions(false);
@@ -129,7 +134,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
       // P1-5：出结果默认选中第 0 条，回车即打开（与 Ctrl+P 面板行为一致）
       setActiveIndex(searchResults.length > 0 ? 0 : -1);
     }, 0);
-  }, [search])
+  }, [searchWithTotal])
 
   const debouncedSearch = useMemo(
     () => debounce((q: string, f: SearchFilter) => performSearch(q, f), 400),
@@ -167,6 +172,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
       // 取消挂起的防抖搜索，否则清空输入后旧关键词的结果仍会弹出来
       debouncedSearch.cancel?.();
       setResults([]);
+      setResultTotal(0);
       setShowResults(false);
       setIsSearching(false);
       setShowSuggestions(false);
@@ -221,16 +227,18 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
 
     setIsSearching(true);
     window.setTimeout(() => {
-      const searchResults = search(q, activeFilters, Number.MAX_SAFE_INTEGER);
+      // 同 performSearch：只取 top-K，计数取未截断的命中总数
+      const { results: searchResults, total } = searchWithTotal(q, activeFilters, SEARCH_TOP_K);
       setResults(searchResults);
+      setResultTotal(total);
       setVisibleCount(RESULT_PAGE);
       setShowResults(true);
       setShowSuggestions(false);
       setIsSearching(false);
       // P1-5：默认选中第 0 条，回车直接打开；没有结果时保持 -1
       setActiveIndex(searchResults.length > 0 ? 0 : -1);
-      // 纯标签浏览不写搜索历史（没有关键词可记）
-      if (q) addSearchHistory(q, searchResults.length);
+      // 纯标签浏览不写搜索历史（没有关键词可记）；历史里的计数也记真实命中数
+      if (q) addSearchHistory(q, total);
     }, 0);
   };
 
@@ -385,6 +393,20 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
   };
 
   /**
+   * 加载更多 / 滚到底续载：先翻一页（+RESULT_PAGE）；若已显示的都来自已取回结果、
+   * 而命中还没取完（已达 top-K 上限），就从 store 再取下一批 —— offset = 已取回条数，
+   * 同一排序接着取 SEARCH_TOP_K 条。批内就是全量排序的下一段名次，追加后天然连续。
+   */
+  const handleLoadMore = useCallback((): void => {
+    if (visibleCount >= results.length && results.length < resultTotal) {
+      const batch = searchWithTotal(query, filters, SEARCH_TOP_K, results.length);
+      // 非函数式 setState：滚动事件连发导致重复触发时，同一 offset 的批次幂等覆盖，不会重复追加
+      setResults([...results, ...batch.results]);
+    }
+    setVisibleCount((count) => count + RESULT_PAGE);
+  }, [visibleCount, results, resultTotal, query, filters, searchWithTotal]);
+
+  /**
    * 从搜索结果返回建议列表并重新聚焦输入框
    */
   const handleBackToSuggestions = (): void => {
@@ -446,7 +468,7 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
             className="search-filter-btn"
             onClick={() => setShowFilters(!showFilters)}
           >
-            ⚙️ 筛选
+            <IconFilter size={14} /> 筛选
           </button>
           
           <button className="search-close" onClick={onClose}>×</button>
@@ -513,11 +535,12 @@ export default function SearchPanel({ isOpen, onClose }: SearchPanelProps): Reac
         {showResults && (
           <SearchResults
             results={results}
+            total={resultTotal}
             query={query}
             tags={tags}
             activeIndex={activeIndex}
             visibleCount={visibleCount}
-            onLoadMore={() => setVisibleCount((count) => count + RESULT_PAGE)}
+            onLoadMore={handleLoadMore}
             onResultClick={handleResultClick}
             onBack={handleBackToSuggestions}
           />

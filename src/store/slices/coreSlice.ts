@@ -2,7 +2,7 @@ import type { StateCreator } from 'zustand'
 import type { NoteDoc, Notebook, TrashDoc, AppStore } from '@/types'
 import type { NotesStore } from '@/store/types'
 import { newId } from '@/store/storeUtils'
-import { pushAutoVersion } from '@/store/docVersions'
+import { pushAutoVersion, enforceGlobalVersionBudget } from '@/store/docVersions'
 import { collectSubtreeIds } from '@/utils/docSort'
 import { loadAppStore, saveAppStore } from '@/services/storage'
 import { toast } from '@/services/toast'
@@ -15,6 +15,22 @@ function detachAndReparent(docs: NoteDoc[], docId: string, parentId: NoteDoc['pa
   return docs
     .filter(d => d.id !== docId)
     .map(d => d.parentId === docId ? { ...d, parentId } : d)
+}
+
+/**
+ * 回收站条目瘦身：版本快照只保留最新 1 份（优先手动版本）。
+ *
+ * 回收站条目此前是完整文档副本（正文 + 全部版本快照 + 评论 + 分享）——
+ * 把几百篇文档批量删进回收站等于库体积翻倍，直接把 notes:save 顶过 50MB 上限，
+ * 变成「一删就永久存不下去」。正文与评论保留（误删恢复要靠它们）；
+ * 版本快照从 50 份砍到 1 份，误删恢复后仍有最后一个版本可回溯，
+ * 更早的历史本来就在自动备份里。
+ */
+function slimVersionsForTrash(doc: NoteDoc): NoteDoc['versions'] {
+  const versions = doc.versions || []
+  if (versions.length <= 1) return versions
+  const manual = versions.find(v => v.type === 'manual')
+  return [manual ?? versions[0]]
 }
 
 /**
@@ -254,6 +270,25 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
       }
     }
 
+    /*
+     * 保存前先做全库版本预算裁剪（P0：50MB payload 上限 vs 无全库上限的版本预算）。
+     *
+     * 版本快照此前只有单篇 8MB 预算：几百篇文档各自带几 MB 快照就能把 payload
+     * 顶过 electron/ipc/shared.mjs 的 50MB 硬上限，保存**永久失败**且重试只裁
+     * 单篇数量不看全库总量、必然再失败。现在保存前把全库版本区压回 32MB 预算内，
+     * 从最旧的自动快照开始丢（手动版本每篇至少留 1 份），正常库根本碰不到这一步。
+     */
+    try {
+      let droppedCount = 0
+      set((state) => { droppedCount = enforceGlobalVersionBudget(state.notebooks) })
+      if (droppedCount > 0) {
+        toast.info('版本快照超出总量预算，已清理最旧的 ' + droppedCount + ' 份自动快照以保证保存成功')
+      }
+    } catch (budgetError) {
+      // 预算裁剪失败不阻断保存：继续走原路径，失败还有裁剪重试兜底
+      console.error('Failed to enforce global version budget:', budgetError)
+    }
+
     set({ saveStatus: 'saving' })
     try {
       await saveAppStore(readPayload())
@@ -267,7 +302,11 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
         // 裁剪必须包在 set 的 immer 草稿里：get() 的 state 是深度冻结的，
         // 直接对它赋值会抛 TypeError 并逃逸出 saveNotes，saveStatus 永远停在
         // 'saving'，useAutoSave 既不重试也不提示，失败被静默吞掉。
-        set((state) => { trimVersionsInDraft(state, 10) })
+        // 双管齐下：先把单篇数量压到 10 份，再跑一遍全库字节预算。
+        set((state) => {
+          trimVersionsInDraft(state, 10)
+          enforceGlobalVersionBudget(state.notebooks)
+        })
       } catch (trimError) {
         // 裁剪本身失败也必须继续走重试/报错分支，不能中断状态收口
         console.error('Failed to trim versions before retry:', trimError)
@@ -280,6 +319,16 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
     } catch (retryError) {
       console.error('Failed to save notes after retry:', retryError)
       set({ saveStatus: 'error' })
+      /*
+       * 裁剪后仍然失败 = 库正文本身就超过 50MB payload 上限（版本已无从再裁）。
+       * 此时必须给出**明确出路**，而不是让用户对着「保存失败」干瞪眼：
+       * 1) 设置 → 备份 里清理/导出后归档部分内容；
+       * 2) 磁盘满 / 文件被占用也会走到这里，提示一并覆盖。
+       */
+      const reason = retryError instanceof Error ? retryError.message : String(retryError)
+      if (/太大|过大|超过上限|too large|exceeds/i.test(reason)) {
+        toast.error('笔记总量超过保存上限（50MB），已自动清理版本快照仍不足。请到「设置 → 备份」导出备份后归档部分文档', 10000)
+      }
     }
   },
 
@@ -330,6 +379,7 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
 
       const docsToTrash = target.docs.map(doc => ({
         ...doc,
+        versions: slimVersionsForTrash(doc),
         parentId: null,
         originalParentId: doc.parentId ?? null,
         updatedAt: new Date().toISOString(),
@@ -400,15 +450,23 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
       // parentId 环防御（第二道保险，第一道在拖拽 hook）：新的父级不能是自己或自己的后代，
       // 否则文档树渲染会无限递归
       if (updates.parentId) {
+        // 先单趟建 id → parentId 索引（O(n)），再沿祖先链判定（O(深度)）。
+        // 旧写法每上溯一层就 notebook.docs.find 一次，是 O(深度 × n)：
+        // 深文档树 + 大库时每次改 parentId 都要整库扫几十遍。
+        const parentOf = new Map<string, string | null>()
+        for (const d of notebook.docs) parentOf.set(d.id, d.parentId ?? null)
+
         let cursorId: string | null = updates.parentId
         const seen = new Set<string>()
         while (cursorId && !seen.has(cursorId)) {
           if (cursorId === docId) {
+            // 自己是自己的后代（含"父级填成自己"）→ 禁止，退回无父
             updates = { ...updates, parentId: null }
             break
           }
           seen.add(cursorId)
-          cursorId = notebook.docs.find(d => d.id === cursorId)?.parentId ?? null
+          // 不在本库文档里的 id（跨知识库 / 已删除）取不到 → 视作无父，安全放行
+          cursorId = parentOf.get(cursorId) ?? null
         }
       }
 
@@ -475,6 +533,7 @@ export const createCoreSlice: CoreSliceCreator = (set, get) => ({
 
       state.trash.push({
         ...doc,
+        versions: slimVersionsForTrash(doc),
         updatedAt: new Date().toISOString(),
         parentId: null,
         originalParentId: doc.parentId ?? null,

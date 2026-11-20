@@ -5,6 +5,7 @@
 import type { JSX } from 'react'
 import type { DocVersion } from '@/types'
 import { computeDiff } from '@/utils/diff'
+import { IconSearch } from '@/components/common/Icon'
 
 interface VersionDiffViewProps {
   versions: DocVersion[];                       // 可选的历史版本列表
@@ -33,7 +34,7 @@ export default function VersionDiffView({
     if (!selectedVersion && !compareVersion) {
       return (
         <div className="version-empty">
-          <span className="version-empty-icon">🔍</span>
+          <span className="version-empty-icon"><IconSearch size={32} /></span>
           <span className="version-empty-text">
             先在左侧列表选一个版本，点「设为对比基准」，再选另一个版本即可对比
           </span>
@@ -43,7 +44,7 @@ export default function VersionDiffView({
     if (!compareVersion) {
       return (
         <div className="version-empty">
-          <span className="version-empty-icon">🔍</span>
+          <span className="version-empty-icon"><IconSearch size={32} /></span>
           <span className="version-empty-text">
             已选当前版本，请在上方下拉选择要对比的历史版本（或点「设为对比基准」固定当前版本）
           </span>
@@ -53,7 +54,7 @@ export default function VersionDiffView({
     if (!selectedVersion) {
       return (
         <div className="version-empty">
-          <span className="version-empty-icon">🔍</span>
+          <span className="version-empty-icon"><IconSearch size={32} /></span>
           <span className="version-empty-text">
             已固定对比基准，请在左侧列表选择另一个版本作为当前版本
           </span>

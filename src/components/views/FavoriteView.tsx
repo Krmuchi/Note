@@ -7,7 +7,7 @@ import { uiActions, useUIState } from '@/hooks/useUIState'
 import { recordRecentView } from '@/services/recentViews'
 import { Editor } from '@/components/editor/Editor'
 import { EmptyState } from '@/components/common/EmptyState'
-import { IconSearch, IconStar } from '@/components/common/Icon'
+import { IconClose, IconDocument, IconFolder, IconSearch, IconStar } from '@/components/common/Icon'
 
 type SortType = 'updated' | 'created' | 'name' | 'notebook'
 type GroupType = 'none' | 'notebook'
@@ -129,7 +129,7 @@ export default function FavoriteView({
       <aside className="docs-sidebar">
         <div className="docs-header">
           <div className="docs-title-row">
-            <span className="docs-icon">⭐</span>
+            <span className="docs-icon" aria-hidden="true"><IconStar size={16} /></span>
             <span className="docs-title">收藏</span>
             <span className="docs-count">{favoriteDocs.length}</span>
           </div>
@@ -196,12 +196,13 @@ export default function FavoriteView({
                   ? [
                       {
                         label: '去文档树收藏',
-                        icon: '📄',
+                        icon: <IconDocument size={14} />,
                         variant: 'primary',
                         onClick: onGoToDocs,
                       },
                     ]
-                  : undefined
+                  // 显式空数组：没有 onGoToDocs 回调时无出口可给（而非省略整个字段）
+                  : []
               }
             />
           ) : filteredDocs.length === 0 ? (
@@ -215,7 +216,7 @@ export default function FavoriteView({
               actions={[
                 {
                   label: '清除搜索',
-                  icon: '✕',
+                  icon: <IconClose size={14} />,
                   variant: 'secondary',
                   onClick: () => setFavoriteQuery(''),
                 },
@@ -226,7 +227,7 @@ export default function FavoriteView({
               <div key={groupName} className="favorite-group">
                 {groupBy !== 'none' && (
                   <div className="favorite-group-header">
-                    <span className="favorite-group-icon">📁</span>
+                    <span className="favorite-group-icon" aria-hidden="true"><IconFolder size={16} /></span>
                     <span className="favorite-group-name">{groupName}</span>
                     <span className="favorite-group-count">{docs.length}</span>
                   </div>

@@ -214,6 +214,14 @@
   outline-offset: 1px;
 }
 
+/* 触屏命中区：select 是表单控件、不渲染伪元素，无法用 ::after 扩热区；
+   桌面视觉保持 24px 不变，触屏（hover: none）把命中高度抬到 32px。 */
+@media (hover: none) {
+  .docs-sort-select {
+    min-height: 32px;
+  }
+}
+
 /* ---- 便签行内按钮：改用 SVG 后需要统一尺寸与描边色（V2） ---- */
 
 .quick-note-action-btn svg {
@@ -296,7 +304,7 @@
 }
 
 .backlinks-caret {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-tertiary);
 }
 

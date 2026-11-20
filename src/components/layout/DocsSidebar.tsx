@@ -6,7 +6,8 @@ import { ContextMenu } from '@/components/common/ContextMenu';
 import { toast, toastWithUndo } from '@/components/common/Toast';
 import { setPendingBatchUndo, undoBatch } from '@/utils/batchUndo';
 import { EmptyState } from '@/components/common/EmptyState';
-import { IconDocument, IconChevronRight } from '@/components/common/Icon';
+import { PanelBoundary } from '@/components/common/LazyLoader';
+import { IconDocument, IconChevronRight, IconPlus } from '@/components/common/Icon';
 import { Loading } from '@/components/common/Loading';
 import {
   DOC_SORT_MODES,
@@ -18,11 +19,134 @@ import {
 } from '@/utils/docSort';
 import { flattenDocs } from '@/utils/docNavigation';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { applyTemplateVars } from '@/utils/templateVars';
+import type { NoteDoc, Notebook } from '@/types';
 import type { Template } from '@/types/templates';
 
 // 模板中心体积不小（内置模板数据 + Markdown 预览），只在真正点开时才加载
 const TemplateCenter = lazy(() => import('@/components/templates/TemplateCenter'));
+
+/* ============================================================
+   文档树结构投影（击键期性能）
+   ============================================================ */
+
+/**
+ * DocsSidebar/DocTree 只消费文档的树字段 {id, title, parentId, updatedAt, pinned,
+ * favorite, tags}（Notebook 另加 {id, title, icon}）。**正文 content 不参与比较**：
+ * 击键时 coreSlice.updateDoc 会写入新 content（对象引用全换），但树上什么都看不见 ——
+ * 按引用比较会让 DocsSidebar/DocTree 随每次击键整树重渲染，DocTree 的 5 个 useMemo
+ * （childrenMap/matchedIds/visibleIds/flatDocList/docIndexMap）全部失效重算，
+ * 1000 篇规模下每击键数百 ms。
+ *
+ * 做法：模块级「结构投影」缓存 —— 树字段没变就复用上一份投影对象（引用稳定），
+ * 订阅端（useShallow）识别为"无变化"，整条渲染链保持安静。沿用 selectActiveDoc 的
+ * 「派生 selector」惯例（src/store/index.ts）。
+ *
+ * 两个有意为之的语义：
+ * 1) 投影对象是完整 NoteDoc 的**快照副本**，content 等树外字段停留在上次投影刷新时
+ *    的值，**不保证新鲜** —— 需要正文的逻辑（如批量导出）必须改读 useNotesStore.getState()；
+ * 2) updatedAt 按**分钟桶**比较（与 formatRelativeTime 的显示粒度一致）：updateDoc
+ *    对任何修改都 bump updatedAt（含正文击键），严格相等会让击键仍然失效；分钟桶让
+ *    同一分钟内的连续击键完全安静，同时保留"编辑过的文档立刻跳到按时间排序的顶部"
+ *    （编辑旧文档必然跨桶，立即刷新）。
+ */
+const MINUTE_MS = 60_000;
+
+/** updatedAt 的分钟桶：跨桶才认为"树可见的时间"变了（显示粒度＝分钟） */
+function updatedAtBucket(iso: string): number {
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? Number.NaN : Math.floor(t / MINUTE_MS);
+}
+
+function sameTags(a: string[], b: string[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((tag, i) => tag === b[i]);
+}
+
+interface DocProjection {
+  source: NoteDoc;
+  projected: NoteDoc;
+}
+
+const docProjections = new Map<string, DocProjection>();
+
+/** 单篇文档的结构投影：树字段没变就复用旧对象（含旧 content 快照） */
+function projectDoc(doc: NoteDoc): NoteDoc {
+  const cached = docProjections.get(doc.id);
+  if (cached && cached.source === doc) return cached.projected;
+  if (
+    cached &&
+    cached.source.title === doc.title &&
+    cached.source.parentId === doc.parentId &&
+    cached.source.pinned === doc.pinned &&
+    cached.source.favorite === doc.favorite &&
+    sameTags(cached.source.tags, doc.tags) &&
+    cached.source.createdAt === doc.createdAt &&
+    updatedAtBucket(cached.source.updatedAt) === updatedAtBucket(doc.updatedAt)
+  ) {
+    return cached.projected;
+  }
+  const projected: NoteDoc = { ...doc };
+  docProjections.set(doc.id, { source: doc, projected });
+  return projected;
+}
+
+interface NotebookProjection {
+  projected: Notebook;
+  docs: NoteDoc[];
+}
+
+const notebookProjections = new Map<string, NotebookProjection>();
+let notebookArrayProjection: Notebook[] | null = null;
+
+function projectNotebook(nb: Notebook): Notebook {
+  const docs = nb.docs.map(projectDoc);
+  const cached = notebookProjections.get(nb.id);
+  if (
+    cached &&
+    cached.projected.title === nb.title &&
+    cached.projected.icon === nb.icon &&
+    cached.docs.length === docs.length &&
+    cached.docs.every((d, i) => d === docs[i])
+  ) {
+    return cached.projected;
+  }
+  const projected: Notebook = { ...nb, docs };
+  notebookProjections.set(nb.id, { projected, docs });
+  return projected;
+}
+
+/** 投影缓存清理（低频）：删除的知识库/文档不再保留过期快照，防长期运行泄漏 */
+let evictionTick = 0;
+function evictStaleProjections(notebooks: Notebook[]): void {
+  if (evictionTick++ % 64 !== 0) return;
+  const aliveDocs = new Set<string>();
+  const aliveNotebooks = new Set<string>();
+  for (const nb of notebooks) {
+    aliveNotebooks.add(nb.id);
+    for (const doc of nb.docs) aliveDocs.add(doc.id);
+  }
+  for (const id of docProjections.keys()) if (!aliveDocs.has(id)) docProjections.delete(id);
+  for (const id of notebookProjections.keys()) if (!aliveNotebooks.has(id)) notebookProjections.delete(id);
+}
+
+/**
+ * notebooks 的树投影（模块级派生 selector）：所有投影引用不变时返回**同一个数组**，
+ * useShallow 因此判定"没有变化"，DocsSidebar/DocTree 不重渲染。
+ */
+export function selectNotebookTreeProjection(notebooks: Notebook[]): Notebook[] {
+  const projected = notebooks.map(projectNotebook);
+  evictStaleProjections(notebooks);
+  const prev = notebookArrayProjection;
+  if (prev && prev.length === projected.length && prev.every((nb, i) => nb === projected[i])) {
+    return prev;
+  }
+  notebookArrayProjection = projected;
+  return projected;
+}
+
 
 interface DocsSidebarProps {
   searchText: string;
@@ -52,7 +176,8 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
   const { notebooks, tags, activeNotebookId, createDoc, moveDocToNotebook, updateDoc } =
     useNotesStore(
       useShallow((s) => ({
-        notebooks: s.notebooks,
+        // 树结构投影：正文击键不换引用，DocsSidebar/DocTree 整条渲染链保持安静
+        notebooks: selectNotebookTreeProjection(s.notebooks),
         tags: s.tags,
         activeNotebookId: s.activeNotebookId,
         createDoc: s.createDoc,
@@ -79,6 +204,12 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
   /** P1-13 移动对话框的两级选择：目标知识库 + 目标库里的父级（null = 放到根级） */
   const [moveTargetNotebookId, setMoveTargetNotebookId] = useState<string | null>(null);
   const [moveParentId, setMoveParentId] = useState<string | null>(null);
+  /*
+   * 确认移动的忙碌态：搬整棵子树是长操作，连点确认会搬两遍。
+   * useAsyncAction 的 loading 驱动「移动中…」+ disabled，其 runningRef 保证
+   * 同一时刻只有一个移动在跑（失败时恢复可点，对话框不关）。
+   */
+  const { run: runMove, loading: moving } = useAsyncAction();
 
   /** 「新建文档」下拉：空白 / 从模板（T4） */
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -200,31 +331,42 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
       ids.map((id) => [id, sourceDocs.find((d) => d.id === id)?.parentId ?? null] as const),
     );
 
-    ids.forEach((docId) => {
-      moveDocToNotebook(sourceId, docId, targetId);
-      if (targetParentId) updateDoc(targetId, docId, { parentId: targetParentId });
-    });
-    setShowMoveDialog(false);
-    setMoveDocIds([]);
+    // 排队中的第二次点击由 runMove 的 runningRef 直接吞掉：连点不会把子树搬两遍
+    void runMove(async () => {
+      /*
+       * 让出一次事件循环：store 写入本身是同步的，不让出这一拍，「移动中…」
+       * 只是个来不及渲染就被覆盖的中间态 —— 按钮看不到忙态，用户也无从判断
+       * 「点没点上」。抛错时此处中断：对话框保持打开、按钮恢复可点，
+       * 失败提示由 runMove 统一弹。
+       */
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
 
-    // 撤销＝整批搬回原知识库，并还原各自原来的父级
-    const batchId = setPendingBatchUndo('批量移动', () => {
       ids.forEach((docId) => {
-        moveDocToNotebook(targetId, docId, sourceId);
-        const parentId = originalParents.get(docId) ?? null;
-        if (parentId) updateDoc(sourceId, docId, { parentId });
+        moveDocToNotebook(sourceId, docId, targetId);
+        if (targetParentId) updateDoc(targetId, docId, { parentId: targetParentId });
       });
-    });
-    const targetTitle = notebooks.find((nb) => nb.id === targetId)?.title ?? '目标知识库';
-    toastWithUndo(
-      ids.length > 1
-        ? `已将 ${ids.length} 篇文档移动到「${targetTitle}」`
-        : `已移动到「${targetTitle}」`,
-      () => {
-        if (undoBatch(batchId)) toast.info('已移回原知识库');
-        else toast.warning('撤销已过期');
-      },
-    );
+      setShowMoveDialog(false);
+      setMoveDocIds([]);
+
+      // 撤销＝整批搬回原知识库，并还原各自原来的父级
+      const batchId = setPendingBatchUndo('批量移动', () => {
+        ids.forEach((docId) => {
+          moveDocToNotebook(targetId, docId, sourceId);
+          const parentId = originalParents.get(docId) ?? null;
+          if (parentId) updateDoc(sourceId, docId, { parentId });
+        });
+      });
+      const targetTitle = notebooks.find((nb) => nb.id === targetId)?.title ?? '目标知识库';
+      toastWithUndo(
+        ids.length > 1
+          ? `已将 ${ids.length} 篇文档移动到「${targetTitle}」`
+          : `已移动到「${targetTitle}」`,
+        () => {
+          if (undoBatch(batchId)) toast.info('已移回原知识库');
+          else toast.warning('撤销已过期');
+        },
+      );
+    }, { errorMsg: '移动失败，文档仍在原知识库' });
   }, [
     activeNotebook,
     activeNotebookId,
@@ -233,6 +375,7 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
     moveTargetNotebookId,
     moveDocToNotebook,
     notebooks,
+    runMove,
     updateDoc,
   ]);
 
@@ -421,7 +564,7 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
                   actions={[
                     {
                       label: '新建文档',
-                      icon: '＋',
+                      icon: <IconPlus size={14} />,
                       onClick: () => {
                         const docId = createDoc(activeNotebookId, null);
                         if (docId) handleViewDoc(activeNotebookId, docId);
@@ -430,6 +573,8 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
                   ]}
                 />
               ) : (
+                // 同编辑器：树里一次渲染异常不该把整个侧栏（连带正在写的正文）换成错误页
+                <PanelBoundary label="文档列表">
                 <DocTree
                   activeNotebook={activeNotebook}
                   searchText={searchText}
@@ -440,6 +585,7 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
                   onBatchMoveRequest={requestMove}
                   onClearFilter={clearFilter}
                 />
+                </PanelBoundary>
               )}
             </>
           )}
@@ -526,16 +672,17 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({
               ))}
             </select>
             <div className="confirm-dialog-actions">
-              <button type="button" onClick={() => setShowMoveDialog(false)}>
+              {/* 移动进行中两个出口都封住：途中取消会让回执（撤销 toast）失去上下文 */}
+              <button type="button" disabled={moving} onClick={() => setShowMoveDialog(false)}>
                 取消
               </button>
               <button
                 type="button"
                 className="btn-primary"
-                disabled={!moveTargetNotebookId}
+                disabled={!moveTargetNotebookId || moving}
                 onClick={handleConfirmMove}
               >
-                移动到此处
+                {moving ? '移动中…' : '移动到此处'}
               </button>
             </div>
           </div>

@@ -238,3 +238,44 @@ describe('refreshBlockDataMd 空块判定（缺陷8）', () => {
     expect(root.querySelector('p')!.getAttribute('data-md')).toBe('后文')
   })
 })
+
+/*
+ * 击键热路径的快速通道。
+ *
+ * 连续打字时只有一个块在变，其余块的 data-md 与刚序列化出的源码逐字节相同。
+ * 这条捷径跳过全文 parseMarkdownBlocks —— 200KB 文档每击键因此不再付 3~8ms。
+ * 关键是它**不能误跳过**：任何跨块结构变化都必须回落到完整重建。
+ */
+describe('refreshBlockDataMd 击键快速通道', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('源码未变时不做任何写入（快速通道命中）', () => {
+    const root = mount('<p>甲乙</p><p>丙丁</p>')
+    refreshBlockDataMd(root, '甲乙\n\n丙丁')
+    const [a, b] = root.querySelectorAll('p')
+    // 故意把 data-md 改成哨兵值后，用**相同**的源码再调一次
+    a.setAttribute('data-md', 'SENTINEL-A')
+    b.setAttribute('data-md', 'SENTINEL-B')
+    // 此时拼接结果 != md，快速通道不命中，应重算回真实源码
+    refreshBlockDataMd(root, '甲乙\n\n丙丁')
+    expect(a.getAttribute('data-md')).toBe('甲乙')
+    expect(b.getAttribute('data-md')).toBe('丙丁')
+  })
+
+  it('跨块结构变化（新增空段落）时仍然完整重建', () => {
+    const root = mount('<p>甲乙</p><p><br></p>')
+    refreshBlockDataMd(root, '甲乙')
+    const [a, b] = root.querySelectorAll('p')
+    expect(a.getAttribute('data-md')).toBe('甲乙')
+    // 新空段落不消费解析结果，保持空串
+    expect(b.getAttribute('data-md')).toBe('')
+  })
+
+  it('块内容改变后 data-md 跟着更新（不因快速通道而滞后）', () => {
+    const root = mount('<p>旧文</p>')
+    refreshBlockDataMd(root, '新文')
+    expect(root.querySelector('p')!.getAttribute('data-md')).toBe('新文')
+  })
+})

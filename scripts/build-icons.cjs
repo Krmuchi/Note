@@ -9,10 +9,14 @@
 //   build/icon.ico  —— Windows 安装包与窗口图标（16/24/32/48/64/128/256 七个尺寸）
 //   build/icon.png  —— 512×512，Linux / macOS 目标用
 //
-// 说明：当前图形是"品牌蓝圆角方块 + 白色文稿 + 折角"的占位设计，
-// 拿到正式设计稿后替换本文件里的常量（或直接替换 build/icon.*）即可。
+// 说明：正式设计稿是 build/icon-source.png（品牌图标，唯一图源）；
+// build/icon.png · build/icon.ico · build/tray.png · public/favicon.svg
+// 由 scripts/build-icons-from-png.py 从它派生（Pillow，见该脚本头注释）。
+// 本脚本只在**没有设计稿**时生成占位图形；检测到 icon-source.png 会直接跳过
+// （防覆盖护栏，见 main()）—— 所以 `npm run icons` 不会冲掉正式设计。
 //
-// 用法：node scripts/build-icons.cjs
+// 用法：node scripts/build-icons.cjs（仅占位图路径）；重新派生各尺寸：
+//       python scripts/build-icons-from-png.py
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -203,6 +207,19 @@ function encodeIco(entries) {
 function main() {
   const outDir = path.join(__dirname, '..', 'build')
   fs.mkdirSync(outDir, { recursive: true })
+
+  /*
+   * 正式设计稿优先：build/icon-source.png 存在时，icon.png / icon.ico / tray.png
+   * 与 public/favicon.svg 由它派生（scripts/build-icons-from-png.py，Pillow）。
+   * 此时绝不能再写占位图形 —— 那会把正式设计覆盖掉。
+   */
+  const sourcePath = path.join(outDir, 'icon-source.png')
+  if (fs.existsSync(sourcePath)) {
+    console.log('[icons] 检测到 build/icon-source.png：icon.* 与 favicon 已是正式设计资产，跳过占位图生成。')
+    console.log('[icons] 需要重新派生各尺寸时运行：python scripts/build-icons-from-png.py')
+    console.log('[icons]（若确实要回到占位图形，先移走 icon-source.png 再运行本脚本）')
+    return
+  }
 
   const entries = ICO_SIZES.map((size) => ({ size, png: encodePng(renderRgba(size), size) }))
   const ico = encodeIco(entries)

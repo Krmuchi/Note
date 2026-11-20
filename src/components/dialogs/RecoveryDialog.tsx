@@ -53,7 +53,23 @@ export const RecoveryDialog: React.FC<RecoveryDialogProps> = ({
       <div ref={trapRef} className="confirm-dialog recovery-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="confirm-dialog-header">
           <span className="confirm-dialog-icon recovery-icon" aria-hidden="true">
-            💾
+            {/* 软盘无现成 Icon 件：24 视口 / stroke 2 内联，随 currentColor 变色 */}
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
           </span>
           <h3>检测到未保存的更改</h3>
         </div>

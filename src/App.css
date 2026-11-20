@@ -1,3 +1,6 @@
+/* 常驻样式：只放 eager 组件要用的表。
+   纯懒加载面板的样式由组件自行 import（tag-panel / settings / share-panel / quick-note /
+   presentation / start-page），装载契约见 tests/style-loading-contract.test.ts。 */
 @import './styles/animations.css';
 @import './styles/themes.css';
 @import './styles/app-layout.css';
@@ -12,14 +15,11 @@
 @import './styles/diagnostics.css';
 @import './styles/help.css';
 @import './styles/markdown-preview.css';
-@import './styles/start-page.css';
 @import './styles/favorite.css';
 @import './styles/trash.css';
 @import './styles/common.css';
 @import './styles/search.css';
-@import './styles/tag-selector.css';
 @import './styles/modal.css';
-@import './styles/presentation.css';
 @import './styles/version-history.css';
 @import './styles/template-center.css';
 @import './styles/ai-writer.css';

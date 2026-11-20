@@ -4,8 +4,11 @@ import { useNotesStore } from '@/store'
 import { getAppInfo, listLocalBackups, openDataDir, restoreLocalBackup } from '@/services/storage'
 import { toast } from '@/components/common/Toast'
 import { confirmAction, hasPendingConfirm } from '@/hooks/useConfirmAction'
-import { copyToClipboard } from '@/utils/clipboard'
+import { copyWithFeedback } from '@/utils/clipboard'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
+import { uiActions } from '@/hooks/useUIState'
+import { shouldShowOnboarding } from '@/utils/onboarding'
+import { IconWarning } from '@/components/common/Icon'
 import {
   isLoadFailureMinimized,
   setLoadFailureMinimized,
@@ -38,16 +41,29 @@ export const LoadFailureDialog: React.FC<LoadFailureDialogProps> = ({ message })
   const loadNotes = useNotesStore((s) => s.loadNotes)
   const trapRef = useFocusTrap<HTMLDivElement>()
 
+  /*
+   * 数据重新加载成功也算「加载完成」（重试 / 从备份恢复后）：
+   * 与 MainContent 挂载时同一套启动回位，落在文档视图而不是开始页。
+   */
+  const restoreViewAfterLoad = useCallback(() => {
+    const state = useNotesStore.getState()
+    uiActions.restoreLastSessionView(
+      Boolean(state.activeDocId),
+      shouldShowOnboarding({ notebooks: state.notebooks }),
+    )
+  }, [])
+
   const handleRetry = useCallback(async () => {
     setBusy(true)
     await loadNotes()
     setBusy(false)
     if (!useNotesStore.getState().loadFailed) {
       toast.success('数据已重新加载')
+      restoreViewAfterLoad()
     } else {
       toast.error('仍然无法读取数据文件，请尝试从备份恢复')
     }
-  }, [loadNotes])
+  }, [loadNotes, restoreViewAfterLoad])
 
   const handleOpenBackups = useCallback(async () => {
     setShowBackups(true)
@@ -80,10 +96,11 @@ export const LoadFailureDialog: React.FC<LoadFailureDialogProps> = ({ message })
           toast.error('已覆盖数据文件，但仍无法读取，请复制诊断信息后手工处理')
         } else {
           toast.success('已从备份恢复数据')
+          restoreViewAfterLoad()
         }
       },
     })
-  }, [loadNotes])
+  }, [loadNotes, restoreViewAfterLoad])
 
   const handleOpenDir = useCallback(async () => {
     const result = await openDataDir()
@@ -93,7 +110,7 @@ export const LoadFailureDialog: React.FC<LoadFailureDialogProps> = ({ message })
   const handleCopyDiagnostics = useCallback(async () => {
     const info = await getAppInfo()
     const lines = [
-      '# 笔记 · 数据加载失败诊断',
+      '# 拾页 · 数据加载失败诊断',
       `时间：${new Date().toLocaleString('zh-CN')}`,
       `错误：${message}`,
       `版本：${info.ok ? info.info.version || '未知' : '未知'}`,
@@ -102,8 +119,8 @@ export const LoadFailureDialog: React.FC<LoadFailureDialogProps> = ({ message })
       `备份目录：${info.ok ? info.info.backupDir : '未知'}`,
       `已发现备份：${backups ? backups.length : '未读取'}`,
     ]
-    await copyToClipboard(lines.join('\n'))
-    toast.success('诊断信息已复制')
+    // 复制结果的真实反馈由 copyWithFeedback 统一给出（失败不再假提示成功）
+    await copyWithFeedback(lines.join('\n'), '诊断信息已复制')
   }, [message, backups])
 
   // Esc 只拦截不关闭：数据尚未加载，弹窗是唯一出口。
@@ -124,7 +141,7 @@ export const LoadFailureDialog: React.FC<LoadFailureDialogProps> = ({ message })
   if (minimized) {
     return (
       <div className="load-failure-banner" role="alert">
-        <span className="load-failure-banner-icon" aria-hidden="true">⚠️</span>
+        <span className="load-failure-banner-icon" aria-hidden="true"><IconWarning size={16} /></span>
         <span className="load-failure-banner-text">
           数据加载失败，自动保存已暂停 —— 本次打开后的编辑不会保存
         </span>
@@ -149,7 +166,7 @@ export const LoadFailureDialog: React.FC<LoadFailureDialogProps> = ({ message })
       <div ref={trapRef} className="confirm-dialog confirm-dialog-danger load-failure-dialog">
         <div className="confirm-dialog-header">
           <span className="confirm-dialog-icon" aria-hidden="true">
-            ⚠️
+            <IconWarning size={16} />
           </span>
           <h3>数据加载失败</h3>
         </div>

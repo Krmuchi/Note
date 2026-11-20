@@ -542,6 +542,7 @@
 }
 
 .doc-action-btn {
+  position: relative;
   width: 24px;
   height: 24px;
   display: flex;
@@ -553,6 +554,15 @@
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition: all var(--transition-fast);
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局），外扩到 32px 档。
+   行内按钮间距仅 2px，热区边缘与相邻按钮交叠约 2px（交叠区归后绘制的相邻按钮）——
+   32px 热区在 2px 间距的按钮行里必然互相侵入，属标准取舍。 */
+.doc-action-btn::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .doc-action-btn:hover {

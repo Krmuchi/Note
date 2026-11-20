@@ -8,12 +8,15 @@ import { useNotesStore } from "@/store";
 import TagEditModal from "./TagEditModal";
 import TagStatsPanel from "./TagStatsPanel";
 import { EmptyState } from "@/components/common/EmptyState";
-import { IconSearch } from "@/components/common/Icon";
+import { IconChart, IconClose, IconEdit, IconPlus, IconSearch, IconTag, IconTrash } from "@/components/common/Icon";
 import { TAG_DEFAULT_COLORS, TAG_DEFAULT_ICONS } from "@/shared/constants";
 import { confirmAction } from "@/hooks/useConfirmAction";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { requestTagSearch } from "@/store/slices/searchSlice";
 import { uiActions } from "@/hooks/useUIState";
+import { useAsyncAction } from "@/hooks/useAsyncAction";
+import { toast, toastWithUndo } from "@/services/toast";
+import { setPendingBatchUndo, undoBatch } from "@/utils/batchUndo";
 
 /**
  * 标签面板组件属性接口
@@ -137,15 +140,50 @@ export default function TagPanel({ isOpen, onClose, embedded = false }: TagPanel
     uiActions.setShowSearchPanel(true);
   };
 
+  /*
+   * 批量修改的忙碌态：一次改 N 个标签，进行中禁用入口并回执「修改中…」，
+   * 由 useAsyncAction 的 runningRef 挡掉连点。
+   */
+  const { run: runBatchUpdate, loading: batchUpdating } = useAsyncAction();
+
   /**
-   * 批量更新标签（随机设置颜色和图标）
+   * 批量修改：把选中的一批标签统一成「列表里第一个选中标签」当前的颜色与图标。
+   *
+   * 不再随机取色（旧实现 random 取色取图标）：随机结果无法预期、无法复现，
+   * 用户点完既不知道会变成什么，撤销也无从谈起。改完给可撤销 toast 兜底。
+   * 也没法直接复用 TagEditModal 做"批量真编辑弹窗" —— 它的必填字段是标签名，
+   * 批量套用会把 N 个标签改成同一个名字（同文件族外只 import 不修改，不做低风险之外的改造）。
    */
   const handleBatchUpdate = (): void => {
-    if (selectedTags.length === 0) return;
-    const randomColor = TAG_DEFAULT_COLORS[Math.floor(Math.random() * TAG_DEFAULT_COLORS.length)];
-    const randomIcon = TAG_DEFAULT_ICONS[Math.floor(Math.random() * TAG_DEFAULT_ICONS.length)];
-    batchUpdateTags(selectedTags, { color: randomColor, icon: randomIcon });
-    setSelectedTags([]);
+    if (selectedTags.length === 0 || batchUpdating) return;
+    const ids = [...selectedTags];
+    // 锚点＝列表顺序里第一个被选中的标签（与点击顺序无关，结果可复现）
+    const anchor = tags.find((t) => ids.includes(t.id));
+    const color = anchor?.color ?? TAG_DEFAULT_COLORS[0];
+    const icon = anchor?.icon ?? TAG_DEFAULT_ICONS[0];
+    // 撤销要逐个还原（每个标签原本的颜色/图标各不相同），先记下来
+    const previous = new Map(
+      ids.map((id) => {
+        const t = tags.find((x) => x.id === id);
+        return [id, { color: t?.color ?? color, icon: t?.icon ?? icon }] as const;
+      }),
+    );
+
+    void runBatchUpdate(async () => {
+      // 让出一次事件循环：同步写 store 的话「修改中…」来不及落地就结束了（同移动对话框）
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+
+      batchUpdateTags(ids, { color, icon });
+      setSelectedTags([]);
+
+      const batchId = setPendingBatchUndo(`统一 ${ids.length} 个标签的样式`, () => {
+        previous.forEach((style, tagId) => batchUpdateTags([tagId], style));
+      });
+      toastWithUndo(`已将 ${ids.length} 个标签统一为该颜色与图标`, () => {
+        if (undoBatch(batchId)) toast.info('已撤销批量修改');
+        else toast.warning('撤销已过期');
+      });
+    }, { errorMsg: '批量修改标签失败' });
   };
 
   /**
@@ -211,17 +249,21 @@ export default function TagPanel({ isOpen, onClose, embedded = false }: TagPanel
                 <polyline points="14 2 14 8 20 8" />
               </svg>
             </button>
-            <button 
+            <button
               className="tag-action-btn edit"
+              title={`编辑「${tag.name}」`}
+              aria-label={`编辑标签「${tag.name}」`}
               onClick={(e) => { e.stopPropagation(); setEditTag(tag); }}
             >
-              ✏️
+              <IconEdit size={14} />
             </button>
-            <button 
+            <button
               className="tag-action-btn delete"
+              title={`删除「${tag.name}」`}
+              aria-label={`删除标签「${tag.name}」`}
               onClick={(e) => { e.stopPropagation(); handleDeleteTag(tag.id); }}
             >
-              🗑️
+              <IconTrash size={14} />
             </button>
           </div>
         </div>
@@ -257,7 +299,7 @@ export default function TagPanel({ isOpen, onClose, embedded = false }: TagPanel
           className="tag-toolbar-btn"
           onClick={() => setShowStats(!showStats)}
         >
-          📊 {showStats ? '返回列表' : '统计分析'}
+          <IconChart size={14} /> {showStats ? '返回列表' : '统计分析'}
         </button>
         {selectedTags.length > 0 && (
           <>
@@ -265,8 +307,9 @@ export default function TagPanel({ isOpen, onClose, embedded = false }: TagPanel
             <button 
               className="tag-toolbar-btn secondary"
               onClick={handleBatchUpdate}
+              disabled={batchUpdating}
             >
-              批量修改
+              {batchUpdating ? '修改中…' : '批量修改'}
             </button>
             <button 
               className="tag-toolbar-btn danger"
@@ -316,18 +359,18 @@ export default function TagPanel({ isOpen, onClose, embedded = false }: TagPanel
                   title="没有匹配的标签"
                   description={`没有标签名包含「${searchText.trim()}」`}
                   actions={[
-                    { label: '清除搜索', icon: '✕', variant: 'secondary', onClick: () => setSearchText('') },
+                    { label: '清除搜索', icon: <IconClose size={14} />, variant: 'secondary', onClick: () => setSearchText('') },
                   ]}
                 />
               ) : (
                 <EmptyState
-                  icon="🏷️"
+                  icon={<IconTag size={32} />}
                   title="还没有标签"
                   description="用标签给文档分类，之后可以按标签过滤文档树"
                   actions={[
                     {
                       label: '新建标签',
-                      icon: '＋',
+                      icon: <IconPlus size={14} />,
                       variant: 'primary',
                       onClick: () => setShowCreateModal(true),
                     },

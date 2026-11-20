@@ -100,6 +100,8 @@ export const CommentsPanel: React.FC<CommentsPanelProps> = ({
             icon={<IconComment size={32} />}
             title="暂无评论"
             description="选中正文中的文字可以就某段内容评论，也可以直接写第一条"
+            // 显式传空数组：评论要先在正文里选中文字，面板内没有自然的按钮出口
+            actions={[]}
           />
         ) : (
           <div className="comments-list">

@@ -5,6 +5,7 @@ import {
   getPrimarySearchTerm,
   requestTagSearch,
   resetTagSearch,
+  SEARCH_TOP_K,
   sortSearchHistory,
 } from '@/store/slices/searchSlice'
 import type { NoteDoc, Notebook, SearchHistory, Tag } from '@/types'
@@ -322,5 +323,214 @@ describe('requestTagSearch / consumeTagSearch 一次性通道', () => {
     requestTagSearch({ tagIds: ids, label: '工作' })
     ids.push('t2')
     expect(consumeTagSearch()?.tagIds).toEqual(['t1'])
+  })
+})
+
+/**
+ * 搜索性能改造（流式 top-K）：遍历期只保留分数最高的前 K 条（SEARCH_TOP_K），
+ * 不再全量收集 + 全量排序；高亮片段只对最终保留的条目生成。
+ * 1000 篇库搜常见词一次 100~500ms 主线程冻结的元凶就是旧的三步全量。
+ * 锁定：K 截断时的计数（total 不截断）、top-K 与全量排序的前 K 条一致（含平局稳定序）、
+ * sort=time 分支同样成立、高亮在 top-K 定型后生成且内容不变。
+ */
+describe('search - 流式 top-K（SEARCH_TOP_K）', () => {
+  /**
+   * 350 篇命中，两档分数，遍历顺序故意与分数序相反（弱命中先出现）：
+   * - 弱命中 230 篇：仅标题开头命中（120 分）；
+   * - 强命中 120 篇：标题非开头命中（90）+ 正文命中 12 次（40+20+30=90）→ 180 分。
+   * 两组时间各自递增，弱/强哪组更新由 weakBase / strongBase 决定。
+   */
+  const buildCorpus = (weakBase: number, strongBase: number): NoteDoc[] => {
+    const weak: NoteDoc[] = Array.from({ length: 230 }, (_, j) =>
+      doc({
+        id: `w${j}`,
+        title: `关键词弱项 w${j}`,
+        updatedAt: new Date(weakBase + j * 1000).toISOString(),
+      }),
+    )
+    const strong: NoteDoc[] = Array.from({ length: 120 }, (_, i) =>
+      doc({
+        id: `s${i}`,
+        title: `笔记关键词 s${i}`,
+        content: '关键词'.repeat(12),
+        updatedAt: new Date(strongBase + i * 1000).toISOString(),
+      }),
+    )
+    return [...weak, ...strong]
+  }
+
+  it('命中超过 K 时：results 截断到 K 条，total 仍是真实命中总数', () => {
+    setStore(buildCorpus(Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 2)))
+
+    const { results, total } = useNotesStore.getState().searchWithTotal('关键词')
+    expect(total).toBe(350)
+    expect(results).toHaveLength(SEARCH_TOP_K)
+    // 兼容入口 search() 同样只回 top-K
+    expect(useNotesStore.getState().search('关键词')).toHaveLength(SEARCH_TOP_K)
+  })
+
+  it('top-K 与全量排序的前 K 条一致（350 命中，弱命中先遍历也照排）', () => {
+    setStore(buildCorpus(Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 2)))
+
+    const top = useNotesStore.getState().searchWithTotal('关键词')
+    const full = useNotesStore.getState().searchWithTotal('关键词', undefined, 1000)
+    expect(full.results).toHaveLength(350)
+    expect(top.results.map(r => r.id)).toEqual(full.results.slice(0, SEARCH_TOP_K).map(r => r.id))
+
+    // 不只对拍：顺序就是分数降序 → 更新时间倒序 —— 强命中 s119..s0 全部在前，
+    // 再补最新的弱命中 w229..w150（凑满 200）
+    const expected = [
+      ...Array.from({ length: 120 }, (_, k) => `s${119 - k}`),
+      ...Array.from({ length: 230 }, (_, k) => `w${229 - k}`),
+    ]
+    expect(top.results.map(r => r.id)).toEqual(expected.slice(0, SEARCH_TOP_K))
+  })
+
+  it('sort=time 时 top-K 同样与全量排序的前 K 条一致（时间序与相关度序相反）', () => {
+    // 弱命中更新：时间序 = w229..w0 → s119..s0，与相关度序正好相反
+    setStore(buildCorpus(Date.UTC(2026, 0, 3), Date.UTC(2026, 0, 2)))
+
+    const top = useNotesStore.getState().searchWithTotal('关键词', { sort: 'time' })
+    const full = useNotesStore.getState().searchWithTotal('关键词', { sort: 'time' }, 1000)
+    expect(top.results.map(r => r.id)).toEqual(full.results.slice(0, SEARCH_TOP_K).map(r => r.id))
+    expect(top.results[0].id).toBe('w229')
+    expect(top.results[SEARCH_TOP_K - 1].id).toBe('w30')
+  })
+
+  it('完全平局时保持稳定序：先命中的文档占住前 K 的位置', () => {
+    // 同分（仅标题开头命中 120 分）+ 同一更新时间：只剩遍历顺序可排序
+    const ties = Array.from({ length: 250 }, (_, i) =>
+      doc({ id: `t${i}`, title: `关键词平局 t${i}` }),
+    )
+    setStore(ties)
+
+    const { results, total } = useNotesStore.getState().searchWithTotal('关键词')
+    expect(total).toBe(250)
+    expect(results.map(r => r.id)).toEqual(
+      Array.from({ length: SEARCH_TOP_K }, (_, i) => `t${i}`),
+    )
+    const full = useNotesStore.getState().searchWithTotal('关键词', undefined, 1000)
+    expect(results.map(r => r.id)).toEqual(full.results.slice(0, SEARCH_TOP_K).map(r => r.id))
+  })
+
+  it('高亮片段在 top-K 定型后生成：保留条目的片段与全量路径一致', () => {
+    setStore([
+      doc({
+        id: 'h1',
+        title: '无关标题',
+        content: '开头铺垫铺垫。关键词出现在正文中间。结尾铺垫铺垫。',
+      }),
+    ])
+
+    const top = useNotesStore.getState().searchWithTotal('关键词')
+    const full = useNotesStore.getState().searchWithTotal('关键词', undefined, 1000)
+    expect(top.results[0].highlights).toEqual(full.results[0].highlights)
+    // 标题未命中 → 只有正文片段，片段里能定位到命中词
+    expect(top.results[0].highlights?.map(h => h.field)).toEqual(['content'])
+    expect(top.results[0].highlights?.[0].text).toContain('关键词')
+  })
+})
+
+/**
+ * 按需加载下一批（offset 分批取回）：命中超过 top-K 之后，第 201~400 条必须是
+ * 全量排序的 201~400 名（名次段连续），而不是「再搜一次」的另一套顺序。
+ * 锁定：offset 取回与全量排序的名次一致（独立推算期望序 + 对拍）、
+ * 批与批拼接后等于全量排序、边界 200/201/400、offset 页的高亮照常生成。
+ */
+describe('search - 分批取回（offset，按需加载下一批）', () => {
+  /**
+   * 与上面同款的两档分数语料，规模可调：
+   * 弱命中 W 篇（仅标题开头命中 120 分，时间 weakBase+j 秒）；
+   * 强命中 S 篇（标题非开头 90 + 正文 12 次 90 = 180 分，时间 strongBase+i 秒，更晚）。
+   * 全量排序 = 强命中 s_{S-1}..s_0 → 弱命中 w_{W-1}..w_0。
+   */
+  const buildBatchCorpus = (weakCount: number, strongCount: number): NoteDoc[] => {
+    const weak: NoteDoc[] = Array.from({ length: weakCount }, (_, j) =>
+      doc({
+        id: `w${j}`,
+        title: `关键词弱项 w${j}`,
+        updatedAt: new Date(Date.UTC(2026, 0, 1) + j * 1000).toISOString(),
+      }),
+    )
+    const strong: NoteDoc[] = Array.from({ length: strongCount }, (_, i) =>
+      doc({
+        id: `s${i}`,
+        title: `笔记关键词 s${i}`,
+        content: '关键词'.repeat(12),
+        updatedAt: new Date(Date.UTC(2026, 0, 2) + i * 1000).toISOString(),
+      }),
+    )
+    return [...weak, ...strong]
+  }
+
+  /** 独立推算的全量排序期望序（不经过 search 代码） */
+  const expectedOrder = (weakCount: number, strongCount: number): string[] => [
+    ...Array.from({ length: strongCount }, (_, k) => `s${strongCount - 1 - k}`),
+    ...Array.from({ length: weakCount }, (_, k) => `w${weakCount - 1 - k}`),
+  ]
+
+  it('offset=200 取回的 200 条就是全量排序的第 201~400 名（450 命中）', () => {
+    setStore(buildBatchCorpus(300, 150))
+    const expected = expectedOrder(300, 150)
+
+    const page2 = useNotesStore.getState().searchWithTotal('关键词', undefined, SEARCH_TOP_K, SEARCH_TOP_K)
+    expect(page2.total).toBe(450)
+    expect(page2.results.map(r => r.id)).toEqual(expected.slice(200, 400))
+
+    // 对拍：全量取回的对应名次段逐条一致
+    const full = useNotesStore.getState().searchWithTotal('关键词', undefined, 1000)
+    expect(page2.results.map(r => r.id)).toEqual(full.results.slice(200, 400).map(r => r.id))
+  })
+
+  it('批与批拼接后等于全量排序（200 + 200 + 余下 50），排序连续无缝', () => {
+    setStore(buildBatchCorpus(300, 150))
+
+    const page1 = useNotesStore.getState().searchWithTotal('关键词', undefined, SEARCH_TOP_K, 0)
+    const page2 = useNotesStore.getState().searchWithTotal('关键词', undefined, SEARCH_TOP_K, 200)
+    const page3 = useNotesStore.getState().searchWithTotal('关键词', undefined, SEARCH_TOP_K, 400)
+    expect(page1.results).toHaveLength(200)
+    expect(page2.results).toHaveLength(200)
+    expect(page3.results).toHaveLength(50)
+
+    const stitched = [...page1.results, ...page2.results, ...page3.results].map(r => r.id)
+    expect(stitched).toEqual(expectedOrder(300, 150))
+    // 批界两侧是全量排序里相邻的名次：第 200 名（w250）之后紧跟第 201 名（w249）
+    expect(stitched[199]).toBe('w250')
+    expect(stitched[200]).toBe('w249')
+  })
+
+  it('边界：正好 200 条时下一批为空；201 条时下一批恰是第 201 名', () => {
+    setStore(buildBatchCorpus(100, 100))
+    expect(useNotesStore.getState().searchWithTotal('关键词').total).toBe(200)
+    const pastEnd = useNotesStore.getState().searchWithTotal('关键词', undefined, SEARCH_TOP_K, 200)
+    expect(pastEnd.results).toEqual([])
+    expect(pastEnd.total).toBe(200)
+
+    setStore(buildBatchCorpus(101, 100))
+    const next = useNotesStore.getState().searchWithTotal('关键词', undefined, SEARCH_TOP_K, 200)
+    expect(next.total).toBe(201)
+    expect(next.results.map(r => r.id)).toEqual(['w0'])
+  })
+
+  it('边界：400 命中时第二批恰好 200 条（第 201~400 名），第三批为空', () => {
+    setStore(buildBatchCorpus(300, 100))
+    const expected = expectedOrder(300, 100)
+
+    const page2 = useNotesStore.getState().searchWithTotal('关键词', undefined, SEARCH_TOP_K, 200)
+    expect(page2.total).toBe(400)
+    expect(page2.results).toHaveLength(200)
+    expect(page2.results.map(r => r.id)).toEqual(expected.slice(200, 400))
+
+    const page3 = useNotesStore.getState().searchWithTotal('关键词', undefined, SEARCH_TOP_K, 400)
+    expect(page3.results).toEqual([])
+    expect(page3.total).toBe(400)
+  })
+
+  it('offset 页的高亮片段照常生成（top-K 定型后生成的语义跨批保持）', () => {
+    setStore(buildBatchCorpus(300, 150))
+    const page2 = useNotesStore.getState().searchWithTotal('关键词', undefined, SEARCH_TOP_K, SEARCH_TOP_K)
+    expect(page2.results.length).toBeGreaterThan(0)
+    // 弱命中有标题高亮、强命中有正文片段 —— 每条至少带一段可定位的高亮
+    expect(page2.results.every(r => (r.highlights?.length ?? 0) > 0)).toBe(true)
   })
 })

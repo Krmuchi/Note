@@ -95,3 +95,13 @@ describe('SharePanel 弹窗语义（缺陷 13）', () => {
     expect(dialog.getAttribute('aria-modal')).toBe('true')
   })
 })
+describe('SharePanel 权限选项图标（组件图标契约：icon 不用 emoji）', () => {
+  it('选项按「查看/评论/编辑/管理」排序，图标是 <IconXxx /> 节点而非 emoji 字符', () => {
+    render(<SharePanel {...baseProps} />)
+    const options = Array.from(document.querySelectorAll('.permission-option'))
+    expect(options.map((o) => o.textContent)).toEqual(['查看', '评论', '编辑', '管理'])
+    expect(options.every((o) => o.querySelector('svg'))).toBe(true)
+    // emoji 是文本节点，SVG 图标则没有文本内容
+    expect(document.querySelector('.permission-icon')?.textContent).toBe('')
+  })
+})

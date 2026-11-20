@@ -5,7 +5,7 @@ import type { NoteDoc } from "@/types"
 import { useNotesStore } from "@/store"
 import { useAutoSave } from "@/hooks/useAutoSave"
 import { useKeyboard } from "@/hooks/useKeyboard"
-import { useUIState, uiActions, getUIState } from "@/hooks/useUIState"
+import { useUIStateSelector, uiActions, getUIState } from "@/hooks/useUIState"
 import { useConfirmAction, confirmAction } from "@/hooks/useConfirmAction"
 import { useAppInit } from "@/hooks/useAppInit"
 import { useDraftSync } from "@/hooks/useDraftSync"
@@ -99,7 +99,14 @@ function App(): JSX.Element {
    * 与 AppPanels（19 个 props），绝大多数是纯转发 —— 加一个面板开关要改 3 个文件。
    * 现在 App 只保留它自己真的要用的字段，其余组件按需自行订阅。
    */
-  const { activeView, activeLeftMenu, showQuickOpen } = useUIState()
+  /*
+   * 只按字段订阅（P2-5）：useUIState() 订阅整个 UI store，任何面板开关、字号、
+   * 设置页签一变都会重渲染整个 App 外壳 —— 而外壳真正消费的只有这三项。
+   * useUIStateSelector 返回原始值，快照没变就不会触发重渲染，渲染行为与原先一致。
+   */
+  const activeView = useUIStateSelector((s) => s.activeView)
+  const activeLeftMenu = useUIStateSelector((s) => s.activeLeftMenu)
+  const showQuickOpen = useUIStateSelector((s) => s.showQuickOpen)
   const { setActiveView, setActiveLeftMenu, setShowSettings } = uiActions
 
   const { confirmConfig, confirm, handleConfirm, handleCancel } = useConfirmAction()
@@ -422,7 +429,15 @@ function App(): JSX.Element {
     const active = state.notebooks.find((nb) => nb.id === state.activeNotebookId)
     const notebookId = active ? active.id : state.notebooks[0]?.id ?? state.createNotebook('我的知识库')
     if (notebookId) {
-      handleCreateDoc(notebookId, null, { title, content: '# ' + title + '\n\n' })
+      /*
+       * 正文留空，不要预写 "# 标题"。
+       *
+       * 本项目标题是独立字段（侧栏/面包屑/搜索都读它）。新用户从引导写下的第一篇
+       * 文档如果同时有 title 字段和同名首行 H1，打开文档的"合并重复标题"逻辑会
+       * 立刻把正文清空，并弹出「已合并与标题重复的首行标题」—— 用户看到的却是
+       * "我刚写的标题不见了，还冒出一句看不懂的提示"。第一次写字就用空正文最稳。
+       */
+      handleCreateDoc(notebookId, null, { title, content: '' })
     }
     handleCloseOnboarding()
   }, [handleCreateDoc, handleCloseOnboarding])

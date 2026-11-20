@@ -77,6 +77,7 @@ export function useAppInit({ onError, onAbnormalExit }: UseAppInitOptions): UseA
 
   useEffect(() => {
     const draft = loadLatestDraft()
+    let trashTimer = 0
     // 上次会话是否为异常退出（进程被杀/崩溃/断电）——与草稿恢复互为补充：
     // 草稿只在"有未落盘改动"时才有，异常退出本身则是另一个信号
     const wasAbnormalExit = beginSession()
@@ -87,6 +88,13 @@ export function useAppInit({ onError, onAbnormalExit }: UseAppInitOptions): UseA
       // 启动度量（F1）：数据加载完成是"首屏可用"的关键节点
       markPerf('dataLoaded')
       cleanTrash()
+      /*
+       * 回收站定期清理（此前只在启动时跑一次）：
+       * 长会话挂一整天时，30 天 TTL 的过期条目不会被清掉，
+       * 而回收站条目带着正文常驻 notes-data.json —— 库体积单向膨胀。
+       * 每小时轻扫一次；cleanTrash 是幂等的空转成本可忽略。
+       */
+      trashTimer = window.setInterval(() => cleanTrash(), 60 * 60 * 1000)
       if (draft) {
         const current = useNotesStore.getState()
         const draftFingerprint = computeDataFingerprint(draft.data.notebooks, draft.data.trash)
@@ -108,6 +116,9 @@ export function useAppInit({ onError, onAbnormalExit }: UseAppInitOptions): UseA
       setIsLoading(false)
       onError('加载笔记失败，请检查数据文件')
     })
+    return () => {
+      if (trashTimer) window.clearInterval(trashTimer)
+    }
   }, [onError, loadNotes, onAbnormalExit])
 
   useEffect(() => {

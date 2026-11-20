@@ -46,6 +46,34 @@ export function writeExpandedDocs(ids: Set<string>, aliveIds?: Set<string>): voi
   }
 }
 
+/**
+ * 创建「存活 id 集」派生器：成员不变时返回**同一个 Set 引用**。
+ *
+ * 用途：DocTree 的 persistExpanded effect 依赖 aliveDocIds —— 击键/改标题会换
+ * activeNotebook 引用，但 id 集不变；引用稳定后 effect 不会跟着每次修改重跑
+ * （重跑＝debounce 反复重置 + JSON.stringify + 同步 setItem）。
+ * 成员变化（增删文档）时返回新 Set，effect 照常触发写回。
+ */
+export function createAliveIdsDeriver(): (docs: readonly { id: string }[]) => Set<string> {
+  let prev: Set<string> | null = null
+  return (docs) => {
+    const next = new Set<string>()
+    for (const doc of docs) next.add(doc.id)
+    if (prev && prev.size === next.size) {
+      let same = true
+      for (const id of next) {
+        if (!prev.has(id)) {
+          same = false
+          break
+        }
+      }
+      if (same) return prev
+    }
+    prev = next
+    return next
+  }
+}
+
 /** 清理持久化数据（文档/知识库被删除时同步裁剪，避免残留无用 id） */
 export function pruneExpandedDocs(ids: Set<string>, aliveIds: Set<string>): Set<string> {
   const next = new Set<string>()

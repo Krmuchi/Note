@@ -48,6 +48,8 @@ import { EditorDocTitle } from './EditorDocTitle';
 import { SelectionToolbar } from './SelectionToolbar';
 import { applyCommentHighlights, clearCommentHighlights } from '@/utils/commentHighlight';
 import { stripDuplicateTitleHeading } from '@/utils/dedupeTitle';
+import { appendErrorLog } from '@/utils/errorLog';
+import { resolveTargetNotebookId } from '@/utils/targetNotebook';
 import { RichEditor } from './RichEditor';
 import type { RichEditorHandle } from './RichEditor';
 import { applyMarkdownFormat } from '@/utils/markdownFormat';
@@ -547,6 +549,16 @@ export const Editor: React.FC<EditorProps> = ({
           if (next !== latest) updateDocContent({ content: next });
         }
         warnRemainingRemoteImages(failed);
+      })
+      .catch((err) => {
+        // 内部已逐 URL 兜底，走到这里说明替换回写本身炸了 ——
+        // 不接住就会变成 unhandledrejection 静默消失，诊断信息里也无迹可查
+        appendErrorLog({
+          source: 'render',
+          message: '外链图片转存回写失败: ' + (err instanceof Error ? err.message : String(err)),
+          stack: err instanceof Error ? (err.stack ?? '') : '',
+        });
+        toast.warning('图片转存中断，部分外链图可能显示异常');
       });
     }
   }, [updateDocContent]);
@@ -855,7 +867,11 @@ export const Editor: React.FC<EditorProps> = ({
 
   // 传给 EditorHeader 的回调保持稳定引用，配合其 React.memo 避免击键链路全量重渲染
   const handleCopyLink = useCallback(async () => {
-    await copyToClipboard(`${window.location.origin}/doc/${activeDocId}`);
+    // 必须看返回值：copyToClipboard 有两条路径都可能失败，
+    // 旧实现复制后毫无反馈，失败时用户以为链接已经在剪贴板里（假成功）
+    const ok = await copyToClipboard(`${window.location.origin}/doc/${activeDocId}`);
+    if (ok) toast.success('链接已复制');
+    else toast.error('复制失败，请手动复制地址栏链接');
   }, [activeDocId]);
 
   const handleOpenSharePanel = useCallback(() => {
@@ -1288,11 +1304,14 @@ ${text}` : text);
               label: '新建文档',
               icon: <IconPlus size={14} />,
               onClick: () => {
-                // 触发新建文档
+                /*
+                 * 必须走 resolveTargetNotebookId：它会在"没有任何知识库"时自动建一个。
+                 * 旧实现只在 activeNotebookId 存在时才建文档 —— 而空库场景恰恰是没有
+                 * activeNotebookId，于是这个按钮点了完全没有反应（空库正是它最该起作用的时刻）。
+                 */
                 const store = useNotesStore.getState();
-                if (store.activeNotebookId) {
-                  store.createDoc(store.activeNotebookId, null);
-                }
+                const notebookId = resolveTargetNotebookId(store);
+                if (notebookId) store.createDoc(notebookId, null);
               },
               variant: 'primary',
             },

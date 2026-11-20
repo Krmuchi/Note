@@ -211,6 +211,7 @@
 }
 
 .quick-note-action-btn {
+  position: relative;
   width: 24px;
   height: 24px;
   border-radius: var(--radius-sm);
@@ -222,6 +223,14 @@
   justify-content: center;
   font-size: var(--font-size-sm);
   transition: all var(--transition-fast);
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局），外扩到 32px 档。
+   与 .doc-action-btn 同：行内 2px 间距下热区边缘与相邻按钮交叠约 2px，属标准取舍。 */
+.quick-note-action-btn::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .quick-note-action-btn:hover {

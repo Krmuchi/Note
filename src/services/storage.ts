@@ -1,4 +1,8 @@
-import JSZip from 'jszip'
+/*
+ * JSZip 不静态 import：整个模块里只有 exportNotebookZip 用它，而 storage.ts 被
+ * coreSlice / App 等启动路径静态引用 —— 静态 import 会把 ~100KB 的 jszip 拖进首屏
+ * 依赖图（store chunk 的静态依赖）。改为使用时再动态 import，产物里它只剩独立异步 chunk。
+ */
 import type {
   AppAction,
   AppInfoResult,
@@ -22,7 +26,7 @@ import type {
 // 该文件是 ESM(.mjs)：渲染层由 Vite 原生解析，主进程用 require()（Electron 41 支持 require(esm)）。
 // 注意不要改回 .cjs —— Vite dev server 不做 CJS→ESM 互操作，会报
 // "does not provide an export named 'buildExportDocument'"，整树被 ErrorBoundary 兜住变白屏。
-import { buildExportDocument } from '../../electron/ipc/shared.mjs'
+import { buildExportDocument, stripVersions } from '../../electron/ipc/shared.mjs'
 
 /**
  * 存储适配层：统一 Electron IPC 与 Web 浏览器模式的数据持久化接口。
@@ -154,7 +158,25 @@ export function onAppAction(cb: (action: AppAction) => void): () => void {
 
 export async function saveAppStore(payload: AppStore): Promise<AppStore> {
   if (!isWebMode) {
-    return window.notesApi.save(payload)
+    /*
+     * 正文与版本快照分离存储（避开 50MB 单通道 payload 上限）：
+     * 版本快照是全量正文副本，曾把 save 顶到必失败。现在 versions 走独立通道
+     * （notes:versions:save → notes-versions.json），notes:save 只送剥离版。
+     * 主进程 save 侧还有一次幂等剥离兜底（旧渲染层/迁移中间态也安全）。
+     */
+    const { store, versions } = stripVersions(payload)
+    // shared.mjs 两侧共用无法引 src 类型，此处一次性收敛为精确类型
+    const versionsMap = versions as Record<string, NoteDoc['versions']>
+    const hasVersions = Object.keys(versionsMap).length > 0
+    if (hasVersions) {
+      const versionsResult = await window.notesApi.saveVersions(versionsMap)
+      if (!versionsResult.ok) {
+        // 版本快照写失败不阻断正文保存：正文才是不能丢的，
+        // 版本走独立文件意味着最多丢快照、不丢正文
+        console.warn('saveVersions failed:', versionsResult.error)
+      }
+    }
+    return window.notesApi.save(store)
   }
   await idbSet(APP_STORE_KEY, payload)
   return payload
@@ -186,6 +208,7 @@ export async function exportNotebookZip(payload: { title: string; docs: NoteDoc[
   if (!isWebMode) {
     return window.notesApi.exportNotebookZip(payload)
   }
+  const { default: JSZip } = await import('jszip')
   const zip = new JSZip()
   const folder = zip.folder(sanitizeFilename(payload.title)) ?? zip
   for (const doc of payload.docs) {
@@ -284,7 +307,7 @@ export async function exportAllData(payload: AppStore): Promise<boolean> {
     return window.notesApi.exportAll(payload)
   }
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' })
-  downloadBlob(blob, `笔记备份-${new Date().toISOString().slice(0, 10)}.json`)
+  downloadBlob(blob, `拾页备份-${new Date().toISOString().slice(0, 10)}.json`)
   return true
 }
 

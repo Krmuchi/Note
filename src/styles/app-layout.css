@@ -29,6 +29,24 @@
 }
 
 /*
+ * 主内容卡片（<main class="start-panel">，MainContent 常驻渲染，开始/小记/标签都走它）。
+ * 原先寄居在 start-page.css —— 那是开始页专属样式、要随组件懒加载，
+ * 而这个外壳卡片由 eager 的 MainContent 使用，必须留在常驻样式里。
+ * 背景由 --bg-secondary 改为 --bg-primary，两个原因：
+ *   1) 外壳约定「所有卡片同色、只有画布更深一档」，此处是唯一的例外；
+ *   2) 绿 / 暖 / 深邃蓝三套浅色主题的 --bg-canvas 恰好等于其 --bg-secondary，
+ *      沿用旧值会让这张卡在画布上完全隐形。
+ */
+.start-panel {
+  flex: 1;
+  background: var(--bg-primary);
+  padding: var(--space-10) var(--space-12);
+  overflow-y: auto;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+/*
  * 收藏视图（FavoriteView）直接渲染 .docs-sidebar + 编辑器、没有 ResizeHandle，
  * 两张卡会紧贴。相邻兄弟选择器只命中这种情况：NotebooksView 里两者之间夹着手柄。
  * 限定桌面——移动端是纵向排列，多余的 8px 横向外边距会把卡片挤出容器。

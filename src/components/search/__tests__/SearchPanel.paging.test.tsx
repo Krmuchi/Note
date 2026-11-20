@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { JSX } from 'react'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, configure } from '@testing-library/react'
 import SearchPanel from '@/components/search/SearchPanel'
 import { ToastContainer } from '@/components/common/ToastView'
 import { useToast } from '@/components/common/Toast'
 import { useNotesStore } from '@/store'
-import { requestTagSearch, resetTagSearch } from '@/store/slices/searchSlice'
+import { requestTagSearch, resetTagSearch, SEARCH_TOP_K } from '@/store/slices/searchSlice'
 import { subscribeDocOpen, type DocOpenRequest } from '@/utils/docNavigation'
 import type { NoteDoc, Tag } from '@/types'
 
@@ -15,6 +15,11 @@ import type { NoteDoc, Tag } from '@/types'
  * 旧实现里：出结果后回车永远打不开（要先按 ↓）、结果被静默截断在 50 条、
  * 结果行不显示所属知识库、带 id 的建议却只再搜一次、标签浏览根本没有入口。
  */
+
+// 全量套件并发时机器负载高，防抖搜索（400ms）+ waitFor 默认 1s 会偶发超时；统一放宽异步等待
+configure({ asyncUtilTimeout: 10000 })
+// 多批次用例（200~400 条数据 + 每批一次全库搜索）在全量并发跑时会顶穿 it() 的默认 5s 线
+// （asyncUtilTimeout 只放宽 waitFor，不改用例超时），显式给 15s 抗负载抖动
 
 const doc = (over: Partial<NoteDoc> & { id: string; title: string }): NoteDoc => ({
   content: '',
@@ -141,6 +146,142 @@ describe('P1-6 结果计数、路径与加载更多', () => {
     const paths = Array.from(document.querySelectorAll('.result-path')).map((el) => el.textContent)
     expect(paths).toContain('知识库 › 周报')
     expect(paths).toContain('另一个库')
+  })
+})
+
+describe('P1-6 top-K 达上限后按需加载下一批（计数与文案保持如实）', () => {
+  /** 同分命中（稳定序 = 遍历序）：批量任务0..hits-1 */
+  const hitDocs = (hits: number): NoteDoc[] =>
+    Array.from({ length: hits }, (_, i) => doc({ id: 'd' + i, title: `批量任务${i}` }))
+
+  const loadMore = (): void => {
+    fireEvent.click(document.querySelector('.load-more-btn') as HTMLElement)
+  }
+
+  it('命中超过 K：计数报真实总数，到 K 上限后点「加载更多」取下一批直到取完', { timeout: 15_000 }, async () => {
+    const hits = SEARCH_TOP_K + 60
+    useNotesStore.setState({ notebooks: [{ id: 'nb1', title: '知识库', docs: hitDocs(hits) }] })
+    const { input } = renderPanel()
+    fireEvent.change(input, { target: { value: '批量任务' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(resultCount()).toBe(50))
+    // 计数是未截断的命中总数（260），不是取回的 top-K（200）
+    expect(headerText()).toBe(`共 ${hits} 条结果，已显示前 50 条`)
+    // 搜索历史里记的计数同样要是真实命中数
+    expect(useNotesStore.getState().searchHistory[0]?.resultCount).toBe(hits)
+
+    // 翻页到 top-K 上限：第 201 条起还没取回，按钮如实报余量（不再消失）
+    for (let i = 0; i < 3; i++) loadMore()
+    expect(resultCount()).toBe(SEARCH_TOP_K)
+    expect(headerText()).toBe(`共 ${hits} 条结果，已显示前 ${SEARCH_TOP_K} 条`)
+    expect(document.querySelector('.load-more-btn')?.textContent).toBe(
+      `加载更多（还有 ${hits - SEARCH_TOP_K} 条）`,
+    )
+
+    // 再点：从 store 取下一批（offset=200）追加，继续翻页直到取完
+    loadMore()
+    expect(resultCount()).toBe(SEARCH_TOP_K + 50)
+    loadMore()
+    expect(resultCount()).toBe(hits)
+    expect(headerText()).toBe(`找到 ${hits} 条结果`)
+    expect(document.querySelector('.load-more-btn')).toBeNull()
+
+    // 批界两侧排序连续：同分稳定序下第 200/201 名正是批量任务199/200
+    const titles = Array.from(document.querySelectorAll('.result-title')).map((el) => el.textContent)
+    expect(titles[0]).toBe('批量任务0')
+    expect(titles[199]).toBe('批量任务199')
+    expect(titles[200]).toBe('批量任务200')
+    expect(titles[hits - 1]).toBe(`批量任务${hits - 1}`)
+  })
+
+  it('边界：正好 K=200 条时不再取下一批', { timeout: 15_000 }, async () => {
+    useNotesStore.setState({ notebooks: [{ id: 'nb1', title: '知识库', docs: hitDocs(SEARCH_TOP_K) }] })
+    const { input } = renderPanel()
+    fireEvent.change(input, { target: { value: '批量任务' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(resultCount()).toBe(50))
+    for (let i = 0; i < 3; i++) loadMore()
+    expect(resultCount()).toBe(SEARCH_TOP_K)
+    expect(headerText()).toBe(`找到 ${SEARCH_TOP_K} 条结果`)
+    expect(document.querySelector('.load-more-btn')).toBeNull()
+  })
+
+  it('边界：201 条时下一批恰是第 201 名，文案随即如实收口', { timeout: 15_000 }, async () => {
+    const hits = SEARCH_TOP_K + 1
+    useNotesStore.setState({ notebooks: [{ id: 'nb1', title: '知识库', docs: hitDocs(hits) }] })
+    const { input } = renderPanel()
+    fireEvent.change(input, { target: { value: '批量任务' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(resultCount()).toBe(50))
+    for (let i = 0; i < 3; i++) loadMore()
+    expect(resultCount()).toBe(SEARCH_TOP_K)
+    expect(document.querySelector('.load-more-btn')?.textContent).toBe('加载更多（还有 1 条）')
+
+    loadMore()
+    expect(resultCount()).toBe(hits)
+    expect(headerText()).toBe(`找到 ${hits} 条结果`)
+    expect(document.querySelector('.load-more-btn')).toBeNull()
+    const titles = Array.from(document.querySelectorAll('.result-title')).map((el) => el.textContent)
+    expect(titles[SEARCH_TOP_K]).toBe(`批量任务${SEARCH_TOP_K}`)
+  })
+
+  it('排序连续性（400 命中）：跨批后的第 201~400 条就是全量排序的对应名次', { timeout: 15_000 }, async () => {
+    // 两档分数语料：强命中 s0..s99（180 分、更新）在前，弱命中 w0..w299（120 分）按时间倒序跟随。
+    // 全量排序期望序独立推算（不经过 search 代码）：s99..s0 → w299..w0，
+    // 即 rank 0..99 = s99..s0，rank 100+k = w_{299-k}。
+    const weak = Array.from({ length: 300 }, (_, j) =>
+      doc({
+        id: `w${j}`,
+        title: `关键词弱项 w${j}`,
+        updatedAt: new Date(Date.UTC(2026, 0, 1) + j * 1000).toISOString(),
+      }),
+    )
+    const strong = Array.from({ length: 100 }, (_, i) =>
+      doc({
+        id: `s${i}`,
+        title: `笔记关键词 s${i}`,
+        content: '关键词'.repeat(12),
+        updatedAt: new Date(Date.UTC(2026, 0, 2) + i * 1000).toISOString(),
+      }),
+    )
+    useNotesStore.setState({ notebooks: [{ id: 'nb1', title: '知识库', docs: [...weak, ...strong] }] })
+    const { input } = renderPanel()
+    fireEvent.change(input, { target: { value: '关键词' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(resultCount()).toBe(50))
+    for (let i = 0; i < 3; i++) loadMore()
+    expect(resultCount()).toBe(SEARCH_TOP_K)
+    // 跨过 K 上限继续取：第 4 次点击取第二批，再翻 3 页显示满 400
+    for (let i = 0; i < 4; i++) loadMore()
+    expect(resultCount()).toBe(400)
+    expect(headerText()).toBe('找到 400 条结果')
+
+    const titles = Array.from(document.querySelectorAll('.result-title')).map((el) => el.textContent)
+    expect(titles[0]).toBe('笔记关键词 s99')
+    // 名次连续：第 200 名（0 起）是 w200，第 201 名是 w199，最后一名是 w0
+    expect(titles[199]).toBe('关键词弱项 w200')
+    expect(titles[200]).toBe('关键词弱项 w199')
+    expect(titles[399]).toBe('关键词弱项 w0')
+  })
+
+  it('滚到底自动续载：已达 K 上限时滚动触发取下一批', { timeout: 15_000 }, async () => {
+    const hits = SEARCH_TOP_K + 60
+    useNotesStore.setState({ notebooks: [{ id: 'nb1', title: '知识库', docs: hitDocs(hits) }] })
+    const { input } = renderPanel()
+    fireEvent.change(input, { target: { value: '批量任务' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(resultCount()).toBe(50))
+    for (let i = 0; i < 3; i++) loadMore()
+    expect(resultCount()).toBe(SEARCH_TOP_K)
+
+    // jsdom 无布局：scrollHeight/clientHeight 均为 0，任意滚动都算「到底」
+    fireEvent.scroll(document.querySelector('.search-results') as Element)
+    expect(resultCount()).toBe(SEARCH_TOP_K + 50)
   })
 })
 

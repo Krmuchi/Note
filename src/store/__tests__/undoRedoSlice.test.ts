@@ -113,4 +113,42 @@ describe('undoRedoSlice', () => {
     expect(popRedoSnapshot('missing')).toBeNull()
     expect(useNotesStore.getState().undoRedoSeq).toBe(before)
   })
+
+  /*
+   * 字节预算：快照是完整正文副本，只按条数裁剪时单篇 200KB 文档编辑 200 次
+   * 会常驻约 40MB。现在条数 + 字节双预算（8MB/篇），从最旧一侧裁。
+   */
+  it('past 超过字节预算时从最旧一侧裁剪，至少保留最新 1 份', () => {
+    const { pushUndoSnapshot } = useNotesStore.getState()
+    // 每份 content 约 100 万字符 ≈ 3MB 估算，10 份远超 8MB 预算
+    for (let i = 0; i < 10; i++) {
+      pushUndoSnapshot('doc-big', { title: 't', content: 'x'.repeat(1_000_000), tags: [] }, 200)
+    }
+    const past = useNotesStore.getState().history['doc-big']!.past
+    expect(past.length).toBeGreaterThan(0)
+    expect(past.length).toBeLessThan(10)
+    // 最新的快照一定保留
+    expect(past[past.length - 1].content).toHaveLength(1_000_000)
+    // 估算字节回到预算内
+    const bytes = past.reduce((s, snap) => s + snap.content.length * 3, 0)
+    expect(bytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+  })
+
+  it('future 同样有条数与字节上限（旧实现完全无界）', () => {
+    const { pushRedoSnapshot } = useNotesStore.getState()
+    for (let i = 0; i < 260; i++) {
+      pushRedoSnapshot('doc-redo', { title: 't', content: 'x'.repeat(100), tags: [] })
+    }
+    const future = useNotesStore.getState().history['doc-redo']!.future
+    expect(future.length).toBeLessThanOrEqual(200)
+  })
+
+  it('小快照堆满条数上限时行为不变（字节预算不误伤）', () => {
+    const { pushUndoSnapshot } = useNotesStore.getState()
+    for (let i = 0; i < 205; i++) {
+      pushUndoSnapshot('doc-small', { title: 't' + i, content: 'c' + i, tags: [] }, 200)
+    }
+    const past = useNotesStore.getState().history['doc-small']!.past
+    expect(past).toHaveLength(200)
+  })
 })

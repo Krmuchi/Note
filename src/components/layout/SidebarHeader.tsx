@@ -63,7 +63,7 @@ export const SidebarHeader: React.FC<SidebarHeaderProps> = ({
             <IconBook size={18} />
           </span>
         </div>
-        <span className="brand-text">笔记</span>
+        <span className="brand-text">拾页</span>
         {/* 多工作空间尚未实现：置灰并说明，避免呈现为可点击却无响应的死按钮 */}
         <button
           className="brand-dropdown-btn"

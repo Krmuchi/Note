@@ -119,10 +119,20 @@ function buildCustomPaletteCss(hex: string): string {
     `--primary-color: ${hex}`,
   ].join('; ')
 
+  /*
+   * 暗色阶的低两档是「浅底」语义（选中态/高亮块底色），不能像亮色阶那样向黑混合：
+   * 那会得到一块饱和深色，铺在暗画布上就是刺眼的色砖（侧栏选中项曾整块变蓝）。
+   * 改用低透明同色相颜料 —— 叠在任何底色上都只带一点主色倾向，且不遮蔽下层内容。
+   */
+  const tint = (alpha: number): string => {
+    const { r, g, b } = hexToRgb(hex)
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+
   const darkScale = [
     `--on-primary: ${onPrimaryDark}`,
-    `--primary-50: ${mixColor(hex, 'black', 0.85)}`,
-    `--primary-100: ${mixColor(hex, 'black', 0.7)}`,
+    `--primary-50: ${tint(0.14)}`,
+    `--primary-100: ${tint(0.22)}`,
     `--primary-200: ${mixColor(hex, 'black', 0.5)}`,
     `--primary-300: ${hex}`,
     `--primary-400: ${mixColor(hex, 'white', 0.2)}`,
@@ -303,15 +313,22 @@ export const useFont = (): {
 
 /* ---------------- 选项表 ---------------- */
 
-export const THEME_OPTIONS: { id: ThemeType; name: string; icon: string; description: string }[] = [
-  { id: 'system', name: '跟随系统', icon: '🖥️', description: '随系统深浅色自动切换' },
-  { id: 'light', name: '亮色', icon: '☀️', description: '清新明亮的默认主题' },
-  { id: 'dark', name: '暗色', icon: '🌙', description: '护眼暗色主题' },
-  { id: 'green', name: '护眼绿', icon: '🌿', description: '柔和的绿色主题' },
-  { id: 'warm', name: '暖色调', icon: '🌅', description: '温暖的橙色主题' },
-  { id: 'deep-blue', name: '深邃蓝', icon: '🌊', description: '专业的蓝色主题' },
-  { id: 'purple-dark', name: '暗夜紫', icon: '🔮', description: '神秘的紫色暗色主题' },
-  { id: 'green-dark', name: '暗夜绿', icon: '🌲', description: '自然的绿色暗色主题' },
+/**
+ * 主题选项的图标标识。
+ * 数据层只存 id、不存图形：shared/hooks 不许 import 组件（分层方向），
+ * 实际图形由 SettingsPanel 按这个 id 映射到统一 SVG 线性图标集渲染。
+ */
+export type ThemeIconName = 'monitor' | 'sun' | 'moon' | 'leaf' | 'sunset' | 'waves' | 'sparkle' | 'pine'
+
+export const THEME_OPTIONS: { id: ThemeType; name: string; icon: ThemeIconName; description: string }[] = [
+  { id: 'system', name: '跟随系统', icon: 'monitor', description: '随系统深浅色自动切换' },
+  { id: 'light', name: '亮色', icon: 'sun', description: '清新明亮的默认主题' },
+  { id: 'dark', name: '暗色', icon: 'moon', description: '护眼暗色主题' },
+  { id: 'green', name: '护眼绿', icon: 'leaf', description: '柔和的绿色主题' },
+  { id: 'warm', name: '暖色调', icon: 'sunset', description: '温暖的橙色主题' },
+  { id: 'deep-blue', name: '深邃蓝', icon: 'waves', description: '专业的蓝色主题' },
+  { id: 'purple-dark', name: '暗夜紫', icon: 'sparkle', description: '神秘的紫色暗色主题' },
+  { id: 'green-dark', name: '暗夜绿', icon: 'pine', description: '自然的绿色暗色主题' },
 ]
 
 export const FONT_OPTIONS: { id: FontType; name: string; description: string; preview: string }[] = [

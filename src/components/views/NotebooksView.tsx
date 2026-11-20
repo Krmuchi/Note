@@ -4,6 +4,7 @@ import { uiActions, useUIState } from '@/hooks/useUIState'
 import { DocsSidebar } from '@/components/layout/DocsSidebar'
 import { Editor } from '@/components/editor/Editor'
 import { ResizeHandle } from '@/components/layout/ResizeHandle'
+import { PanelBoundary } from '@/components/common/LazyLoader'
 
 /**
  * 文档视图（文档树 + 编辑器）。
@@ -74,6 +75,13 @@ export default function NotebooksView({
           ariaLabel="调整文档列表与编辑器宽度"
         />
       )}
+      {/*
+        局部错误边界（P1-6）：编辑器与文档树此前只靠最外层 ErrorBoundary 兜底 ——
+        任何一处渲染异常（脏 HTML 上跑偏移换算、极端 markdown 结构）会把整棵树换成
+        错误页，ContentView 的 DOM 与**尚未落盘的击键**一起消失。
+        包一层边界后只有编辑器区域降级，「重试」按 key 重挂载即可从 store 重建。
+      */}
+      <PanelBoundary label="编辑器">
       {/* 多标签页：有 2 个以上已打开文档时出现（单标签没有切换价值，不占高度） */}
       <Editor
         activeDoc={activeDoc}
@@ -89,6 +97,7 @@ export default function NotebooksView({
         onToggleCommentsPanel={toggleShowCommentsPanel}
         onViewDoc={onViewDoc}
       />
+      </PanelBoundary>
     </>
   )
 }

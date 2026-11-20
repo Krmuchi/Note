@@ -14,6 +14,7 @@ import { useAiTaskStream } from '@/hooks/useAiTaskStream'
 import type { AiTaskSpec } from '@/services/ai/aiClient'
 import { uiActions } from '@/hooks/useUIState'
 import { IconSparkle } from '@/components/common/Icon'
+import { AiOptionIcon } from './aiOptionIcon'
 
 /** 这些错误靠重试解决不了，必须给用户一条「去设置」的出路 */
 const SETTINGS_ERROR_CODES = new Set([
@@ -161,7 +162,7 @@ export default function AiSelectionMenu({ selection, position, onApply, onClose 
                 })
               }
             >
-              <span className="ai-selection-action-icon">{option.icon}</span>
+              <span className="ai-selection-action-icon"><AiOptionIcon name={option.icon} /></span>
               <span className="ai-selection-action-label">{option.label}</span>
             </button>
           ))}
@@ -194,7 +195,7 @@ export default function AiSelectionMenu({ selection, position, onApply, onClose 
                 })
               }
             >
-              <span className="ai-selection-action-icon">{option.icon}</span>
+              <span className="ai-selection-action-icon"><AiOptionIcon name={option.icon} /></span>
               <span className="ai-selection-action-label">{option.label}</span>
             </button>
           ))}
@@ -248,9 +249,24 @@ export default function AiSelectionMenu({ selection, position, onApply, onClose 
           </div>
 
           <div className="ai-selection-footer">
+            {/* .ai-selection-btn 非 flex：图标与文字用最小 inline flex 对齐（CSS 在 styles/ai-writer.css，非本文件族） */}
             {isStreaming ? (
-              <button className="ai-selection-btn secondary" onClick={stop} type="button">
-                ⏹ 停止
+              <button
+                className="ai-selection-btn secondary"
+                onClick={stop}
+                type="button"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+                </svg>
+                停止
               </button>
             ) : (
               <>

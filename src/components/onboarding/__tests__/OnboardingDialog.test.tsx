@@ -12,7 +12,7 @@ describe('OnboardingDialog', () => {
     const onCreateFirstDoc = vi.fn()
     render(<OnboardingDialog onClose={onClose} onCreateFirstDoc={onCreateFirstDoc} />)
 
-    expect(screen.getByText('欢迎使用「笔记」')).toBeInTheDocument()
+    expect(screen.getByText('欢迎使用「拾页」')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '下一步' }))
     expect(screen.getByText('有现成的笔记吗？')).toBeInTheDocument()
@@ -45,7 +45,7 @@ describe('OnboardingDialog', () => {
     render(<OnboardingDialog onClose={vi.fn()} onCreateFirstDoc={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: '下一步' }))
     fireEvent.click(screen.getByRole('button', { name: '上一步' }))
-    expect(screen.getByText('欢迎使用「笔记」')).toBeInTheDocument()
+    expect(screen.getByText('欢迎使用「拾页」')).toBeInTheDocument()
   })
 
   it('P1-4：Esc 等同「跳过」——全应用唯一没有 Esc 的弹窗已补齐', () => {

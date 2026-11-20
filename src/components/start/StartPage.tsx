@@ -1,4 +1,5 @@
 // 导入 React 相关 hooks 和类型定义
+import '@/styles/start-page.css';
 import { useState, useMemo } from "react";
 import type { JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { useFocusTrap } from "@/hooks/useFocusTrap";

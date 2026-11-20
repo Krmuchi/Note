@@ -60,7 +60,8 @@ function Shell(): JSX.Element {
 
 const openTrashFromMore = (): void => {
   fireEvent.click(screen.getByRole('button', { name: '更多' }));
-  fireEvent.click(screen.getByRole('button', { name: /回收站/ }));
+  // 菜单项语义是 role=menuitem（更多菜单键盘化改造），按菜单项角色查询
+  fireEvent.click(screen.getByRole('menuitem', { name: /回收站/ }));
 };
 
 describe('侧栏：开始页 ↔ 回收站 导航（P0-1 回归）', () => {
@@ -76,7 +77,7 @@ describe('侧栏：开始页 ↔ 回收站 导航（P0-1 回归）', () => {
     await waitFor(() => expect(document.querySelector('.start-page')).not.toBeNull());
 
     openTrashFromMore();
-    expect(await screen.findByText('🗑️ 回收站')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '回收站' })).toBeTruthy();
     // 关键断言：主区不再是开始页（旧实现这里纹丝不动）
     expect(document.querySelector('.start-page')).toBeNull();
 
@@ -86,7 +87,7 @@ describe('侧栏：开始页 ↔ 回收站 导航（P0-1 回归）', () => {
     expect(document.querySelector('.trash-panel')).toBeNull();
 
     openTrashFromMore();
-    expect(await screen.findByText('🗑️ 回收站')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '回收站' })).toBeTruthy();
     expect(document.querySelector('.start-page')).toBeNull();
   });
 });

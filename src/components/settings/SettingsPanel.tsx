@@ -1,7 +1,8 @@
 import '@/styles/settings.css';
 import { useCallback, useEffect, useState } from 'react';
-import type { JSX } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { useTheme, THEME_OPTIONS, useFont, FONT_OPTIONS, applyCustomPrimaryColor } from '@/shared/hooks';
+import type { ThemeIconName } from '@/shared/hooks';
 import { aiClient } from '@/services/ai';
 // 别名导入：本地 state setter 也叫 setAppSettings，直接用会互相遮蔽
 import { getAppInfo, getAppSettings, openDataDir, setAppSettings as saveAppSettings } from '@/services/storage';
@@ -23,15 +24,76 @@ import {
 import { confirmAction } from '@/hooks/useConfirmAction';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { CrashLogResult, FileAssociationState, UpdateCheckResult } from '@/types';
-import { copyToClipboard } from '@/utils/clipboard';
+import { copyWithFeedback } from '@/utils/clipboard';
 import { requestOnboarding } from '@/utils/onboarding';
 import { setRichEditorEnabled, useRichEditorEnabled } from '@/utils/richEditorFlag';
 import { uiActions, useUIState, useUIStateSelector } from '@/hooks/useUIState';
 import type { SettingsTabId } from '@/hooks/useUIState';
 import { toast } from '@/services/toast';
+import { IconEdit, IconMenu, IconMoon, IconSettings, IconSparkle, IconSun } from '@/components/common/Icon';
 import type { AiConfigView, AiFailure } from '@/types/ai';
 import AiSettingsTab from './AiSettingsTab';
 import ShortcutsTab from './ShortcutsTab';
+
+/** 与 Icon.tsx 同款外壳：24 viewBox、currentColor、随文字变色、装饰性 aria-hidden */
+const ThemeGlyph = ({ children }: { children: ReactNode }): JSX.Element => (
+  <svg
+    width={24}
+    height={24}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.5}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    {children}
+  </svg>
+);
+
+/**
+ * 主题选项图标：THEME_OPTIONS 位于 shared/hooks（数据层不 import 组件），
+ * 图形由这里按 icon id 映射。有贴合件的用统一图标集，其余按 feather 路径内联。
+ */
+const THEME_OPTION_ICONS: Record<ThemeIconName, JSX.Element> = {
+  monitor: (
+    <ThemeGlyph>
+      <rect x="3" y="4" width="18" height="13" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </ThemeGlyph>
+  ),
+  sun: <IconSun size={24} />,
+  moon: <IconMoon size={24} />,
+  leaf: (
+    <ThemeGlyph>
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+    </ThemeGlyph>
+  ),
+  sunset: (
+    <ThemeGlyph>
+      <path d="M17 18a5 5 0 0 0-10 0" />
+      <path d="M12 2v7" />
+      <path d="M4.22 10.22l1.42 1.42M1 18h2M21 18h2M18.36 11.64l1.42-1.42M23 22H1M8 6h8" />
+    </ThemeGlyph>
+  ),
+  waves: (
+    <ThemeGlyph>
+      <path d="M3 6.5c2-2.5 4-2.5 6 0s4 2.5 6 0 4-2.5 6 0" />
+      <path d="M3 12.5c2-2.5 4-2.5 6 0s4 2.5 6 0 4-2.5 6 0" />
+      <path d="M3 18.5c2-2.5 4-2.5 6 0s4 2.5 6 0 4-2.5 6 0" />
+    </ThemeGlyph>
+  ),
+  sparkle: <IconSparkle size={24} />,
+  pine: (
+    <ThemeGlyph>
+      <path d="M12 2.5L16 8.5h-2.4L17 13.7H7l3.4-5.2H8z" />
+      <path d="M12 14v8" />
+    </ThemeGlyph>
+  ),
+};
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -248,13 +310,13 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
 
   const handleCopyDataDir = useCallback(async () => {
     if (!appInfo?.dataDir) return;
-    await copyToClipboard(appInfo.dataDir);
-    toast.success('已复制数据目录路径');
+    // 复制结果的真实反馈由 copyWithFeedback 统一给出（失败不再假提示成功）
+    await copyWithFeedback(appInfo.dataDir, '已复制数据目录路径');
   }, [appInfo]);
 
   const handleCopyDiagnostics = useCallback(async () => {
     const lines = [
-      '# 笔记 · 诊断信息',
+      '# 拾页 · 诊断信息',
       '时间：' + new Date().toLocaleString('zh-CN'),
       '版本：' + (appInfo?.version || (isWebModeRaw ? '浏览器模式' : '（读取中）')),
       '数据目录：' + (appInfo?.dataDir || (isWebModeRaw ? '浏览器模式（数据存在 IndexedDB）' : '（读取中）')),
@@ -264,8 +326,8 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
       '',
       formatErrorLogs(errorLogs.slice(-5)),
     ];
-    await copyToClipboard(lines.join('\n'));
-    toast.success('诊断信息已复制');
+    // 复制结果的真实反馈由 copyWithFeedback 统一给出（失败不再假提示成功）
+    await copyWithFeedback(lines.join('\n'), '诊断信息已复制');
   }, [appInfo, errorLogs, crashLog]);
 
   const handleClearErrorLogs = useCallback(() => {
@@ -435,11 +497,15 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
 
   if (!isOpen) return null;
 
+  /*
+   * 页签图标统一走单色线性图标集（emoji 在不同系统渲染不一致、无法跟随主题）。
+   * 「快捷键」没有键帽图标，取最贴近的列表字形 IconMenu（键位绑定就是一张清单）。
+   */
   const tabs = [
-    { id: 'general' as const, label: '通用', icon: '⚙️' },
-    { id: 'editor' as const, label: '编辑器', icon: '📝' },
-    { id: 'ai' as const, label: 'AI', icon: '🤖' },
-    { id: 'shortcuts' as const, label: '快捷键', icon: '⌨️' },
+    { id: 'general' as const, label: '通用', icon: <IconSettings size={16} /> },
+    { id: 'editor' as const, label: '编辑器', icon: <IconEdit size={16} /> },
+    { id: 'ai' as const, label: 'AI', icon: <IconSparkle size={16} /> },
+    { id: 'shortcuts' as const, label: '快捷键', icon: <IconMenu size={16} /> },
   ];
 
   /** 搜索生效时把「通用 / 编辑器」两个纯外部状态页签一并铺开，跨页签定位分区 */
@@ -468,7 +534,9 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
     <div className="settings-overlay" onClick={requestClose}>
       <div className="settings-panel" ref={panelRef} onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
-          <h2 className="settings-title">⚙️ 设置</h2>
+          <h2 className="settings-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <IconSettings size={20} /> 设置
+          </h2>
           <button
             className="settings-close"
             onClick={requestClose}
@@ -548,7 +616,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
                     onClick={() => setCustomTheme(option.id)}
                     title={option.description}
                   >
-                    <span className="theme-option-icon">{option.icon}</span>
+                    <span className="theme-option-icon" aria-hidden="true">{THEME_OPTION_ICONS[option.icon]}</span>
                     <span className="theme-option-name">{option.name}</span>
                   </button>
                 ))}
@@ -687,7 +755,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps): 
                       />
                       <span>
                         开机自动启动
-                        <em>登录系统后自动打开笔记；显示的是系统里的真实状态，在任务管理器里禁用后这里也会同步</em>
+                        <em>登录系统后自动打开拾页；显示的是系统里的真实状态，在任务管理器里禁用后这里也会同步</em>
                       </span>
                     </label>
                     <label className="settings-toggle-row">

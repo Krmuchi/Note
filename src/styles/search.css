@@ -84,6 +84,7 @@
 }
 
 .search-clear {
+  position: relative;
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -97,6 +98,13 @@
   justify-content: center;
   flex-shrink: 0;
   transition: all var(--transition-fast);
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局），外扩到 32px 档 */
+.search-clear::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .search-clear:hover {
@@ -678,7 +686,7 @@
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  font-size: 10px;
+  font-size: 12px;
   font-family: inherit;
   color: var(--text-secondary);
   box-shadow: 0 1px 0 var(--border-color);

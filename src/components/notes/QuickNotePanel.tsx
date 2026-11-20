@@ -142,6 +142,8 @@ export default function QuickNotePanel(): JSX.Element {
             icon={<IconLightbulb size={32} />}
             title="还没有小记"
             description="快速记录想法、灵感、待办事项"
+            // 明确无动作（actions=[]）：输入框就在上方（Ctrl+Enter 保存），入口已在眼前，不再放跳转按钮
+            actions={[]}
           />
         ) : (
           quickNotes.map(note => (

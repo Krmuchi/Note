@@ -22,31 +22,56 @@ const isOptionalString = (v) => v === undefined || v === null || typeof v === "s
  */
 const utf8Length = (str) => new TextEncoder().encode(str).length;
 
+/**
+ * 把版本快照从存储 payload 中剥离（正文与版本分离存储）。
+ *
+ * 背景：版本快照是每篇文档的全量正文副本，曾把 notes:save 顶过 50MB payload
+ * 上限导致保存永久失败。现在它们单独存放（notes-versions.json，走独立 IPC
+ * 通道），notes-data.json 只留正文与结构 —— 50MB 上限从此只受正文约束。
+ *
+ * 返回 { store, versions }：store 可直接序列化写盘（各 doc.versions 为空数组），
+ * versions 为 { [docId]: DocVersion[] }。纯函数，主进程与渲染层共用。
+ */
+function stripVersions(payload) {
+  const versions = {};
+  const notebooks = (payload.notebooks || []).map((notebook) => ({
+    ...notebook,
+    docs: (notebook.docs || []).map((doc) => {
+      if (Array.isArray(doc.versions) && doc.versions.length > 0) {
+        versions[doc.id] = doc.versions;
+      }
+      return { ...doc, versions: [] };
+    }),
+  }));
+  return { store: { ...payload, notebooks }, versions };
+}
+
 /** 校验 notes:save 全量存储 payload 结构 */
 function assertStorePayload(payload) {
+  // 错误消息会被渲染层直接 toast 给用户（中文 UI），字段名保留英文便于排查
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Invalid save payload: expected an object");
+    throw new Error("保存数据无效：应为对象");
   }
   if (!Array.isArray(payload.notebooks)) {
-    throw new Error("Invalid save payload: notebooks must be an array");
+    throw new Error("保存数据无效：notebooks 字段必须是数组");
   }
   if (!Array.isArray(payload.trash)) {
-    throw new Error("Invalid save payload: trash must be an array");
+    throw new Error("保存数据无效：trash 字段必须是数组");
   }
   if (payload.tags !== undefined && !Array.isArray(payload.tags)) {
-    throw new Error("Invalid save payload: tags must be an array");
+    throw new Error("保存数据无效：tags 字段必须是数组");
   }
   if (payload.searchHistory !== undefined && !Array.isArray(payload.searchHistory)) {
-    throw new Error("Invalid save payload: searchHistory must be an array");
+    throw new Error("保存数据无效：searchHistory 字段必须是数组");
   }
   if (!isOptionalString(payload.activeNotebookId) || !isOptionalString(payload.activeDocId)) {
-    throw new Error("Invalid save payload: active ids must be strings");
+    throw new Error("保存数据无效：activeNotebookId / activeDocId 必须是字符串");
   }
   // 序列化一次并返回结果，供写盘复用（避免大 payload 校验+写盘各 stringify 一遍）
   const json = JSON.stringify(payload, null, 2);
   const size = utf8Length(json);
   if (size > MAX_STORE_BYTES) {
-    throw new Error(`Save payload too large: ${(size / 1024 / 1024).toFixed(1)}MB exceeds ${MAX_STORE_BYTES / 1024 / 1024}MB limit`);
+    throw new Error(`保存数据过大：${(size / 1024 / 1024).toFixed(1)}MB 超过 ${MAX_STORE_BYTES / 1024 / 1024}MB 上限，请清理版本快照或导出备份后归档部分文档`);
   }
   return json;
 }
@@ -54,29 +79,29 @@ function assertStorePayload(payload) {
 /** 校验导出类 payload（title/content/docs） */
 function assertExportPayload(payload, { allowDocs = false } = {}) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("Invalid export payload: expected an object");
+    throw new Error("导出数据无效：应为对象");
   }
   if (payload.title !== undefined && !isNonEmptyString(payload.title)) {
-    throw new Error("Invalid export payload: title must be a non-empty string");
+    throw new Error("导出数据无效：title 必须是非空字符串");
   }
   if (payload.title !== undefined && payload.title.length > 500) {
-    throw new Error("Invalid export payload: title too long");
+    throw new Error("导出数据无效：title 过长（上限 500 字）");
   }
   if (!allowDocs) {
     if (payload.content !== undefined && typeof payload.content !== "string") {
-      throw new Error("Invalid export payload: content must be a string");
+      throw new Error("导出数据无效：content 必须是字符串");
     }
     if (typeof payload.content === "string" && utf8Length(payload.content) > MAX_EXPORT_CONTENT_BYTES) {
-      throw new Error("Invalid export payload: content too large");
+      throw new Error("导出数据无效：content 超过大小上限");
     }
     return;
   }
   if (!Array.isArray(payload.docs) || payload.docs.length > MAX_EXPORT_DOCS) {
-    throw new Error(`Invalid export payload: docs must be an array of at most ${MAX_EXPORT_DOCS} items`);
+    throw new Error(`导出数据无效：docs 必须是数组且不超过 ${MAX_EXPORT_DOCS} 篇`);
   }
   for (const doc of payload.docs) {
     if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
-      throw new Error("Invalid export payload: each doc must be an object");
+      throw new Error("导出数据无效：每篇文档必须是对象");
     }
     if (typeof doc.title !== "string" || typeof doc.content !== "string") {
       throw new Error("Invalid export payload: doc.title and doc.content must be strings");
@@ -447,6 +472,7 @@ export {
   MAX_IMAGE_BYTES,
   assertStorePayload,
   assertExportPayload,
+  stripVersions,
   safeName,
   escapeHtml,
   markdownToSimpleHtml,

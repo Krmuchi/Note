@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { RecentView as RecentViewEntry } from '@/types'
 import { useNotesStore } from '@/store'
 import { EmptyState } from '@/components/common/EmptyState'
-import { IconSearch } from '@/components/common/Icon'
+import { IconClock, IconClose, IconDocument, IconSearch } from '@/components/common/Icon'
 import { formatRelativeTime } from '@/utils/formatters'
 
 interface RecentViewProps {
@@ -80,7 +80,7 @@ export default function RecentView({ recentViews, onViewDoc, onGoToDocs }: Recen
     <main className="editor-panel">
       <div className="trash-panel">
         <div className="trash-header">
-          <h2>🕘 最近编辑</h2>
+          <h2><IconClock size={20} /> 最近编辑</h2>
           <span className="trash-hint">
             {recentViews.length > 0
               ? `跨知识库，按最近打开排序（保留最近 ${recentViews.length} 条）`
@@ -103,13 +103,14 @@ export default function RecentView({ recentViews, onViewDoc, onGoToDocs }: Recen
         {items.length === 0 ? (
           recentViews.length === 0 ? (
             <EmptyState
-              icon="🕘"
+              icon={<IconClock size={32} />}
               title="还没有浏览记录"
               description="打开任意一篇文档，它就会出现在这里，方便快速回到刚才的位置"
               actions={
                 onGoToDocs
-                  ? [{ label: '去打开一篇文档', icon: '📄', variant: 'primary', onClick: onGoToDocs }]
-                  : undefined
+                  ? [{ label: '去打开一篇文档', icon: <IconDocument size={14} />, variant: 'primary', onClick: onGoToDocs }]
+                  // 显式空数组：没有 onGoToDocs 回调时无出口可给（而非省略整个字段）
+                  : []
               }
             />
           ) : (
@@ -117,7 +118,7 @@ export default function RecentView({ recentViews, onViewDoc, onGoToDocs }: Recen
               icon={<IconSearch size={32} />}
               title="没有匹配的文档"
               description={`最近记录里没有包含「${searchQuery.trim()}」的文档`}
-              actions={[{ label: '清除搜索', icon: '✕', variant: 'secondary', onClick: () => setSearchQuery('') }]}
+              actions={[{ label: '清除搜索', icon: <IconClose size={14} />, variant: 'secondary', onClick: () => setSearchQuery('') }]}
             />
           )
         ) : (
@@ -130,7 +131,7 @@ export default function RecentView({ recentViews, onViewDoc, onGoToDocs }: Recen
                 onClick={() => handleOpen(item.notebookId, item.docId)}
                 title={`${item.notebookTitle} › ${item.title}`}
               >
-                <span className="recent-item-icon" aria-hidden="true">📄</span>
+                <span className="recent-item-icon" aria-hidden="true"><IconDocument size={16} /></span>
                 <span className="recent-item-main">
                   <span className="recent-item-title">{item.title}</span>
                   <span className="recent-item-meta">

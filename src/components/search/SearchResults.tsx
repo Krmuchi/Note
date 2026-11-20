@@ -4,14 +4,17 @@
  * 自 SearchPanel 抽出，DOM 结构、data-search-item 标记与 class 名保持不变。
  */
 import { useMemo } from 'react';
-import type { JSX } from 'react';
+import type { JSX, UIEvent } from 'react';
 import type { SearchResult, Tag } from '@/types';
 import { useNotesStore } from '@/store';
 import { formatDateTime } from '@/utils/formatters';
 import { HighlightMatch } from './HighlightMatch';
+import { IconBook, IconDocument, IconSearch } from '@/components/common/Icon';
 
 interface SearchResultsProps {
-  results: SearchResult[];                          // 全部结果（按页显示）
+  results: SearchResult[];                          // 取回的结果（top-K，按页显示）
+  /** 未截断的命中总数；被 top-K 截断时大于 results.length。缺省按 results.length 处理 */
+  total?: number;
   query: string;                                    // 当前关键词（用于高亮）
   tags: Tag[];                                      // 可选标签（用于渲染结果标签）
   activeIndex: number;                              // 键盘高亮下标
@@ -34,6 +37,7 @@ const MAX_PATH_DEPTH = 3;
 
 export default function SearchResults({
   results,
+  total,
   query,
   tags,
   activeIndex,
@@ -77,16 +81,32 @@ export default function SearchResults({
   };
 
   const shown = results.slice(0, Math.max(0, visibleCount));
-  const remaining = results.length - shown.length;
+  // 计数用未截断的命中总数：top-K 分批取回时 results.length 只是「已取回多少」
+  const totalCount = total ?? results.length;
+  // 还有多少条没显示（含尚未取回的下一批）：按钮可见性与「还有 N 条」都以真实总数为准
+  const remainingTotal = totalCount - shown.length;
+
+  /**
+   * 滚到底部附近时自动续载（与「加载更多」同一条路径：需要时先取下一批再翻页）。
+   * 滚动容器就是本组件的根 .search-results。
+   */
+  const handleScroll = (e: UIEvent<HTMLDivElement>): void => {
+    const el = e.currentTarget;
+    if (remainingTotal > 0 && el.scrollHeight - el.scrollTop - el.clientHeight < 40) {
+      onLoadMore?.();
+    }
+  };
 
   return (
-    <div className="search-results">
+    <div className="search-results" onScroll={handleScroll}>
       <div className="results-header">
         <span aria-live="polite">
-          {/* P1-6：截断时说实话（旧版写死「找到 N 条」，而 N 其实是被截断的 50） */}
-          {remaining > 0
-            ? `共 ${results.length} 条结果，已显示前 ${shown.length} 条`
-            : `找到 ${results.length} 条结果`}
+          {/* P1-6：截断时说实话（旧版写死「找到 N 条」，而 N 其实是被截断的 50）。
+              分页未显示完、或被 top-K 截断（totalCount > results.length）时，
+              都走「共 N 条结果，已显示前 M 条」—— N 是真实命中总数 */}
+          {shown.length < totalCount
+            ? `共 ${totalCount} 条结果，已显示前 ${shown.length} 条`
+            : `找到 ${totalCount} 条结果`}
         </span>
         <button
           className="back-btn"
@@ -98,8 +118,9 @@ export default function SearchResults({
 
       {results.length === 0 ? (
         <div className="no-results">
-          <span className="no-results-icon">🔍</span>
-          <p>没有找到相关结果</p>
+          <span className="no-results-icon"><IconSearch size={32} /></span>
+          {/* 搜索无结果文案全局统一为一种写法：标题「没有匹配的X」+ 提示「试试其他关键词或调整筛选条件」 */}
+          <p>没有匹配的结果</p>
           <p className="no-results-hint">试试其他关键词或调整筛选条件</p>
         </div>
       ) : (
@@ -111,8 +132,8 @@ export default function SearchResults({
               data-search-item
               onClick={() => onResultClick(result)}
             >
-              <div className="result-icon">
-                {result.type === 'notebook' ? '📚' : '📄'}
+              <div className="result-icon" aria-hidden="true">
+                {result.type === 'notebook' ? <IconBook size={16} /> : <IconDocument size={16} />}
               </div>
               <div className="result-content">
                 <div className="result-title">
@@ -160,9 +181,9 @@ export default function SearchResults({
               </div>
             </div>
           ))}
-          {remaining > 0 && onLoadMore && (
+          {remainingTotal > 0 && onLoadMore && (
             <button type="button" className="load-more-btn" onClick={onLoadMore}>
-              加载更多（还有 {remaining} 条）
+              加载更多（还有 {remainingTotal} 条）
             </button>
           )}
         </div>

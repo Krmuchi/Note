@@ -8,6 +8,7 @@
 import type { JSX } from 'react';
 import type { SearchSuggestion } from '@/types';
 import { HighlightMatch } from './HighlightMatch';
+import { IconClock, IconDocument, IconEdit, IconTag } from '@/components/common/Icon';
 
 interface SearchSuggestionsProps {
   suggestions: SearchSuggestion[];                     // 建议列表
@@ -25,11 +26,15 @@ const GROUP_ORDER: { type: SearchSuggestion['type']; label: string }[] = [
   { type: 'content', label: '正文' },
 ];
 
-const ICON: Record<SearchSuggestion['type'], string> = {
-  history: '🕐',
-  title: '📄',
-  tag: '🏷️',
-  content: '📝',
+/**
+ * 分组类型 → 图标（统一 SVG 线性图标集，非 emoji）。
+ * 这是模块级元素常量：React 元素是不可变描述符，跨渲染复用安全。
+ */
+const ICON: Record<SearchSuggestion['type'], JSX.Element> = {
+  history: <IconClock size={16} />,
+  title: <IconDocument size={16} />,
+  tag: <IconTag size={16} />,
+  content: <IconEdit size={16} />,
 };
 
 /**

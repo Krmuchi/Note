@@ -97,6 +97,35 @@ function minimalForDraft(data: AppStore, activeDocId?: string): AppStore {
   };
 }
 
+/** 单篇正文的"存储体积"估算：直接数 content.length 而不是 JSON.stringify 全文 */
+function estimateDocBytes(doc: NoteDoc | undefined): number {
+  if (!doc || typeof doc.content !== 'string') return 0
+  return doc.content.length
+}
+
+/**
+ * 判断这个库是否**一定**塞不进草稿上限，从而可以直接走最省的路径。
+ *
+ * 为什么需要它：草稿在 800ms 防抖后触发，传进来的是整个库。若先无条件
+ * slimForDraft（为每篇文档做一次对象展开）再 JSON.stringify 全库，才在最后发现
+ * 超限 —— 这中间已经把 O(全库字节) 的拷贝与字符串构建付掉了。2000 篇 × 50KB 的库
+ * 每次停顿会因此冻结主线程 1~3 秒，而结果大概率还是被降级丢弃。
+ *
+ * 下面只做一个 O(文档数) 的字符串长度累加（不复制任何字节），
+ * 用来**提前选中正确的裁剪档位**，避免白算一遍。
+ * 阈值比 MAX_DRAFT_BYTES 保守：JSON 转义、结构与其它字段都会额外膨胀。
+ */
+function likelyExceedsDraftBudget(data: AppStore): boolean {
+  let total = 0
+  for (const notebook of data.notebooks) {
+    for (const doc of notebook.docs) {
+      total += estimateDocBytes(doc)
+      if (total > MAX_DRAFT_BYTES / 2) return true
+    }
+  }
+  return total > MAX_DRAFT_BYTES / 2
+}
+
 /**
  * 保存草稿到 localStorage（只保留最新一份，供崩溃恢复使用）
  * @param data 应用状态数据
@@ -109,6 +138,32 @@ export function saveDraft(data: AppStore, activeDocTitle?: string): void {
       timestamp: new Date().toISOString(),
       docTitle: activeDocTitle || '',
     };
+
+    /*
+     * 大库直接走"只救当前文档"：省掉一次注定被丢弃的全库拷贝 + 全量 stringify。
+     * 常规库（绝大多数场景）仍走完整 slim —— 它能把没保存的全部正文都救回来。
+     */
+    if (likelyExceedsDraftBudget(data)) {
+      const minimal = minimalForDraft(data)
+      let json = JSON.stringify({ meta, data: minimal })
+      if (json.length > MAX_DRAFT_BYTES) {
+        const doc = minimal.notebooks[0]?.docs[0]
+        if (doc && typeof doc.content === 'string') {
+          const overBy = json.length - MAX_DRAFT_BYTES
+          const keep = Math.max(0, doc.content.length - overBy - 1024)
+          doc.content = doc.content.slice(0, keep) + '\n\n…（草稿体积超限，后半部分未保存）'
+          json = JSON.stringify({ meta, data: minimal })
+        }
+      }
+      if (json.length > MAX_DRAFT_BYTES) {
+        console.warn(
+          `[draft] 草稿体积 ${(json.length / 1024 / 1024).toFixed(1)}MB 仍超过上限，已跳过本次草稿写入`,
+        )
+        return
+      }
+      localStorage.setItem(DRAFT_KEY, json)
+      return
+    }
 
     const slim = slimForDraft(data);
     let json = JSON.stringify({ meta, data: slim });

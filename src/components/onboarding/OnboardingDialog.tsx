@@ -101,7 +101,7 @@ export const OnboardingDialog: React.FC<OnboardingDialogProps> = ({ onClose, onC
 
         {step === 0 && (
           <div className="onboarding-body">
-            <h3>欢迎使用「笔记」</h3>
+            <h3>欢迎使用「拾页」</h3>
             <p className="onboarding-lead">
               一个本地优先的 Markdown 笔记应用 —— 知识库 → 文档树 → 编辑器，数据只存在你自己的机器上。
             </p>

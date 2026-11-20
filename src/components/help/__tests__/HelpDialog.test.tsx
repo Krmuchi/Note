@@ -12,15 +12,18 @@ vi.mock('@/services/storage', () => ({
 
 vi.mock('@/utils/clipboard', () => ({
   copyToClipboard: vi.fn(async () => true),
+  // 统一封装：组件只调 copyWithFeedback，成功/失败提示由它按真实结果给出（复制假成功修复）
+  copyWithFeedback: vi.fn(async () => true),
 }))
 
 import HelpDialog from '@/components/help/HelpDialog'
 import { getAppInfo, openDataDir } from '@/services/storage'
-import { copyToClipboard } from '@/utils/clipboard'
+import { copyToClipboard, copyWithFeedback } from '@/utils/clipboard'
 import { subscribeOnboardingRequest } from '@/utils/onboarding'
 
 const mockedOpenDir = openDataDir as unknown as ReturnType<typeof vi.fn>
-const mockedCopy = copyToClipboard as unknown as ReturnType<typeof vi.fn>
+const mockedCopy = copyWithFeedback as unknown as ReturnType<typeof vi.fn>
+const mockedRawCopy = copyToClipboard as unknown as ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -67,7 +70,7 @@ describe('HelpDialog', () => {
     unsubscribe()
   })
 
-  it('复制诊断信息包含版本与错误日志摘要', async () => {
+  it('复制诊断信息走 copyWithFeedback（按真实结果反馈），内容含版本与错误日志摘要', async () => {
     localStorage.setItem(
       'error-logs',
       JSON.stringify([{ timestamp: '2026-10-01T00:00:00.000Z', message: '测试错误', source: 'render' }]),
@@ -77,9 +80,12 @@ describe('HelpDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '复制诊断信息' }))
 
     await waitFor(() => expect(mockedCopy).toHaveBeenCalled())
-    const text = mockedCopy.mock.calls[0][0] as string
-    expect(text).toContain('笔记 · 诊断信息')
+    const [text, successMsg] = mockedCopy.mock.calls[0] as [string, string]
+    expect(text).toContain('拾页 · 诊断信息')
     expect(text).toContain('测试错误')
+    // 成功文案由调用点定制；反馈统一由 copyWithFeedback 给出，不再直调 copyToClipboard 无条件报成功
+    expect(successMsg).toBe('诊断信息已复制，可直接粘贴给开发者')
+    expect(mockedRawCopy).not.toHaveBeenCalled()
   })
 
   it('未打开时不渲染', () => {

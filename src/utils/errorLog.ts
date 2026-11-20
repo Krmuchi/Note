@@ -32,9 +32,26 @@ function normalize(raw: unknown): ErrorLogEntry | null {
   }
 }
 
-export function readErrorLogs(): ErrorLogEntry[] {
+/*
+ * 内存缓存（P2-2）。
+ *
+ * 旧实现 appendErrorLog 每写一条都要 JSON.parse 整个 localStorage + 逐条 normalize，
+ * 连续崩溃（每次错误触发一条）时是 O(n²) 的解析开销，而日志最多 50 条，
+ * 根本不需要每次都从磁盘重建。
+ *
+ * - cache：与 cachedRaw 对应的解析结果；null = 还没读过盘。
+ * - cachedRaw：最近一次确认读到/写入的磁盘原文。读取时若原文与它不等
+ *   （外部直接写了 localStorage、清了 storage、或测试夹具塞数据），
+ *   才重新 parse 并刷新缓存 —— 一次 getItem + 字符串比较，
+ *   成本远低于每次 JSON.parse，同时把"外部改动"的一致性留在了单窗口应用够用的水平。
+ */
+let cache: ErrorLogEntry[] | null = null
+let cachedRaw: string | null = null
+
+function parseLogs(raw: string | null): ErrorLogEntry[] {
+  if (raw === null) return []
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     return parsed.map(normalize).filter((entry): entry is ErrorLogEntry => entry !== null)
   } catch {
@@ -42,11 +59,35 @@ export function readErrorLogs(): ErrorLogEntry[] {
   }
 }
 
+/** 读缓存；磁盘原文变了才重新 parse —— 模块里唯一会 JSON.parse 的地方 */
+function loadLogs(): ErrorLogEntry[] {
+  const raw = localStorage.getItem(STORAGE_KEY)
+  if (cache === null || raw !== cachedRaw) {
+    cache = parseLogs(raw)
+    cachedRaw = raw
+  }
+  return cache
+}
+
+export function readErrorLogs(): ErrorLogEntry[] {
+  try {
+    // 返回副本：调用方随手 push/pop 不会污染缓存（语义与旧实现一致——每次都是新数组）
+    return loadLogs().slice()
+  } catch {
+    return []
+  }
+}
+
 export function appendErrorLog(entry: Omit<ErrorLogEntry, 'timestamp'> & { timestamp?: string }): void {
   try {
-    const logs = readErrorLogs()
+    // 走内存数组：只有这里才 stringify，并且只在成功落盘后更新 cachedRaw，
+    // 写失败时缓存里多出来的这条会随下一次原文不等而被磁盘真值覆盖（与旧行为一致）
+    const logs = loadLogs()
     logs.push({ ...entry, timestamp: entry.timestamp ?? new Date().toISOString() })
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(logs.slice(-MAX_ENTRIES)))
+    if (logs.length > MAX_ENTRIES) logs.splice(0, logs.length - MAX_ENTRIES)
+    const raw = JSON.stringify(logs)
+    localStorage.setItem(STORAGE_KEY, raw)
+    cachedRaw = raw
   } catch {
     /* 存储不可用时静默降级：不能因为记日志失败再抛一次错 */
   }
@@ -58,6 +99,9 @@ export function clearErrorLogs(): void {
   } catch {
     /* ignore */
   }
+  // 磁盘上的状态变了，缓存跟着作废；若 removeItem 实际失败，下一次读到原文又会重新 parse 出旧数据
+  cache = []
+  cachedRaw = null
 }
 
 const SOURCE_LABELS: Record<ErrorLogSource, string> = {

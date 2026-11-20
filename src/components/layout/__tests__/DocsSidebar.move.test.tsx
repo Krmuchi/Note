@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { DocsSidebar } from '@/components/layout/DocsSidebar'
 import { useNotesStore } from '@/store'
 import type { NoteDoc, Notebook } from '@/types'
@@ -75,7 +75,7 @@ describe('P0-3 / P1-13 移动对话框', () => {
     expect(screen.getByRole('option', { name: '目标文档' })).toBeTruthy();
   });
 
-  it('选择目标库与父级后点「移动」：整棵子树过去并落到指定父级下', () => {
+  it('选择目标库与父级后点「移动」：整棵子树过去并落到指定父级下', async () => {
     renderSidebar();
     openMoveDialogFor('p');
 
@@ -84,6 +84,9 @@ describe('P0-3 / P1-13 移动对话框', () => {
     // 文档行里也有一个 aria-label="移动" 的行内按钮，这里必须限定在对话框内
     fireEvent.click(screen.getByRole('dialog').querySelector('button.btn-primary') as Element);
 
+    // 确认后先进「移动中…」，搬迁落地才写 store、关对话框（长操作防连点）
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
     const state = useNotesStore.getState();
     const source = state.notebooks.find((nb) => nb.id === 'nb1');
     const target = state.notebooks.find((nb) => nb.id === 'nb2');
@@ -91,11 +94,9 @@ describe('P0-3 / P1-13 移动对话框', () => {
     expect(target?.docs.map((d) => d.id).sort()).toEqual(['c', 'p', 'tp']);
     expect(target?.docs.find((d) => d.id === 'p')?.parentId).toBe('tp');
     expect(target?.docs.find((d) => d.id === 'c')?.parentId).toBe('p');
-    // 对话框关闭
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
+  }, 10000);
 
-  it('父子同选时只搬顶层一篇（去重），提示里按子树计数', () => {
+  it('父子同选时只搬顶层一篇（去重），提示里按子树计数', async () => {
     renderSidebar();
     fireEvent.click(screen.getByRole('button', { name: '多选' }));
     // 子文档默认收起：先展开才勾得到它（也顺带验证多选态下展开仍然可用）
@@ -111,9 +112,38 @@ describe('P0-3 / P1-13 移动对话框', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /目标知识库/ }));
     fireEvent.click(dialog.querySelector('button.btn-primary') as Element);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
     const target = useNotesStore.getState().notebooks.find((nb) => nb.id === 'nb2');
     // 父子都过去了，而且没有被搬两次（子文档仍挂在父文档下）
     expect(target?.docs).toHaveLength(3);
     expect(target?.docs.find((d) => d.id === 'c')?.parentId).toBe('p');
-  });
+  }, 10000);
+
+  it('确认按钮进入「移动中…」并禁用：移动期间连点只搬一次', async () => {
+    renderSidebar();
+    openMoveDialogFor('p');
+
+    fireEvent.click(screen.getByRole('button', { name: /目标知识库/ }));
+    const dialog = screen.getByRole('dialog');
+    const confirmBtn = dialog.querySelector('button.btn-primary') as HTMLButtonElement;
+    const cancelBtn = dialog.querySelector('.confirm-dialog-actions button') as HTMLButtonElement;
+    expect(confirmBtn.textContent).toBe('移动到此处');
+
+    fireEvent.click(confirmBtn);
+    // 忙态先落地：disabled + 文案切换（store 写入同步发生的话这里根本来不及看到）
+    expect(confirmBtn.disabled).toBe(true);
+    expect(confirmBtn.textContent).toBe('移动中…');
+    // 途中「取消」一并封住，避免搬迁途中关掉对话框丢了回执上下文
+    expect(cancelBtn.disabled).toBe(true);
+
+    // 连点：disabled 按钮不再派发点击，即便派发也被 runMove 的 runningRef 吞掉
+    fireEvent.click(confirmBtn);
+    expect(confirmBtn.textContent).toBe('移动中…');
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const target = useNotesStore.getState().notebooks.find((nb) => nb.id === 'nb2');
+    // 只搬一次：p、c 与目标库原有的 tp，共 3 篇（搬两遍会多出副本）
+    expect(target?.docs.map((d) => d.id).sort()).toEqual(['c', 'p', 'tp']);
+  }, 10000);
 });

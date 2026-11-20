@@ -196,7 +196,7 @@
 }
 
 .style-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-tertiary);
   text-align: center;
 }
@@ -529,6 +529,7 @@
 }
 
 .ai-selection-close {
+  position: relative;
   width: 24px;
   height: 24px;
   border: none;
@@ -538,6 +539,13 @@
   cursor: pointer;
   line-height: 1;
   transition: background var(--transition-fast);
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局），外扩到 32px 档 */
+.ai-selection-close::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .ai-selection-close:hover {
@@ -580,7 +588,7 @@
 }
 
 .ai-selection-instructions-arrow {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--text-tertiary);
 }
 

@@ -7,8 +7,8 @@ const path = require("node:path");
 
 const IMPORTABLE_EXTENSIONS = [".md", ".markdown", ".txt", ".markdn"];
 /** 关联到本应用时使用的 ProgID（固定值，卸载/关闭时按它清理） */
-const PROG_ID = "Notes.Markdown";
-const ASSOCIATION_DESCRIPTION = "Markdown 文档（笔记）";
+const PROG_ID = "PickPage.Markdown";
+const ASSOCIATION_DESCRIPTION = "Markdown 文档（拾页）";
 
 /** 从 argv 取 --open-file=<path>；也支持被系统直接拖到 exe 上的裸路径 */
 function extractOpenFilePath(argv) {

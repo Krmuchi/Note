@@ -11,6 +11,7 @@ import {
   escapeHtml,
   markdownToSimpleHtml,
   safeName,
+  stripVersions,
 } from '../../electron/ipc/shared.mjs'
 
 /**
@@ -26,7 +27,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const SHARED_PATH = path.join(root, 'electron', 'ipc', 'shared.mjs')
 
 /** 渲染层允许从这里 import 的符号（其余只给主进程用） */
-const RENDERER_SAFE_EXPORTS = new Set(['buildExportDocument', 'markdownToSimpleHtml', 'escapeHtml', 'safeName'])
+const RENDERER_SAFE_EXPORTS = new Set(['buildExportDocument', 'markdownToSimpleHtml', 'escapeHtml', 'safeName', 'stripVersions'])
 
 /** 从模块源码里抽出 export 列表 */
 function listExports(): string[] {
@@ -109,7 +110,7 @@ describe('shared.mjs 无 Buffer 环境下的行为', () => {
     // 用超出上限的中文内容验证：若按 .length（UTF-16 码元）算，
     // 中文会被低估 3 倍，10MB 的中文文档能塞进 30MB —— 上限形同虚设
     const chinesePerByte = '中'.repeat(Math.ceil(MAX_EXPORT_CONTENT_BYTES / 3) + 1)
-    expect(() => assertExportPayload({ title: 't', content: chinesePerByte })).toThrow(/too large/)
+    expect(() => assertExportPayload({ title: 't', content: chinesePerByte })).toThrow(/过大|too large/)
   })
 
   it('等量的 ASCII 内容不触发上限', () => {
@@ -135,6 +136,33 @@ describe('shared.mjs 无 Buffer 环境下的行为', () => {
 
   it('escapeHtml 转义脚本注入', () => {
     expect(escapeHtml('<script>alert(1)</script>')).not.toContain('<script>')
+  })
+
+  it('stripVersions 把版本快照剥离到独立 map（正文与版本分离存储）', () => {
+    const payload = {
+      notebooks: [
+        {
+          id: 'nb',
+          title: '',
+          docs: [
+            { id: 'd1', title: 'a', content: 'x', versions: [{ id: 'v1', content: 'x' }] },
+            { id: 'd2', title: 'b', content: 'y', versions: [] },
+          ],
+        },
+      ],
+      trash: [],
+      tags: [],
+      searchHistory: [],
+    }
+    const { store, versions } = stripVersions(payload)
+    // store 可直接写盘：versions 全部为空数组
+    expect(store.notebooks[0].docs[0].versions).toEqual([])
+    expect(store.notebooks[0].docs[1].versions).toEqual([])
+    // 其余字段原样保留
+    expect(store.notebooks[0].docs[0].content).toBe('x')
+    // versions map 只含有快照的文档
+    expect(Object.keys(versions)).toEqual(['d1'])
+    expect(versions.d1).toHaveLength(1)
   })
 
   it('buildExportDocument 生成的文档带转义后的标题', () => {

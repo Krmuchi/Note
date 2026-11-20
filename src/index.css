@@ -109,7 +109,9 @@
   --shadow-xl: 0 12px 48px rgba(0, 0, 0, 0.12), 0 6px 12px rgba(0, 0, 0, 0.06);
 
   /* 字体 */
-  --font-size-xs: 11px;
+  /* xs 与 sm 合流为 12px：11px 辅助文字可读性不足（消费级产品辅助文字通常 ≥12px）。
+     档位名保留（100+ 处类名引用），实际取值合并不影响级联。 */
+  --font-size-xs: 12px;
   --font-size-sm: 12px;
   --font-size-base: 13px;
   --font-size-md: 14px;
@@ -161,8 +163,12 @@
 
 /* ----- 暗色主题 ----- */
 [data-theme="dark"] {
-  --primary-50: #002c8c;
-  --primary-100: #003eb3;
+  /* 低阶是「浅底」语义：全仓 58 处拿 --primary-50 当选中态/高亮块底色
+     （侧栏选中项、标签 chip、搜索命中……），10 处用 --primary-100 叠在其上。
+     旧值 #002c8c 是饱和深蓝，在 #1a1a1a 画布上会糊成一块刺眼的蓝砖 ——
+     语义与亮色主题正好相反。改用低透明同色相颜料：叠在任何底色上都只带一点主色倾向。 */
+  --primary-50: rgba(105, 177, 255, 0.14);
+  --primary-100: rgba(105, 177, 255, 0.22);
   --primary-200: #0958d9;
   --primary-300: #1677ff;
   --primary-400: #4096ff;
@@ -250,6 +256,11 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* 触屏：去掉点按时浏览器自带的灰色高亮块；按压反馈交给 hover/active 样式 */
+* {
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {

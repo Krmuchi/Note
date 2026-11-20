@@ -77,7 +77,7 @@ describe('托盘菜单模板', () => {
 
   it('五个入口齐全且顺序稳定', () => {
     const items = buildTrayMenuTemplate()
-    expect(labels(items)).toEqual(['打开笔记', '新建便签', '快速打开…', '', '打开数据目录', '', '退出'])
+    expect(labels(items)).toEqual(['打开拾页', '新建便签', '快速打开…', '', '打开数据目录', '', '退出'])
   })
 
   it('没注入回调时点击不抛错', () => {

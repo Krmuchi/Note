@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useNotesStore, selectActiveDoc } from '@/store'
+import type { NoteDoc } from '@/types'
 
 describe('coreSlice - comment operations', () => {
   beforeEach(() => {
@@ -249,6 +250,80 @@ describe('coreSlice - moveDocToNotebook', () => {
     moveDocToNotebook(notebookId, docId, notebookId)
 
     expect(useNotesStore.getState().notebooks[0].docs).toBe(before)
+  })
+})
+
+describe('coreSlice - updateDoc parentId 环防御（P2-3 单趟 id→parentId 索引）', () => {
+  beforeEach(() => {
+    useNotesStore.setState({
+      notebooks: [],
+      trash: [],
+      tags: [],
+      searchHistory: [],
+      activeNotebookId: '',
+      activeDocId: '',
+      searchText: '',
+      saveStatus: 'idle',
+      lastSavedAt: null,
+    })
+  })
+
+  /** 造一条 A(根) → B(A 的子) → C(B 的子) 的链，返回 [nbId, aId, bId, cId] */
+  function buildChain(): [string, string, string, string] {
+    const { createNotebook, createDoc } = useNotesStore.getState()
+    createNotebook('NB')
+    const nbId = useNotesStore.getState().notebooks[0].id
+    const aId = createDoc(nbId, null, { title: 'A' })!
+    const bId = createDoc(nbId, aId, { title: 'B' })!
+    const cId = createDoc(nbId, bId, { title: 'C' })!
+    return [nbId, aId, bId, cId]
+  }
+
+  const docById = (nbId: string, docId: string): NoteDoc =>
+    useNotesStore.getState().notebooks.find(nb => nb.id === nbId)!.docs.find(d => d.id === docId)!
+
+  it('把父级改成自己的后代时退回 null（否则文档树渲染无限递归）', () => {
+    const [nbId, aId, , cId] = buildChain()
+    useNotesStore.getState().updateDoc(nbId, aId, { parentId: cId })
+    expect(docById(nbId, aId).parentId).toBeNull()
+  })
+
+  it('父级填成自己时退回 null', () => {
+    const [nbId, , bId] = buildChain()
+    useNotesStore.getState().updateDoc(nbId, bId, { parentId: bId })
+    expect(docById(nbId, bId).parentId).toBeNull()
+  })
+
+  it('挂到合法父级上时原样保留（不是环就别动）', () => {
+    const [nbId, , bId, cId] = buildChain()
+    const aId = docById(nbId, bId).parentId! // B 的父 = A
+    // C 从 B 改挂到 A：A → null，祖先链上没有 C → 不是环，保持 A
+    useNotesStore.getState().updateDoc(nbId, cId, { parentId: aId })
+    expect(docById(nbId, cId).parentId).toBe(aId)
+  })
+
+  it('跨知识库的 parentId 取不到父文档 → 视作无父，不误判成环（保持原值）', () => {
+    const [nbId, , bId] = buildChain()
+    useNotesStore.getState().updateDoc(nbId, bId, { parentId: 'other-notebook-doc' })
+    expect(docById(nbId, bId).parentId).toBe('other-notebook-doc')
+  })
+
+  it('数据里已存在脏环时沿祖先链上溯不会死循环，且不误改目标字段', () => {
+    const [nbId, aId, bId, cId] = buildChain()
+    // 直接注入 A↔B 的脏环（模拟旧数据 / 导入的坏数据）
+    useNotesStore.setState((s) => ({
+      notebooks: s.notebooks.map(nb => nb.id !== nbId ? nb : {
+        ...nb,
+        docs: nb.docs.map(d =>
+          d.id === aId ? { ...d, parentId: bId }
+          : d.id === bId ? { ...d, parentId: aId }
+          : d),
+      }),
+    }))
+
+    // 上溯 A→B→A 由 seen 集合截断：C 不在环上 → parentId 保持合法挂载
+    useNotesStore.getState().updateDoc(nbId, cId, { parentId: aId })
+    expect(docById(nbId, cId).parentId).toBe(aId)
   })
 })
 

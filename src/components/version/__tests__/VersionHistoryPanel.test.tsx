@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import type { DocVersion, NoteDoc } from '@/types'
 import { useNotesStore } from '@/store'
-import { toast } from '@/services/toast'
+import { subscribeToast, toast, type ToastMessage } from '@/services/toast'
 
 // 版本导出改走统一 IPC 通道（缺陷 14）：保留真实模块，仅替换 exportDoc
 vi.mock('@/services/storage', async (importOriginal) => {
@@ -126,14 +126,32 @@ describe('版本导出走 IPC（缺陷 14）', () => {
 })
 
 describe('恢复版本确认', () => {
-  it('恢复走 danger 确认，确认后才还原', () => {
+  it('恢复走 danger 确认，确认后进入恢复中、期间不再重复触发，落地才还原并给回执', async () => {
+    const seen: ToastMessage[] = []
+    const off = subscribeToast((m) => {
+      seen.push(m)
+      return 'test-' + seen.length
+    })
     const { container } = renderPanel()
     fireEvent.click(container.querySelectorAll('.version-item')[0])
     fireEvent.click(screen.getByRole('button', { name: /恢复此版本/ }))
     expect(mockedConfirm).toHaveBeenCalledTimes(1)
-    const config = mockedConfirm.mock.calls[0][0] as { variant: string; onConfirm: () => void }
+    const config = mockedConfirm.mock.calls[0][0] as { variant: string; onConfirm: () => Promise<unknown> | void }
     expect(config.variant).toBe('danger')
-    config.onConfirm()
-    expect(useNotesStore.getState().notebooks[0].docs[0].content).toBe('aaa')
-  })
+
+    const panel = screen.getByRole('dialog')
+    // 确认 → 面板立即置 aria-busy（恢复是覆盖式操作，重复触发必须被吞掉）
+    act(() => { void config.onConfirm() })
+    expect(panel).toHaveAttribute('aria-busy', 'true')
+    fireEvent.click(screen.getByRole('button', { name: /恢复此版本/ }))
+    expect(mockedConfirm).toHaveBeenCalledTimes(1)
+
+    // 落地：内容被替换 + 忙态解除 + 成功回执
+    await waitFor(() => {
+      expect(useNotesStore.getState().notebooks[0].docs[0].content).toBe('aaa')
+      expect(screen.getByRole('dialog')).toHaveAttribute('aria-busy', 'false')
+    })
+    expect(seen.some((m) => m.type === 'success' && m.message === '已恢复到该版本')).toBe(true)
+    off()
+  }, 10000)
 })

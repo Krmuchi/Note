@@ -76,6 +76,9 @@ contextBridge.exposeInMainWorld("notesApi", {
   // 加载通道返回信封（{ ok, data } / { ok, error }），主进程永不 throw
   load: () => ipcRenderer.invoke("notes:load"),
   save: withErrorHandling((payload) => ipcRenderer.invoke("notes:save", payload)),
+  // 版本快照分离存储：saveAppStore 剥离 versions 后走独立通道（避开 50MB 单通道上限）
+  saveVersions: withErrorHandling((versionsMap) => ipcRenderer.invoke("notes:versions:save", versionsMap)),
+  loadVersions: () => ipcRenderer.invoke("notes:versions:load"),
   exportDoc: withErrorHandling((payload) => ipcRenderer.invoke("notes:export-doc", payload)),
   exportNotebook: withErrorHandling((payload) => ipcRenderer.invoke("notes:export-notebook", payload)),
   exportNotebookZip: withErrorHandling((payload) => ipcRenderer.invoke("notes:export-notebook-zip", payload)),

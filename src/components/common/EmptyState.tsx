@@ -13,7 +13,12 @@ interface EmptyStateProps {
   icon: React.ReactNode;
   title: string;
   description?: string;
-  actions?: EmptyStateAction[];
+  /**
+   * 空态动作区（**必填**）：每个空态都要回答"下一步做什么"。
+   * 确实没有可给的动作时显式传 []，并在调用处注释写明理由 ——
+   * 防止空态悄悄失去出口（CTA 不统一问题的类型级护栏）。
+   */
+  actions: EmptyStateAction[];
   className?: string;
 }
 
@@ -25,6 +30,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   icon,
   title,
   description,
+  // 类型上 actions 必填；运行时兜底 [] 只为防御漏传（不替代调用处的理由注释）
   actions = [],
   className = '',
 }) => {

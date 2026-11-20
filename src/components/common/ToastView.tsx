@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react"
-import type { CSSProperties, JSX } from "react"
+import type { CSSProperties, JSX, ReactNode } from "react"
+import { IconInfo, IconWarning } from "@/components/common/Icon"
 import type { ToastAction, ToastMessage } from "@/services/toast"
 
 /*
@@ -14,11 +15,12 @@ export interface ToastProps extends ToastMessage {
   onClose: (id: string) => void
 }
 
-const iconMap = {
+/** 类型符号：success/error 保留纯字形，warning/info 用线性图标（emoji 跨平台漂移、不随主题变色） */
+const iconMap: Record<ToastMessage["type"], ReactNode> = {
   success: "✓",
   error: "✗",
-  warning: "⚠️",
-  info: "ℹ️",
+  warning: <IconWarning size={16} />,
+  info: <IconInfo size={16} />,
 }
 
 /** 带操作按钮时的最短停留时间：3 秒来不及读完并点击，容易错过撤销入口 */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { getAppInfo, isWebMode, openDataDir } from '@/services/storage'
-import { copyToClipboard } from '@/utils/clipboard'
+import { copyWithFeedback } from '@/utils/clipboard'
 import { formatErrorLogs, readErrorLogs } from '@/utils/errorLog'
 import { formatPerfSnapshot } from '@/utils/perfMarks'
 import { requestOnboarding } from '@/utils/onboarding'
@@ -61,7 +61,7 @@ export default function HelpDialog({ isOpen, onClose, onOpenShortcuts }: HelpDia
   const handleCopyDiagnostics = useCallback(async () => {
     const logs = readErrorLogs()
     const lines = [
-      '# 笔记 · 诊断信息',
+      '# 拾页 · 诊断信息',
       '时间：' + new Date().toLocaleString('zh-CN'),
       '版本：' + versionText(appInfo),
       '数据目录：' + dataDirText(appInfo),
@@ -70,8 +70,8 @@ export default function HelpDialog({ isOpen, onClose, onOpenShortcuts }: HelpDia
       '',
       formatErrorLogs(logs.slice(-5)),
     ]
-    await copyToClipboard(lines.join('\n'))
-    toast.success('诊断信息已复制，可直接粘贴给开发者')
+    // 复制结果的真实反馈由 copyWithFeedback 统一给出（失败不再假提示成功）
+    await copyWithFeedback(lines.join('\n'), '诊断信息已复制，可直接粘贴给开发者')
   }, [appInfo])
 
   if (!isOpen) return null

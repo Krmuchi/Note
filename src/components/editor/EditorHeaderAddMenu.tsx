@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import type { FormatType } from '@/hooks/useEditorFormatting';
+import { IconCheck, IconImage, IconLightbulb } from '@/components/common/Icon';
 
 /** EditorHeader「添加内容」快速插入下拉菜单。从 EditorHeader.tsx 纯拆分，DOM/class/事件逻辑不变。 */
 interface EditorHeaderAddMenuProps {
@@ -50,13 +51,13 @@ export const EditorHeaderAddMenu: React.FC<EditorHeaderAddMenuProps> = ({
               <span className="eh-menu-icon">•</span>无序列表
             </button>
             <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('tasklist'))}>
-              <span className="eh-menu-icon">☑</span>任务列表
+              <span className="eh-menu-icon"><IconCheck size={16} /></span>任务列表
             </button>
             <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('quote'))}>
               <span className="eh-menu-icon">❝</span>引用块
             </button>
             <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('callout'))}>
-              <span className="eh-menu-icon">💡</span>提示块
+              <span className="eh-menu-icon"><IconLightbulb size={16} /></span>提示块
             </button>
             <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('codeblock'))}>
               <span className="eh-menu-icon">&lt;/&gt;</span>代码块
@@ -74,7 +75,7 @@ export const EditorHeaderAddMenu: React.FC<EditorHeaderAddMenuProps> = ({
           <div className="eh-menu-group" role="none">
             <div className="eh-group-label" role="presentation">媒体与高级</div>
             <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('image'))}>
-              <span className="eh-menu-icon">🖼</span>图片
+              <span className="eh-menu-icon"><IconImage size={16} /></span>图片
             </button>
             <button type="button" role="menuitem" className="eh-menu-item" onClick={() => handleAddAction(() => applyFormat('math'))}>
               <span className="eh-menu-icon">∑</span>公式（LaTeX）

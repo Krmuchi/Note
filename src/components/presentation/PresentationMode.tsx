@@ -1,7 +1,9 @@
+import '@/styles/presentation.css';
 import React, { useState, useEffect, useRef } from 'react';
 import type { NoteDoc } from '@/types';
 import { MarkdownPreview } from '@/components/editor/MarkdownPreview';
 import { PresentationTimer } from './PresentationTimer';
+import { IconUser } from '@/components/common/Icon';
 
 interface PresentationModeProps {
   doc: NoteDoc;
@@ -179,15 +181,18 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
             className={`toolbar-btn ${isSpeakerMode ? 'active' : ''}`} 
             onClick={() => setIsSpeakerMode(!isSpeakerMode)}
             title="演讲者模式 (S)"
+            aria-label="演讲者模式"
           >
-            👤
+            <IconUser size={18} />
           </button>
           <button 
             className={`toolbar-btn ${showLaser ? 'active' : ''}`} 
             onClick={() => setShowLaser(!showLaser)}
             title="激光笔 (L)"
+            aria-label="激光笔"
           >
-            🔴
+            {/* 激光点是播放语义字形，保留；可访问名走 aria-label */}
+            <span aria-hidden="true">🔴</span>
           </button>
           <button 
             className={`toolbar-btn timer-btn ${isTimerRunning ? '' : 'paused'}`} 
@@ -231,8 +236,9 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
               className="nav-btn" 
               onClick={() => setCurrentPage(p => Math.max(p - 1, 0))}
               disabled={currentPage === 0}
+              aria-label="上一页"
             >
-              ◀
+              <span aria-hidden="true">◀</span>
             </button>
             <div className="nav-dots" title="点击跳页；正文中单独成行的 --- 与各级标题都会切一页">
               {pages.map((_, i) => (
@@ -247,8 +253,9 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ doc, onClose
               className="nav-btn" 
               onClick={() => setCurrentPage(p => Math.min(p + 1, pages.length - 1))}
               disabled={currentPage === pages.length - 1}
+              aria-label="下一页"
             >
-              ▶
+              <span aria-hidden="true">▶</span>
             </button>
           </div>
         </div>

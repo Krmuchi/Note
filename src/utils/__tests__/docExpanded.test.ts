@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { pruneExpandedDocs, readExpandedDocs, writeExpandedDocs } from '@/utils/docExpanded'
+import {
+  createAliveIdsDeriver,
+  pruneExpandedDocs,
+  readExpandedDocs,
+  writeExpandedDocs,
+} from '@/utils/docExpanded'
 
 /**
  * 文档树展开态持久化。
@@ -67,6 +72,32 @@ describe('writeExpandedDocs', () => {
     expect(stored).toHaveLength(500)
     // 保留的是"最后写入"的那批
     expect(stored[stored.length - 1]).toBe('doc-599')
+  })
+})
+
+describe('createAliveIdsDeriver', () => {
+  it('id 集不变时返回同一个 Set 引用（文档对象换了也不动）', () => {
+    const derive = createAliveIdsDeriver()
+    const first = derive([{ id: 'a' }, { id: 'b' }])
+    const second = derive([{ id: 'a' }, { id: 'b' }])
+    expect(second).toBe(first)
+  })
+
+  it('顺序变化但成员相同 → 仍是同一引用（effect 不该被重排触发）', () => {
+    const derive = createAliveIdsDeriver()
+    const first = derive([{ id: 'a' }, { id: 'b' }])
+    expect(derive([{ id: 'b' }, { id: 'a' }])).toBe(first)
+  })
+
+  it('增删 id 时返回新集合且成员正确', () => {
+    const derive = createAliveIdsDeriver()
+    const first = derive([{ id: 'a' }, { id: 'b' }])
+    const grown = derive([{ id: 'a' }, { id: 'b' }, { id: 'c' }])
+    expect(grown).not.toBe(first)
+    expect([...grown].sort()).toEqual(['a', 'b', 'c'])
+    const shrunk = derive([{ id: 'c' }])
+    expect(shrunk).not.toBe(grown)
+    expect([...shrunk]).toEqual(['c'])
   })
 })
 

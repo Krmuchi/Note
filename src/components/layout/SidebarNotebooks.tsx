@@ -5,6 +5,7 @@ import type { Notebook } from '@/types';
 import type { LeftMenuType, ViewType } from '@/hooks/useUIState';
 import { confirmAction } from '@/hooks/useConfirmAction';
 import { ContextMenu } from '@/components/common/ContextMenu';
+import { IconImage } from '@/components/common/Icon';
 import { NotebookIconPicker } from './NotebookIconPicker';
 
 interface SidebarNotebooksProps {
@@ -244,7 +245,7 @@ export const SidebarNotebooks: React.FC<SidebarNotebooksProps> = ({
             {
               id: 'icon',
               label: '设置图标',
-              icon: <span aria-hidden="true">🎨</span>,
+              icon: <IconImage size={14} />,
               onSelect: () => {
                 // 先关菜单再开面板：两个浮层同时存在会互相抢焦点
                 setIconPickerNotebookId(notebookContextMenu.notebookId);

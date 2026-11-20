@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useNotesStore } from '@/store';
 import { VirtualScroll, type VirtualScrollHandle } from '@/components/VirtualScroll';
 import { EmptyState } from '@/components/common/EmptyState';
-import { IconDocument, IconSearch } from '@/components/common/Icon';
+import { IconClose, IconDocument, IconPlus, IconSearch } from '@/components/common/Icon';
 import { useDocTreeDrag } from '@/hooks/useDocTreeDrag';
 import { confirmAction } from '@/hooks/useConfirmAction';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
@@ -16,7 +16,7 @@ import {
   sortDocs,
   type DocSortMode,
 } from '@/utils/docSort';
-import { readExpandedDocs, writeExpandedDocs } from '@/utils/docExpanded';
+import { readExpandedDocs, writeExpandedDocs, createAliveIdsDeriver } from '@/utils/docExpanded';
 import { debounce } from '@/utils/debounce';
 import { exportNotebookZip } from '@/services/storage';
 import { toast, toastWithUndo } from '@/components/common/Toast';
@@ -117,10 +117,16 @@ export const DocTree: React.FC<DocTreeProps> = ({
     [],
   );
 
-  /** 当前知识库中仍存在的文档 id：作为写入时的裁剪依据 */
+  /*
+   * 当前知识库中仍存在的文档 id：作为写入时的裁剪依据。
+   * 经 createAliveIdsDeriver 派生：id 集不变就复用同一个 Set 引用 ——
+   * 击键/改标题会换 activeNotebook 引用但不动 id 集，persist 的 effect
+   * 不该跟着每次修改重跑（重跑＝debounce 被反复重置 + JSON.stringify + 同步 setItem）。
+   */
+  const deriveAliveIds = useMemo(() => createAliveIdsDeriver(), []);
   const aliveDocIds = useMemo(
-    () => new Set((activeNotebook?.docs ?? []).map((d) => d.id)),
-    [activeNotebook],
+    () => deriveAliveIds(activeNotebook?.docs ?? []),
+    [activeNotebook, deriveAliveIds],
   );
 
   useEffect(() => {
@@ -289,7 +295,12 @@ export const DocTree: React.FC<DocTreeProps> = ({
   /** 批量导出（T3）：选中的文档打成一个 zip（每篇一个 .md） */
   const batchExportDocs = useCallback(() => {
     if (!activeNotebook || selectedDocs.size === 0) return;
-    const docs = activeNotebook.docs.filter((doc) => selectedDocs.has(doc.id));
+    /*
+     * 树侧的 doc 是结构投影的快照，content 不保证新鲜（正文击键不进投影）——
+     * 导出必须读 store 当前快照，否则导出的 .md 是旧内容。
+     */
+    const latest = useNotesStore.getState().notebooks.find((nb) => nb.id === activeNotebook.id);
+    const docs = (latest?.docs ?? activeNotebook.docs).filter((doc) => selectedDocs.has(doc.id));
     void runAsync(async () => {
       const ok = await exportNotebookZip({
         title: activeNotebook.title + '-选中文档',
@@ -845,7 +856,7 @@ export const DocTree: React.FC<DocTreeProps> = ({
             actions={[
               {
                 label: '新建文档',
-                icon: '➕',
+                icon: <IconPlus size={14} />,
                 onClick: () => {
                   if (activeNotebookId) {
                     const docId = useNotesStore.getState().createDoc(activeNotebookId, null);
@@ -866,12 +877,13 @@ export const DocTree: React.FC<DocTreeProps> = ({
               ? [
                   {
                     label: '清除筛选',
-                    icon: '✕',
+                    icon: <IconClose size={14} />,
                     variant: 'secondary',
                     onClick: onClearFilter,
                   },
                 ]
-              : undefined}
+              // 显式空数组：没有清除回调时无出口可给（而非省略整个字段）
+              : []}
           />
         ) : flatDocList.length > DOC_VIRTUALIZE_THRESHOLD ? (
           <VirtualScroll
@@ -954,7 +966,13 @@ export const DocTree: React.FC<DocTreeProps> = ({
             {
               id: 'move-up',
               label: '上移',
-              icon: '↑',
+              // 与相邻菜单项同款内联线性图标（曾是 '↑' 文本字形，与 SVG 图标集割裂）
+              icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 19V5" />
+                  <path d="M5 12l7-7 7 7" />
+                </svg>
+              ),
               disabled: sortMode !== 'manual',
               title: sortMode === 'manual' ? '同级上移' : '切换到「手动排序」后可调整顺序',
               onSelect: () => moveDocByOffset(contextMenu.docId, -1),
@@ -962,7 +980,12 @@ export const DocTree: React.FC<DocTreeProps> = ({
             {
               id: 'move-down',
               label: '下移',
-              icon: '↓',
+              icon: (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14" />
+                  <path d="M19 12l-7 7-7-7" />
+                </svg>
+              ),
               disabled: sortMode !== 'manual',
               title: sortMode === 'manual' ? '同级下移' : '切换到「手动排序」后可调整顺序',
               onSelect: () => moveDocByOffset(contextMenu.docId, 1),

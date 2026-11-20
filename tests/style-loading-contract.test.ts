@@ -21,6 +21,11 @@ const LAZY_CSS_OWNERS: Record<string, string> = {
   'settings.css': 'src/components/settings/SettingsPanel.tsx',
   'share-panel.css': 'src/components/share/SharePanel.tsx',
   'quick-note.css': 'src/components/notes/QuickNotePanel.tsx',
+  // 纯懒加载视图的样式随组件加载：演示模式（PresentationMode）/ 开始页（StartPage）。
+  // start-page.css 唯一的 eager 使用点 .start-panel（MainContent 的 <main> 外壳）
+  // 已上移到 app-layout.css，其余类名只被 StartPage 使用。
+  'presentation.css': 'src/components/presentation/PresentationMode.tsx',
+  'start-page.css': 'src/components/start/StartPage.tsx',
 }
 
 function read(rel: string): string {

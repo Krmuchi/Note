@@ -10,7 +10,7 @@ vi.mock('@/services/storage', () => ({
   })),
   openDataDir: vi.fn(async () => ({ ok: true })),
 }))
-vi.mock('@/utils/clipboard', () => ({ copyToClipboard: vi.fn(async () => true) }))
+vi.mock('@/utils/clipboard', () => ({ copyToClipboard: vi.fn(async () => true), copyWithFeedback: vi.fn(async () => true) }))
 
 import ConfirmDialog from '@/components/dialogs/ConfirmDialog'
 import LinkDialog from '@/components/dialogs/LinkDialog'

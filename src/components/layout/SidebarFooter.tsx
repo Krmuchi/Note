@@ -40,6 +40,9 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
 }) => {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  // 菜单键盘语义（对齐 ContextMenu）：菜单列表与触发按钮分开持有
+  const moreMenuListRef = useRef<HTMLDivElement>(null);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const [showBackupList, setShowBackupList] = useState(false);
   // 导入/导出均为菜单触发的长操作：统一挂忙碌态（触发按钮 spinner + "进行中"提示）
   const { run: runAsync, loading: actionLoading } = useAsyncAction();
@@ -63,13 +66,79 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [showBackupList]);
 
-  const handleOpenBackupList = useCallback(() => {
+  /**
+   * 关闭「更多」菜单。restoreFocus=true 时把焦点还给触发按钮 —— 只在
+   * 「键盘或意图明确」的关闭（Esc / 选中菜单项 / 点触发器）归还焦点；
+   * 外部点击关闭时归还焦点会把用户刚点的元素焦点抢走（与 ContextMenu 同款语义）。
+   */
+  const closeMoreMenu = useCallback((restoreFocus: boolean) => {
     setShowMoreMenu(false);
-    setShowBackupList(true);
+    if (restoreFocus) moreTriggerRef.current?.focus();
   }, []);
 
+  // 打开时聚焦首个菜单项：方向键 / Esc 立即可用（与 ContextMenu 一致）
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    moreMenuListRef.current?.querySelector<HTMLButtonElement>('button.more-menu-item')?.focus();
+  }, [showMoreMenu]);
+
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const handleClick = (e: MouseEvent): void => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        closeMoreMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showMoreMenu, closeMoreMenu]);
+
+  /** 菜单键盘语义（对齐 ContextMenu）：Esc 关闭并归还焦点、上下键循环、Home/End、Tab 放行 */
+  const handleMoreMenuKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(
+      moreMenuListRef.current?.querySelectorAll<HTMLButtonElement>('button.more-menu-item') ?? [],
+    );
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    switch (e.key) {
+      case 'Escape':
+        e.preventDefault();
+        // 阻断冒泡：一次 Esc 只关本菜单，不走全局 Esc 链去关背后的面板
+        e.stopPropagation();
+        closeMoreMenu(true);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        items[(current + 1) % items.length]?.focus();
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        items[current <= 0 ? items.length - 1 : current - 1]?.focus();
+        break;
+      case 'Home':
+        e.preventDefault();
+        items[0]?.focus();
+        break;
+      case 'End':
+        e.preventDefault();
+        items[items.length - 1]?.focus();
+        break;
+      case 'Tab':
+        // 标准菜单行为：不在菜单内循环 Tab，关闭并放行焦点去下一个元素
+        closeMoreMenu(false);
+        break;
+      default:
+        break;
+    }
+  }, [closeMoreMenu]);
+
+  const handleOpenBackupList = useCallback(() => {
+    closeMoreMenu(true);
+    setShowBackupList(true);
+  }, [closeMoreMenu]);
+
   const handleExportAll = useCallback(async () => {
-    setShowMoreMenu(false);
+    closeMoreMenu(true);
     try {
       const state = useNotesStore.getState();
       const { notebooks, trash, tags, searchHistory, activeNotebookId, activeDocId, templateUsage } = state;
@@ -86,7 +155,7 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
       console.error('导出失败:', err);
       toast.error(`导出失败：${err instanceof Error ? err.message : '未知错误'}`);
     }
-  }, []);
+  }, [closeMoreMenu]);
 
   /** 把导入结果落到当前知识库（文件 / 文件夹 / zip 三条路径共用） */
   const insertImportedDocs = useCallback((docs: { title: string; content: string }[]) => {
@@ -105,7 +174,7 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
 
   /** 批量导入（O4）：文件夹 / zip 包 */
   const handleImportBatch = useCallback(async (kind: ImportKind) => {
-    setShowMoreMenu(false);
+    closeMoreMenu(true);
     try {
       const result = await importFiles(kind);
       if (!result.ok) {
@@ -127,13 +196,13 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
       console.error('批量导入失败:', err);
       toast.error(`导入失败：${err instanceof Error ? err.message : '未知错误'}`);
     }
-  }, [insertImportedDocs]);
+  }, [insertImportedDocs, closeMoreMenu]);
 
   const handleImportFolder = useCallback(() => handleImportBatch('folder'), [handleImportBatch]);
   const handleImportZip = useCallback(() => handleImportBatch('zip'), [handleImportBatch]);
 
   const handleImportMd = useCallback(async () => {
-    setShowMoreMenu(false);
+    closeMoreMenu(true);
     try {
       const docs = await importMarkdownDocs();
       if (!docs || docs.length === 0) return;
@@ -144,10 +213,10 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
       console.error('导入失败:', err);
       toast.error(`导入失败：${err instanceof Error ? err.message : '未知错误'}`);
     }
-  }, [insertImportedDocs]);
+  }, [insertImportedDocs, closeMoreMenu]);
 
   const handleImportBackup = useCallback(async () => {
-    setShowMoreMenu(false);
+    closeMoreMenu(true);
     try {
       const backupData = await importBackupData();
       if (!backupData) return;
@@ -209,18 +278,7 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
       console.error('导入备份失败:', err);
       toast.error(`导入备份失败：${err instanceof Error ? err.message : '未知错误'}`);
     }
-  }, []);
-
-  useEffect(() => {
-    if (!showMoreMenu) return;
-    const handleClick = (e: MouseEvent): void => {
-      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
-        setShowMoreMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [showMoreMenu]);
+  }, [closeMoreMenu]);
 
   return (
     <div className="sidebar-footer">
@@ -228,8 +286,11 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
       <SaveIndicator collapsed={collapsed} />
       <div className="more-menu-container" ref={moreMenuRef}>
         <button
+          ref={moreTriggerRef}
           className="footer-item"
-          onClick={() => setShowMoreMenu(!showMoreMenu)}
+          aria-haspopup="menu"
+          aria-expanded={showMoreMenu}
+          onClick={() => (showMoreMenu ? closeMoreMenu(true) : setShowMoreMenu(true))}
           onMouseEnter={(e) => collapsed && onShowTooltip('更多', e)}
           onMouseLeave={onHideTooltip}
         >
@@ -245,13 +306,20 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
           </ButtonLoader>
         </button>
         {showMoreMenu && (
-          <div className="more-menu">
-            <div className="more-menu-section">
+          <div
+            className="more-menu"
+            role="menu"
+            aria-label="更多"
+            ref={moreMenuListRef}
+            onKeyDown={handleMoreMenuKeyDown}
+          >
+            <div className="more-menu-section" role="group">
               <button
+                role="menuitem"
                 className={`more-menu-item ${activeView === 'trash' ? 'active' : ''}`}
                 onClick={() => {
                   onViewChange('trash');
-                  setShowMoreMenu(false);
+                  closeMoreMenu(true);
                 }}
               >
                 <span className="more-menu-icon">
@@ -264,8 +332,8 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
                 {trash.length > 0 && <span className="more-menu-badge">{trash.length}</span>}
               </button>
             </div>
-            <div className="more-menu-section">
-              <button className="more-menu-item" onClick={() => void runAsync(handleImportMd, { pendingMsg: '正在导入 Markdown 文件…' })}>
+            <div className="more-menu-section" role="group">
+              <button role="menuitem" className="more-menu-item" onClick={() => void runAsync(handleImportMd, { pendingMsg: '正在导入 Markdown 文件…' })}>
                 <span className="more-menu-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -275,15 +343,15 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
                 </span>
                 <span className="more-menu-text">导入 Markdown 文件</span>
               </button>
-              <button className="more-menu-item" onClick={() => void runAsync(handleImportFolder, { pendingMsg: '正在导入文件夹…' })}>
+              <button role="menuitem" className="more-menu-item" onClick={() => void runAsync(handleImportFolder, { pendingMsg: '正在导入文件夹…' })}>
                 <span className="more-menu-icon" aria-hidden="true"><IconFolder size={16} /></span>
                 <span className="more-menu-text">导入文件夹</span>
               </button>
-              <button className="more-menu-item" onClick={() => void runAsync(handleImportZip, { pendingMsg: '正在导入 ZIP 包…' })}>
+              <button role="menuitem" className="more-menu-item" onClick={() => void runAsync(handleImportZip, { pendingMsg: '正在导入 ZIP 包…' })}>
                 <span className="more-menu-icon" aria-hidden="true"><IconArchive size={16} /></span>
                 <span className="more-menu-text">导入 ZIP 包</span>
               </button>
-              <button className="more-menu-item" onClick={() => void runAsync(handleExportAll, { pendingMsg: '正在导出全部数据…' })}>
+              <button role="menuitem" className="more-menu-item" onClick={() => void runAsync(handleExportAll, { pendingMsg: '正在导出全部数据…' })}>
                 <span className="more-menu-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -293,7 +361,7 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
                 </span>
                 <span className="more-menu-text">导出全部</span>
               </button>
-              <button className="more-menu-item" onClick={() => void runAsync(handleImportBackup, { pendingMsg: '正在导入备份文件…' })}>
+              <button role="menuitem" className="more-menu-item" onClick={() => void runAsync(handleImportBackup, { pendingMsg: '正在导入备份文件…' })}>
                 <span className="more-menu-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
@@ -303,7 +371,7 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
                 </span>
                 <span className="more-menu-text">导入备份文件</span>
               </button>
-              <button className="more-menu-item" onClick={handleOpenBackupList}>
+              <button role="menuitem" className="more-menu-item" onClick={handleOpenBackupList}>
                 <span className="more-menu-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M3 12a9 9 0 1 0 3-6.7" />
@@ -317,8 +385,8 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
                 )}
               </button>
             </div>
-            <div className="more-menu-section">
-              <button className="more-menu-item" onClick={() => { setShowMoreMenu(false); onOpenSettings?.(); }}>
+            <div className="more-menu-section" role="group">
+              <button role="menuitem" className="more-menu-item" onClick={() => { closeMoreMenu(true); onOpenSettings?.(); }}>
                 <span className="more-menu-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="3" />
@@ -327,7 +395,7 @@ export const SidebarFooter: React.FC<SidebarFooterProps> = ({
                 </span>
                 <span className="more-menu-text">设置</span>
               </button>
-              <button className="more-menu-item" onClick={() => { setShowMoreMenu(false); onOpenHelp?.(); }}>
+              <button role="menuitem" className="more-menu-item" onClick={() => { closeMoreMenu(true); onOpenHelp?.(); }}>
                 <span className="more-menu-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="10" />

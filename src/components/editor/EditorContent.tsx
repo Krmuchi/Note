@@ -12,6 +12,7 @@ import { useEditorKeys } from '@/hooks/useEditorKeys';
 import { useEditorPasteDrop } from '@/hooks/useEditorPasteDrop';
 import { markPerf } from '@/utils/perfMarks';
 import { toast } from '@/services/toast';
+import { IconDocument } from '@/components/common/Icon';
 import { armFocusEscape, consumeFocusEscape, resetFocusEscape } from './focusEscape';
 
 /** 斜杠命令触发状态（由编辑区检测后上抛给 Editor 统一持有） */
@@ -239,7 +240,9 @@ export const EditorContent: React.FC<EditorContentProps> = ({
         </div>
       ) : (
         <div className="empty-editor">
-          <div className="empty-icon">📄</div>
+          <div className="empty-icon">
+            <IconDocument size={32} />
+          </div>
           <div className="empty-text">选择文档开始编辑</div>
           <div className="empty-hint" style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-placeholder)' }}>从左侧选择或新建一个文档</div>
         </div>

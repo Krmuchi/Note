@@ -62,6 +62,17 @@ export const useAutoSave = (debounceMs: number = 3000): { scheduleSave: () => vo
           if (status === 'error') {
             retryCountRef.current += 1
             if (retryCountRef.current <= MAX_RETRY) {
+              /*
+               * 重试期间也必须让用户看见"没存上"。
+               *
+               * 旧实现前 3 次重试完全静默 —— 用户正以为自己写的内容已经落盘，
+               * 而实际上一次都没写成功（磁盘满 / 文件被占用 / 库超限）。
+               * 侧栏的保存状态点会同时转红，两者互补：点给出常驻状态，
+               * toast 给出"刚刚又失败了一次"的即时提醒（去重窗口内合并计数）。
+               */
+              toast.error(
+                `笔记尚未保存（第 ${retryCountRef.current} 次重试中），请检查磁盘空间`,
+              )
               shouldRetry = true
             } else {
               // 重试耗尽仍失败：明确告知用户，避免静默丢数据

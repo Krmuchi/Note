@@ -6,7 +6,15 @@ const path = require("node:path");
 
 const WINDOW_STATE_FILE = "window-state.json";
 const DEFAULT_BOUNDS = { width: 1280, height: 840 };
-const MIN_BOUNDS = { width: 980, height: 700 };
+/*
+ * 最小窗口尺寸要与渲染层断点对齐。
+ *
+ * 渲染层在 992px（紧凑）与 768px（移动抽屉）处切换布局，但窗口此前最小只能到 980px ——
+ * 比两个断点都大，等于把它们变成**永远走不到的死代码**：用户把窗口拖到最窄，
+ * 拿到的仍是"三栏挤压"的桌面布局，而不是为窄屏准备的紧凑/抽屉形态。
+ * 放到 720px 后，两条断点都真实可达（720 < 768 < 992），窄窗才会真正换布局。
+ */
+const MIN_BOUNDS = { width: 720, height: 640 };
 
 function toFiniteInt(value) {
   return Number.isFinite(value) ? Math.round(value) : null;

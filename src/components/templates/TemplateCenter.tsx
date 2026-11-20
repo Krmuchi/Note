@@ -6,7 +6,7 @@ import { useNotesStore } from '@/store';
 import CustomTemplateModal from './CustomTemplateModal';
 import { loadCustomTemplates, saveCustomTemplates, deleteCustomTemplate } from '@/utils/customTemplates';
 import { confirmAction } from '@/hooks/useConfirmAction';
-import { IconTemplate, IconSearch, IconLayers } from '@/components/common/Icon';
+import { IconTemplate, IconSearch, IconLayers, IconStar, IconSparkle, IconTrash } from '@/components/common/Icon';
 
 /**
  * 模板预览也要渲染 Markdown，但整条渲染链路（react-markdown + KaTeX ≈ 630KB）
@@ -273,7 +273,7 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
           className={`category-btn ${showFavoritesOnly ? 'active' : ''}`}
           onClick={() => { setShowFavoritesOnly(!showFavoritesOnly); setSelectedCategory(null); }}
         >
-          <span className="category-icon">⭐</span>
+          <span className="category-icon"><IconStar size={16} /></span>
           <span className="category-name">收藏</span>
           <span className="category-count">{favorites.length}</span>
         </button>
@@ -292,7 +292,7 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
           className={`category-btn ${selectedCategory === 'custom' ? 'active' : ''}`}
           onClick={() => { setSelectedCategory('custom'); setShowFavoritesOnly(false); }}
         >
-          <span className="category-icon">✨</span>
+          <span className="category-icon"><IconSparkle size={16} /></span>
           <span className="category-name">自定义</span>
           <span className="category-count">{customTemplates.length}</span>
         </button>
@@ -367,7 +367,7 @@ export default function TemplateCenter({ onSelectTemplate, onClose }: TemplateCe
                       title="删除自定义模板"
                       aria-label={`删除自定义模板 ${template.name}`}
                     >
-                      🗑
+                      <IconTrash size={14} />
                     </button>
                   )}
                 </div>

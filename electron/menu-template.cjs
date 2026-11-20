@@ -75,7 +75,7 @@ function buildAppMenuTemplate(hooks = {}) {
 function buildTrayMenuTemplate(hooks = {}) {
   const call = (fn) => () => (typeof fn === 'function' ? fn() : undefined);
   return [
-    { label: '打开笔记', click: call(hooks.onOpen) },
+    { label: '打开拾页', click: call(hooks.onOpen) },
     { label: '新建便签', click: call(hooks.onQuickNote) },
     // 快速打开（Ctrl+P）此前只有键盘入口，托盘 / 鼠标用户到不了
     { label: '快速打开…', click: call(hooks.onQuickOpen) },

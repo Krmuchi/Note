@@ -7,6 +7,7 @@ import {
   VERSION_BUDGET_BYTES_PER_DOC,
   commitVersions,
   createVersion,
+  isLargeDoc,
   pushAutoVersion,
 } from '@/store/docVersions'
 import type { DocVersion, NoteDoc } from '@/types'
@@ -65,6 +66,39 @@ describe('commitVersions - 条数上限', () => {
     commitVersions(doc, [...auto, ...manual])
     const kept = doc.versions!.filter(v => v.type === 'manual')
     expect(kept).toHaveLength(3)
+  })
+})
+
+describe('commitVersions - 大文档判定按字节估算（P2-4）', () => {
+  it('isLargeDoc 按 字符数 × 3 与 900_000 字节比较', () => {
+    // 10 万中文字符 ≈ 300KB —— 旧实现（按字符数 100_000）在这里就误判成大文档
+    expect(isLargeDoc('中'.repeat(100_000))).toBe(false)
+    // 恰好 900KB（300_000 字符）：等于阈值不算大（沿用旧的严格大于语义）
+    expect(isLargeDoc('中'.repeat(LARGE_DOC_THRESHOLD))).toBe(false)
+    expect(isLargeDoc('中'.repeat(LARGE_DOC_THRESHOLD + 1))).toBe(true)
+    // 字节数一律按 3 字节/字的 UTF-8 上界保守估算，与正文实际语言无关
+    expect(isLargeDoc('a'.repeat(LARGE_DOC_THRESHOLD + 1))).toBe(true)
+    expect(isLargeDoc('')).toBe(false)
+    expect(isLargeDoc(undefined)).toBe(false)
+  })
+
+  it('100K 中文字符的文档仍按普通文档处理（条数上限 50 不被提前收紧）', () => {
+    const doc = makeDoc('中'.repeat(100_000))
+    const many = Array.from({ length: 60 }, () => makeVersion({ type: 'auto' }))
+    commitVersions(doc, many)
+    expect(doc.versions).toHaveLength(MAX_VERSIONS)
+  })
+
+  it('单篇字节预算行为不变：大正文快照仍按 8MB 预算裁剪', () => {
+    // 200K 字符 × 3 = 600KB/份，8MB 预算下最多十几份
+    const doc = makeDoc('a'.repeat(200_000))
+    const many = Array.from({ length: 50 }, () =>
+      makeVersion({ type: 'auto', content: 'a'.repeat(200_000) }),
+    )
+    commitVersions(doc, many)
+    const total = doc.versions!.reduce((sum, v) => sum + (v.content?.length ?? 0) * 3, 0)
+    expect(total).toBeLessThanOrEqual(VERSION_BUDGET_BYTES_PER_DOC)
+    expect(doc.versions!.length).toBeGreaterThan(0)
   })
 })
 

@@ -1,7 +1,9 @@
-import { lazy } from 'react'
+import { lazy, useLayoutEffect } from 'react'
 import type { JSX } from 'react'
 import type { RecentView as RecentViewEntry } from '@/types'
-import { useUIState } from '@/hooks/useUIState'
+import { useUIState, uiActions } from '@/hooks/useUIState'
+import { useNotesStore } from '@/store'
+import { shouldShowOnboarding } from '@/utils/onboarding'
 import { LazyLoader } from '@/components/common/LazyLoader'
 import TrashView from '@/components/views/TrashView'
 import FavoriteView from '@/components/views/FavoriteView'
@@ -71,6 +73,22 @@ export function MainContent({
 }: MainContentProps): JSX.Element {
   const { activeLeftMenu, activeView } = useUIState()
 
+  /*
+   * 启动回位（「重启不回上次文档」修复）：App 在 isLoading 期间渲染骨架屏，
+   * MainContent 恰好在数据加载完成后才首次挂载。此时若 store 里仍有上次的活动文档
+   * 而界面停在开始页（activeLeftMenu 的默认值），落回文档视图。
+   * useLayoutEffect 在绘制前完成切换，不闪开始页；判定与守卫见
+   * uiActions.restoreLastSessionView（全新安装要弹引导，保持开始页不动）。
+   * 直接读 store 快照而不是订阅 notebooks：订阅会让每次击键都重渲染本组件。
+   */
+  useLayoutEffect(() => {
+    const state = useNotesStore.getState()
+    uiActions.restoreLastSessionView(
+      Boolean(state.activeDocId),
+      shouldShowOnboarding({ notebooks: state.notebooks }),
+    )
+  }, [])
+
   if (activeLeftMenu === 'start') {
     return (
       <main className="start-panel">
@@ -114,6 +132,7 @@ export function MainContent({
         onRestore={onRestoreFromTrash}
         onDelete={onDeleteFromTrash}
         onClearTrash={onClearTrash}
+        onGoToDocs={onGoToDocs}
       />
     )
   }

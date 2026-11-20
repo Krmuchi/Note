@@ -6,12 +6,14 @@ import type { DocVersion } from '@/types';
 import { useNotesStore } from '@/store';
 import { confirmAction } from '@/hooks/useConfirmAction';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { exportDoc } from '@/services/storage';
 import { toast } from '@/services/toast';
 import VersionListItem from './VersionListItem';
 import VersionDiffView from './VersionDiffView';
 import VersionContentDetail from './VersionContentDetail';
 import VersionTagModal from './VersionTagModal';
+import { IconEdit, IconHistory } from '@/components/common/Icon';
 
 /**
   * 版本历史面板属性接口
@@ -28,6 +30,11 @@ interface VersionHistoryPanelProps {
 function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanelProps): JSX.Element {
   // 弹窗焦点陷阱：Tab 在面板内循环，关闭后归还焦点（A2）
   const trapRef = useFocusTrap<HTMLDivElement>();
+  /*
+   * 恢复版本的忙碌态：恢复是覆盖式操作，确认后必须挡住重复触发，
+   * 完成给成功回执、失败给错误提示（useAsyncAction 统一负责）。
+   */
+  const { run: runRestore, loading: restoring } = useAsyncAction();
   const { notebooks, restoreVersion, updateDoc, createVersionSnapshot } = useNotesStore(useShallow((s) => ({
     notebooks: s.notebooks,
     restoreVersion: s.restoreVersion,
@@ -96,9 +103,12 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
 
   /**
    * 处理恢复版本
+   *
+   * 确认后进入恢复中：期间再次触发直接 no-op（runRestore 的 runningRef + 本函数的
+   * restoring 双保险），落地才关面板 —— 失败时面板留在原地并弹错误提示。
    */
   const handleRestore = (): void => {
-    if (!selectedVersion) return
+    if (!selectedVersion || restoring) return
     const versionId = selectedVersion.id
     // 统一走 App 层的全局确认弹窗，避免各组件自绘 .confirm-dialog 造成交互/样式漂移
     confirmAction({
@@ -106,10 +116,17 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
       message: '确定要恢复到此版本吗？当前内容将被替换（恢复前会自动留存一份当前内容的快照，可再恢复回来）。',
       confirmText: '确认恢复',
       variant: 'danger',
-      onConfirm: () => {
-        restoreVersion(notebookId, docId, versionId)
-        onClose()
-      },
+      // 返回 Promise 供调用方/测试等待完成（ConfirmConfig 签名是 () => void，返回值被忽略）
+      onConfirm: () =>
+        runRestore(async () => {
+          /*
+           * 让出一次事件循环：store 写入是同步的，不让出这一拍「恢复中」
+           * 只是个来不及落地的中间态，挡不住重复触发（同侧栏移动对话框的处理）。
+           */
+          await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+          restoreVersion(notebookId, docId, versionId)
+          onClose()
+        }, { successMsg: '已恢复到该版本', errorMsg: '恢复版本失败' }),
     })
   }
 
@@ -154,11 +171,13 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
         role="dialog"
         aria-modal="true"
         aria-label="历史记录"
+        // 恢复进行中：辅助技术据此播报"忙"，同区域动作一并禁用
+        aria-busy={restoring}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="version-history-header">
           <div className="version-history-title">
-            <span className="version-icon">📜</span>
+            <span className="version-icon"><IconHistory size={16} /></span>
             <span className="title-text">历史记录</span>
           </div>
           <button className="version-close-btn" onClick={onClose} aria-label="关闭">
@@ -172,7 +191,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
             type="button"
             className="version-save-btn"
             onClick={handleSaveCurrentVersion}
-            disabled={!currentDoc}
+            disabled={!currentDoc || restoring}
             title="把当前内容另存为一个版本（不会被后续自动快照覆盖）"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
@@ -219,7 +238,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
             </div>
             {visibleVersions.length === 0 ? (
               <div className="empty-versions">
-                <span className="empty-icon">📝</span>
+                <span className="empty-icon"><IconEdit size={32} /></span>
                 <span className="empty-text">
                   {versions.length === 0
                     ? '暂无版本历史'
@@ -257,6 +276,7 @@ function VersionHistoryPanel({ notebookId, docId, onClose }: VersionHistoryPanel
                 onAddTag={() => setShowTagModal(true)}
                 onExport={() => void handleExportVersion()}
                 onRestore={handleRestore}
+                restoring={restoring}
               />
             )}
           </div>

@@ -410,13 +410,21 @@
   border-top: none;
   background: var(--bg-secondary);
   color: var(--text-tertiary);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 11;
   transition: all var(--transition-fast);
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局）。
+   该按钮 24×20 且一半悬在工具栏外：横向扩到 32px，纵向受工具栏按钮/正文挤压保持 -4px（32×28）。 */
+.toolbar-collapse-btn::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .toolbar-collapse-btn:hover {
@@ -946,6 +954,7 @@
 }
 
 .outline-close-btn {
+  position: relative;
   width: 24px;
   height: 24px;
   border-radius: var(--radius-sm);
@@ -958,6 +967,13 @@
   align-items: center;
   justify-content: center;
   transition: all var(--transition-fast);
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局），外扩到 32px 档 */
+.outline-close-btn::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .outline-close-btn:hover {
@@ -1111,7 +1127,7 @@
   border: none;
   background: var(--bg-tertiary);
   color: var(--text-tertiary);
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1154,7 +1170,7 @@
 
 /* 大纲项目级别标签 */
 .outline-item-level {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--text-tertiary);
   background: var(--bg-tertiary);
   padding: 1px 4px;
@@ -1214,6 +1230,7 @@
 }
 
 .comments-close-btn {
+  position: relative;
   width: 24px;
   height: 24px;
   border-radius: var(--radius-sm);
@@ -1226,6 +1243,13 @@
   align-items: center;
   justify-content: center;
   transition: all var(--transition-fast);
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局），外扩到 32px 档 */
+.comments-close-btn::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .comments-close-btn:hover {
@@ -2284,7 +2308,7 @@
 
 .eh-toolbar-group-label {
   display: none;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-tertiary);
   padding: 0 4px;
   white-space: nowrap;
@@ -2307,7 +2331,7 @@
 /* 快捷键提示 */
 .eh-shortcut-hint {
   display: none;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-tertiary);
   margin-left: 4px;
 }
@@ -2443,7 +2467,7 @@
   border-radius: var(--radius-round, 999px);
   background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
   box-shadow: var(--shadow-sm);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-tertiary);
   user-select: none;
   flex-shrink: 0;
@@ -2518,7 +2542,7 @@
 /* 光标位置 */
 .status-cursor {
   font-family: var(--font-family-mono, monospace);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* ===== 预览模式切换按钮 ===== */
@@ -2593,7 +2617,7 @@
   }
 
   .editor-status-bar {
-    font-size: 11px;
+    font-size: 12px;
     padding: 2px 8px;
     margin: -30px 8px 6px auto;
   }
@@ -2719,7 +2743,7 @@
 
 .slash-group-label {
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-tertiary);
   letter-spacing: 0.5px;
@@ -2772,7 +2796,7 @@
 
 .slash-hint {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-tertiary);
 }
 

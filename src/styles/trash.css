@@ -84,6 +84,10 @@
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
+  /* 标题内的 SVG 图标与文字垂直居中（曾是 emoji 文本，天然同基线） */
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .trash-search {

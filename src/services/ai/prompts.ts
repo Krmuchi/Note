@@ -7,19 +7,37 @@
 
 import type { AiCapability, MaxTokensParam, OptimizeAction, WritingLength, WritingStyle } from '@/types/ai'
 
+/**
+ * UI 选项的图标标识（数据层侧）。
+ *
+ * services 层不许 import 组件（分层方向），只存 id；
+ * 实际图形由 src/components/ai/aiOptionIcon.tsx 按 id 映射到统一 SVG 线性图标集
+ * —— 与 shared/hooks 的 ThemeIconName / SettingsPanel 的 THEME_OPTION_ICONS 同一模式。
+ */
+export type AiIconName =
+  | 'document'
+  | 'comment'
+  | 'settings'
+  | 'image'
+  | 'book'
+  | 'sparkle'
+  | 'edit'
+  | 'chart'
+  | 'archive'
+
 export interface StyleOption {
   value: WritingStyle
   label: string
-  icon: string
+  icon: AiIconName
   description: string
 }
 
 export const WRITING_STYLES: StyleOption[] = [
-  { value: 'formal', label: '正式', icon: '📄', description: '适合商务、工作场景' },
-  { value: 'casual', label: '轻松', icon: '😊', description: '适合日常、随笔记录' },
-  { value: 'technical', label: '技术', icon: '💻', description: '适合技术文档、教程' },
-  { value: 'creative', label: '创意', icon: '🎨', description: '适合创意写作、故事' },
-  { value: 'academic', label: '学术', icon: '🎓', description: '适合论文、研究报告' },
+  { value: 'formal', label: '正式', icon: 'document', description: '适合商务、工作场景' },
+  { value: 'casual', label: '轻松', icon: 'comment', description: '适合日常、随笔记录' },
+  { value: 'technical', label: '技术', icon: 'settings', description: '适合技术文档、教程' },
+  { value: 'creative', label: '创意', icon: 'image', description: '适合创意写作、故事' },
+  { value: 'academic', label: '学术', icon: 'book', description: '适合论文、研究报告' },
 ]
 
 export interface LengthOption {
@@ -37,15 +55,15 @@ export const WRITING_LENGTHS: LengthOption[] = [
 export interface OptimizeActionOption {
   value: OptimizeAction
   label: string
-  icon: string
+  icon: AiIconName
   description: string
 }
 
 export const OPTIMIZE_ACTIONS: OptimizeActionOption[] = [
-  { value: 'polish', label: '润色', icon: '✨', description: '修正语病、统一术语、提升可读性' },
-  { value: 'rewrite', label: '改写', icon: '🔄', description: '调整句式与段落组织，保留原意' },
-  { value: 'expand', label: '扩写', icon: '📈', description: '补充细节与例证，篇幅约 1.5-2 倍' },
-  { value: 'summarize', label: '总结', icon: '📌', description: '提炼核心结论与要点' },
+  { value: 'polish', label: '润色', icon: 'sparkle', description: '修正语病、统一术语、提升可读性' },
+  { value: 'rewrite', label: '改写', icon: 'edit', description: '调整句式与段落组织，保留原意' },
+  { value: 'expand', label: '扩写', icon: 'chart', description: '补充细节与例证，篇幅约 1.5-2 倍' },
+  { value: 'summarize', label: '总结', icon: 'archive', description: '提炼核心结论与要点' },
 ]
 
 export const AI_CAPABILITIES: AiCapability[] = ['generate', 'optimize', 'transform']

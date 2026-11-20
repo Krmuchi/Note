@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { compressImage } from '@/shared/utils';
 import { saveImage, saveFile } from '@/services/storage';
+import { appendErrorLog } from '@/utils/errorLog';
 import { toast } from '@/services/toast';
 import {
   wrapSelection,
@@ -426,6 +427,16 @@ export function useEditorFormatting({
       }
       // P0-2：转存失败必须告知 —— 这些图在应用里注定是裂图，不能静默
       warnRemainingRemoteImages(failed);
+    })
+    .catch((err) => {
+      // 与 Editor.tsx 的富文本链路同一道兜底：替换回写抛错时留痕于诊断信息，
+      // 并如实告知用户 —— 不接住就成 unhandledrejection 静默消失
+      appendErrorLog({
+        source: 'render',
+        message: '外链图片转存回写失败: ' + (err instanceof Error ? err.message : String(err)),
+        stack: err instanceof Error ? (err.stack ?? '') : '',
+      });
+      toast.warning('图片转存中断，部分外链图可能显示异常');
     });
   }, [handleInsertImage, activeDoc, updateDocContent, textareaRef]);
 

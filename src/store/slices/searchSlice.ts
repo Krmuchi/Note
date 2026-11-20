@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { SearchHistory, SearchSuggestion, SearchFilter, SearchResult, NoteDoc } from '@/types'
+import type { SearchHistory, SearchSuggestion, SearchFilter, SearchResult, SearchResponse, NoteDoc } from '@/types'
 import type { NotesStore } from '@/store/types'
 import { newId } from '@/store/storeUtils'
 
@@ -85,9 +85,28 @@ export function resetTagSearch(): void {
   pendingTagSearch = null
 }
 
+/**
+ * 流式 top-K 的默认 K：搜索只保留分数最高的前 200 条。
+ * 旧实现先算完全部命中、给每条生成高亮片段、再全量排序，1000 篇库搜常见词
+ * 一次 100~500ms 主线程冻结；改为遍历期维护一个容量 K 的有序窗口后，
+ * 排序与高亮的成本都只跟 K 走，不再随命中数放大。
+ * 需要更多结果的调用方可以显式传更大的 limit，或用 offset 分批取回下一段（按需加载下一批）。
+ */
+export const SEARCH_TOP_K = 200
+
 export interface SearchSlice {
   searchHistory: SearchHistory[]
-  search: (query: string, filters?: SearchFilter, limit?: number) => SearchResult[]
+  /**
+   * 流式 top-K 搜索：遍历时只保留分数最高的前 limit 条（默认 SEARCH_TOP_K），
+   * 高亮片段只对最终保留的条目生成。需要未截断的命中总数时用 searchWithTotal。
+   */
+  search: (query: string, filters?: SearchFilter, limit?: number, offset?: number) => SearchResult[]
+  /**
+   * 与 search 同一引擎，额外返回未截断的命中总数（结果头「共 N 条」用，total >= results.length）。
+   * offset：跳过全量排序的前 offset 条、取接下来的 limit 条 —— 「按需加载下一批」用；
+   * 批与批之间名次连续（第 201~400 条就是全量排序的 201~400 名），平局走同一套稳定序。
+   */
+  searchWithTotal: (query: string, filters?: SearchFilter, limit?: number, offset?: number) => SearchResponse
   getSearchSuggestions: (query: string) => SearchSuggestion[]
   addSearchHistory: (query: string, resultCount: number) => void
   clearSearchHistory: () => void
@@ -133,12 +152,33 @@ const getSearchableText = (doc: NoteDoc): CachedSearchText => {
   return next
 }
 
+/** updatedAt → 毫秒；无效时间按最早处理（比较器必须全序，二分插入才稳定） */
+const parseTime = (iso: string): number => {
+  const ms = new Date(iso).getTime()
+  return Number.isNaN(ms) ? 0 : ms
+}
+
+/**
+ * top-K 窗口里的候选条目：命中时只存结果骨架与引用，
+ * 高亮片段等窗口定型后只为最终保留的条目生成。
+ */
+interface SearchCandidate {
+  result: SearchResult
+  /** updatedAt 的毫秒数（预解析：排序比较不再每次 new Date） */
+  timeMs: number
+  /** 文档命中的引用（供事后生成高亮片段）；知识库命中为 null */
+  doc: NoteDoc | null
+  cached: CachedSearchText | null
+}
+
 export const createSearchSlice: SearchSliceCreator = (set, get) => ({
   searchHistory: [],
 
-  search: (query, filters, limit = 50) => {
+  search: (query, filters, limit = SEARCH_TOP_K, offset = 0) =>
+    get().searchWithTotal(query, filters, limit, offset).results,
+
+  searchWithTotal: (query, filters, limit = SEARCH_TOP_K, offset = 0) => {
     const { notebooks, tags } = get()
-    const results: SearchResult[] = []
 
     const parseQuery = (q: string): { term: string; isNot: boolean; isExact: boolean }[] => {
       const terms: { term: string; isNot: boolean; isExact: boolean }[] = []
@@ -178,7 +218,7 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
      * 既无词条也无任何范围约束才回落到 []（否则空查询命中全部文档）。
      */
     const hasScopeFilter = Boolean(filters?.tags?.length || filters?.dateRange)
-    if (terms.length === 0 && !hasScopeFilter) return []
+    if (terms.length === 0 && !hasScopeFilter) return { results: [], total: 0 }
 
     /*
      * 分词只做一次。
@@ -305,6 +345,46 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
       return content.slice(start, end)
     }
 
+    /*
+     * 流式 top-K：遍历时只维护一个容量 cap 的有序窗口（降序，最优在前），
+     * 不再全量收集再排序。窗口次序与最终排序完全同一套：
+     * 相关度（score 降序 → 更新时间倒序）或 sort=time 时纯时间倒序。
+     * 平局视为相等，二分插入把后来者放在同分者之后 —— 与 Array.prototype.sort
+     * 的稳定语义一致（同分时先命中的文档占住前 K 的位置）。
+     */
+    const cap = Math.max(0, Math.floor(limit))
+    // 按需分批：跳过全量排序的前 skip 名，取接下来的 cap 名。
+    // 窗口必须装下 skip + cap 名，slice 出来的才是全量排序里 [skip, skip+cap) 的名次段。
+    const skip = Math.max(0, Math.floor(offset))
+    const windowCap = skip + cap
+    // 约定：compare(a, b) > 0 表示 a 排在 b 前面（a 更优）；等于 0 为平局。
+    // （与 Array.prototype.sort 的"负数=在前"相反，keep 里按此约定写二分。）
+    const byTimeDesc = (a: SearchCandidate, b: SearchCandidate): number => a.timeMs - b.timeMs
+    const compare: (a: SearchCandidate, b: SearchCandidate) => number =
+      filters?.sort === 'time'
+        ? byTimeDesc
+        : (a, b) => (a.result.score ?? 0) - (b.result.score ?? 0) || byTimeDesc(a, b)
+
+    const kept: SearchCandidate[] = []
+    /** 未截断的命中总数（含被窗口丢弃的） */
+    let total = 0
+
+    const keep = (candidate: SearchCandidate): void => {
+      if (windowCap <= 0) return
+      // 不比当前最差的更好（含平局）：丢弃 —— 稳定语义下先到者占住位置
+      if (kept.length >= windowCap && compare(candidate, kept[kept.length - 1]) <= 0) return
+      // 二分找插入点：放在所有"不比它差"的元素之后、第一个比它差的之前
+      let lo = 0
+      let hi = kept.length
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (compare(kept[mid], candidate) >= 0) lo = mid + 1
+        else hi = mid
+      }
+      kept.splice(lo, 0, candidate)
+      if (kept.length > windowCap) kept.pop()
+    }
+
     notebooks.forEach(notebook => {
       /*
        * type 过滤对两类结果都要生效：选"只搜知识库"时不应再返回文档，反之亦然。
@@ -320,13 +400,20 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
             (max, d) => (!max || d.updatedAt > max ? d.updatedAt : max),
             null,
           )
-          results.push({
-            type: 'notebook',
-            id: notebook.id,
-            title: notebook.title,
-            tags: [],
-            updatedAt: latestDocTime || new Date().toISOString(),
-            score: scoreOf(notebook.title.toLowerCase(), '', ''),
+          const updatedAt = latestDocTime || new Date().toISOString()
+          total++
+          keep({
+            result: {
+              type: 'notebook',
+              id: notebook.id,
+              title: notebook.title,
+              tags: [],
+              updatedAt,
+              score: scoreOf(notebook.title.toLowerCase(), '', ''),
+            },
+            timeMs: parseTime(updatedAt),
+            doc: null,
+            cached: null,
           })
         }
       }
@@ -341,49 +428,54 @@ export const createSearchSlice: SearchSliceCreator = (set, get) => ({
         const fullTextLower = `${cached.title} ${cached.content} ${tagNames}`
 
         if (matchesQuery(fullTextLower) && matchesTagFilter(doc.tags) && matchesDateFilter(doc.updatedAt)) {
-          const highlights: { field: string; text: string }[] = []
-
-          if (doc.title && terms.some(t => cached.title.includes(t.term))) {
-            highlights.push({ field: 'title', text: doc.title })
-          }
-          if (doc.content) {
-            const seenSnippets = new Set<string>()
-            terms.forEach(t => {
-              if (t.isNot) return
-              const snippet = getSnippet(doc.content!, cached.content, t.term)
-              if (snippet && !seenSnippets.has(snippet)) {
-                seenSnippets.add(snippet)
-                highlights.push({ field: 'content', text: snippet })
-              }
-            })
-          }
-
-          results.push({
-            type: 'doc',
-            id: doc.id,
-            notebookId: notebook.id,
-            title: doc.title,
-            content: doc.content,
-            tags: doc.tags,
-            updatedAt: doc.updatedAt,
-            highlights: highlights.slice(0, 3),
-            score: scoreOf(cached.title, cached.content, tagNames),
+          total++
+          keep({
+            result: {
+              type: 'doc',
+              id: doc.id,
+              notebookId: notebook.id,
+              title: doc.title,
+              content: doc.content,
+              tags: doc.tags,
+              updatedAt: doc.updatedAt,
+              score: scoreOf(cached.title, cached.content, tagNames),
+            },
+            timeMs: parseTime(doc.updatedAt),
+            doc,
+            cached,
           })
         }
       })
     })
 
-    const byTime = (a: SearchResult, b: SearchResult): number =>
-      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    /*
+     * 名次段 [skip, skip+cap) 已定型：只为最终要展示的这一页生成高亮片段。
+     * 旧实现在遍历期给全部命中生成片段，排序后又把 cap 之外的丢掉 —— 白算。
+     * 片段逻辑原样保留（标题命中整条 + 每个正向词条一段正文上下文，最多 3 条）。
+     */
+    const results: SearchResult[] = kept.slice(skip, skip + cap).map(({ result, doc, cached }) => {
+      // 知识库命中本来就不带高亮
+      if (!doc || !cached) return result
 
-    // 默认按相关度（与语雀一致：搜索结果先看"多相关"，而不是"多新"），可切换为最近更新
-    if (filters?.sort === 'time') {
-      return results.sort(byTime).slice(0, limit)
-    }
+      const highlights: { field: string; text: string }[] = []
+      if (doc.title && terms.some(t => cached.title.includes(t.term))) {
+        highlights.push({ field: 'title', text: doc.title })
+      }
+      if (doc.content) {
+        const seenSnippets = new Set<string>()
+        terms.forEach(t => {
+          if (t.isNot) return
+          const snippet = getSnippet(doc.content!, cached.content, t.term)
+          if (snippet && !seenSnippets.has(snippet)) {
+            seenSnippets.add(snippet)
+            highlights.push({ field: 'content', text: snippet })
+          }
+        })
+      }
+      return { ...result, highlights: highlights.slice(0, 3) }
+    })
 
-    return results
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || byTime(a, b))
-      .slice(0, limit)
+    return { results, total }
   },
 
   getSearchSuggestions: (query) => {

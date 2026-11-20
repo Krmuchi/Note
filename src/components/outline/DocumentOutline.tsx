@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useState } from 'react';
-import { IconLayers } from '@/components/common/Icon';
+import { IconDocument, IconLayers, IconSearch } from '@/components/common/Icon';
 
 interface Heading {
   id: string;
@@ -207,13 +207,17 @@ export const DocumentOutline: React.FC<DocumentOutlineProps> = ({
       <div className="outline-content">
         {headings.length === 0 ? (
           <div className="empty-outline">
-            <span className="empty-icon">📄</span>
+            <span className="empty-icon">
+              <IconDocument size={32} />
+            </span>
             <span className="empty-text">暂无标题</span>
             <span className="empty-hint">使用 # 标记创建标题</span>
           </div>
         ) : searchQuery && filteredHeadings.length === 0 ? (
           <div className="empty-outline">
-            <span className="empty-icon">🔍</span>
+            <span className="empty-icon">
+              <IconSearch size={32} />
+            </span>
             <span className="empty-text">未找到匹配标题</span>
           </div>
         ) : (

@@ -46,6 +46,9 @@ declare global {
       /** 数据加载：失败返回信封（不抛错），由渲染层给出恢复引导 */
       load: () => Promise<LoadStoreResult>
       save: (payload: AppStore) => Promise<AppStore>
+  /** 版本快照分离存储：saveAppStore 剥离 versions 后走独立通道（避开 50MB 单通道上限） */
+  saveVersions: (versionsMap: Record<string, NoteDoc['versions']>) => Promise<{ ok: boolean; error?: string }>
+  loadVersions: () => Promise<{ ok: boolean; data?: Record<string, NoteDoc['versions']>; error?: string }>
       exportDoc: (payload: { title: string; content: string }) => Promise<boolean>
       exportNotebook: (payload: { title: string; docs: NoteDoc[] }) => Promise<boolean>
       exportNotebookZip: (payload: { title: string; docs: NoteDoc[] }) => Promise<boolean>

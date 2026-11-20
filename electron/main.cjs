@@ -131,7 +131,7 @@ const defaultData = {
           // 欢迎文档 = 可交互上手清单：预览模式下可直接点勾选框，
           // 让新用户在前 60 秒里把核心能力都试一遍（配合首启引导）
           content:
-            "# 欢迎使用桌面笔记\n\n" +
+            "# 欢迎使用拾页\n\n" +
             "这是一篇可以直接改写的文档。下面 5 件事都能用键盘完成 —— 在预览模式下点一下复选框，就能把它勾掉：\n\n" +
             "- [ ] 在空白行输入 `/` 唤起快捷命令（表格、公式、流程图、待办）\n" +
             "- [ ] 按 `Ctrl+K` 全局搜索；按 `Ctrl+/` 查看全部快捷键\n" +
@@ -494,7 +494,7 @@ function createTray() {
   }
 
   tray = new Tray(image);
-  tray.setToolTip("笔记");
+  tray.setToolTip("拾页");
   // 模板抽到 electron/menu-template.cjs：托盘项的顺序与"发的是哪个 app:action"可以被单测钉住
   tray.setContextMenu(
     Menu.buildFromTemplate(
@@ -531,7 +531,7 @@ function createWindow() {
     ...windowState.readBounds(),
     minWidth: MIN_BOUNDS.width,
     minHeight: MIN_BOUNDS.height,
-    title: "笔记",
+    title: "拾页",
     /*
      * P1-7 首帧：
      *  - show:false，内容就绪（ready-to-show）才显示，此前不再是一块空白窗口；
@@ -669,7 +669,7 @@ function createWindow() {
     void dialog
       .showMessageBox(win, {
         type: 'error',
-        title: '笔记启动失败',
+        title: '拾页启动失败',
         message: '应用界面未能加载',
         detail,
         buttons: ['重试', '复制错误信息', '退出应用'],
@@ -684,7 +684,7 @@ function createWindow() {
         } else if (response === 1) {
           // 复制必须有反馈：否则又是一处"点了没反应"（与 P2-12 同类）
           try {
-            clipboard.writeText('笔记启动失败：\n' + detail);
+            clipboard.writeText('拾页启动失败：\n' + detail);
             await dialog.showMessageBox(win, {
               type: 'info',
               message: '错误信息已复制到剪贴板',
@@ -887,7 +887,7 @@ app.whenReady().then(async () => {
         const options = {
           type: "info",
           title: "关于",
-          message: "笔记",
+          message: "拾页",
           detail: [
             `版本：${typeof app.getVersion === "function" ? app.getVersion() : "开发版"}`,
             `数据目录：${dataPath ? path.dirname(dataPath) : "(尚未初始化)"}`,

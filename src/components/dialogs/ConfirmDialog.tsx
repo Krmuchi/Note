@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { IconWarning } from '@/components/common/Icon';
 
 interface ConfirmDialogProps {
   title: string;
@@ -64,7 +65,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         <div className="confirm-dialog-header">
           {isDanger && (
             <span className="confirm-dialog-icon" aria-hidden="true">
-              ⚠️
+              <IconWarning size={16} />
             </span>
           )}
           <h3>{title}</h3>

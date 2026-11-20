@@ -4,13 +4,15 @@ import type { JSX } from 'react'
 import type { TrashDoc } from '@/types'
 import { TRASH_RETENTION_DAYS } from '@/shared/constants'
 import { EmptyState } from '@/components/common/EmptyState'
-import { IconSearch } from '@/components/common/Icon'
+import { IconClose, IconDocument, IconSearch, IconTrash } from '@/components/common/Icon'
 
 interface TrashViewProps {
   trash: TrashDoc[]
   onRestore: (docId: string) => void
   onDelete: (docId: string) => void
   onClearTrash: () => void
+  /** 空态引导出口：从回收站跳回文档视图 */
+  onGoToDocs: () => void
 }
 
 const getRemainingDays = (deletedAt: string): number => {
@@ -21,7 +23,7 @@ const getRemainingDays = (deletedAt: string): number => {
   return Math.max(0, TRASH_RETENTION_DAYS - diffDays)
 }
 
-export default function TrashView({ trash, onRestore, onDelete, onClearTrash }: TrashViewProps): JSX.Element {
+export default function TrashView({ trash, onRestore, onDelete, onClearTrash, onGoToDocs }: TrashViewProps): JSX.Element {
   const [searchQuery, setSearchQuery] = useState('')
   /** P2-15：回收站此前只能逐条恢复 —— 误删一批要点 20 次「恢复」 */
   const [selectMode, setSelectMode] = useState(false)
@@ -67,7 +69,7 @@ export default function TrashView({ trash, onRestore, onDelete, onClearTrash }: 
     <main className="editor-panel">
       <div className="trash-panel">
         <div className="trash-header">
-          <h2>🗑️ 回收站</h2>
+          <h2><IconTrash size={20} /> 回收站</h2>
           <span className="trash-hint">文档将在 {TRASH_RETENTION_DAYS} 天后自动清理</span>
           {trash.length > 0 && (
             <>
@@ -120,15 +122,23 @@ export default function TrashView({ trash, onRestore, onDelete, onClearTrash }: 
         </div>
         {trash.length === 0 ? (
           <EmptyState
-            icon="🗑️"
+            icon={<IconTrash size={32} />}
             title="回收站为空"
             description={`删除的文档会在这里显示，${TRASH_RETENTION_DAYS} 天后自动清理`}
+            actions={[
+              // 空态 CTA：空回收站也要给出口，回到文档视图继续工作，而不是停在空列表前
+              { label: '去文档', icon: <IconDocument size={14} />, variant: 'primary', onClick: onGoToDocs },
+            ]}
           />
         ) : filteredTrash.length === 0 ? (
           <EmptyState
             icon={<IconSearch size={32} />}
-            title="未找到匹配的文档"
-            description="试试其他关键词"
+            title="没有匹配的文档"
+            description="试试其他关键词或调整筛选条件"
+            actions={[
+              // 搜索无结果必须能一键回到全量列表（与 RecentView/FavoriteView/TagPanel 同款出口）
+              { label: '清除搜索', icon: <IconClose size={14} />, variant: 'secondary', onClick: () => setSearchQuery('') },
+            ]}
           />
         ) : (
           <div className="trash-list">

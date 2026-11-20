@@ -92,6 +92,7 @@
 }
 
 .toast-close {
+  position: relative;
   width: 24px;
   height: 24px;
   border-radius: var(--radius-sm);
@@ -105,6 +106,13 @@
   justify-content: center;
   flex-shrink: 0;
   transition: all var(--transition-fast);
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局），外扩到 32px 档 */
+.toast-close::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .toast-close:hover {
@@ -878,6 +886,15 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-2);
+}
+
+/* 局部边界（PanelBoundary）的安抚文案：渲染出错时用户最担心的是"刚写的还在吗"，
+   所以除了错误原因，必须显式告诉它内容没丢、重试就能回来。 */
+.lazy-error-hint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  line-height: var(--line-height-base);
 }
 
 .lazy-loading {

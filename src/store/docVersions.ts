@@ -1,4 +1,4 @@
-import type { DocVersion, NoteDoc } from '@/types'
+import type { DocVersion, NoteDoc, Notebook } from '@/types'
 import { newId } from './storeUtils'
 
 /**
@@ -19,8 +19,25 @@ export const MAX_VERSIONS = 50
 /** 大文档收紧后的条数上限 */
 export const MAX_VERSIONS_LARGE_DOC = 5
 
-/** 大文档阈值：超过这个正文长度按大文档处理 */
-export const LARGE_DOC_THRESHOLD = 100_000
+/**
+ * 大文档阈值（**字节**，按 UTF-8 上界 3 字节/字估算）。
+ *
+ * 旧值 LARGE_DOC_THRESHOLD = 100_000 是**字符数**：中文 100K 字符 = 300KB，
+ * 却按"≈100KB"把文档判成大文档 —— 判定提前了 3 倍，50 份条数上限过早收紧到 5 份。
+ * 现在按字节估算：content.length * 3 超过 900KB 才算大文档。
+ */
+export const LARGE_DOC_THRESHOLD_BYTES = 900_000
+
+/** 等价的字符数阈值（900_000 字节 ÷ 3 字节/字 = 300_000 字符），保留旧导出名兼容调用方与测试 */
+export const LARGE_DOC_THRESHOLD = LARGE_DOC_THRESHOLD_BYTES / 3
+
+/**
+ * 是否按大文档处理（条数上限 50 → 5 的判定入口）。
+ * 只有这里做阈值比较：调用方一律用它，避免"按字符判"和"按字节判"两套口径再次分叉。
+ */
+export function isLargeDoc(content: string | null | undefined): boolean {
+  return (content?.length ?? 0) * 3 > LARGE_DOC_THRESHOLD_BYTES
+}
 
 /**
  * 单篇文档版本区的字节预算。
@@ -30,6 +47,16 @@ export const LARGE_DOC_THRESHOLD = 100_000
  * 又保证即便用户有几十篇大文档也不会把 payload 撑爆。
  */
 export const VERSION_BUDGET_BYTES_PER_DOC = 8 * 1024 * 1024
+
+/**
+ * 全库版本区总预算。
+ *
+ * 单篇预算挡不住"几百篇中等文档各自 8MB"的叠加：notes:save 的 payload 上限是
+ * 50MB（electron/ipc/shared.mjs 的 MAX_STORE_BYTES），正文 + 回收站还要占一部分，
+ * 版本区必须有全库级上限，否则库大到一定程度保存会**永久失败**且重试必然再失败。
+ * 32MB 给正文与其它字段留出余量；正常使用（几百份小快照）根本碰不到。
+ */
+export const VERSION_BUDGET_BYTES_TOTAL = 32 * 1024 * 1024
 
 /** 估算一份快照占用的字节数（按 UTF-8 上界：中文 3 字节/字，统一按 3 计最保守） */
 function estimateBytes(version: DocVersion): number {
@@ -43,7 +70,7 @@ function estimateBytes(version: DocVersion): number {
  * 因为它们是用户主动「定住」的版本，被自动快照挤掉是数据丢失。
  */
 export function commitVersions(doc: NoteDoc, candidates: DocVersion[]): void {
-  const large = (doc.content?.length ?? 0) > LARGE_DOC_THRESHOLD
+  const large = isLargeDoc(doc.content)
   const countCap = large ? MAX_VERSIONS_LARGE_DOC : MAX_VERSIONS
 
   const manual = candidates.filter(v => v.type === 'manual')
@@ -127,4 +154,85 @@ export function pushAutoVersion(
   })
 
   commitVersions(doc, [version, ...existing])
+}
+
+/**
+ * 全库版本预算裁剪：所有文档的版本区合计不得超过 VERSION_BUDGET_BYTES_TOTAL。
+ *
+ * 单篇预算（commitVersions）只防单篇膨胀；本函数防的是「几百篇各带几 MB 快照」
+ * 的叠加 —— 那正是 notes:save 撞 50MB payload 上限、保存永久失败的根源。
+ *
+ * 裁剪顺序（与 commitVersions 的价值观一致）：
+ * 1. 自动版本（type !== 'manual'）从**全局最旧**开始丢；
+ * 2. 手动版本是用户主动定住的，最后才动，且每篇至少保留最新 1 份手动版本。
+ *
+ * 必须在 set((state) => ...) 的 immer 草稿内调用（与 pushAutoVersion 同约定）。
+ * 返回被丢弃的快照数（>0 时调用方应提示用户，避免「版本历史悄悄缩水」）。
+ */
+export function enforceGlobalVersionBudget(notebooks: Notebook[]): number {
+  interface Entry { doc: NoteDoc; version: DocVersion; index: number; bytes: number }
+  const autoEntries: Entry[] = []
+  const manualByDoc = new Map<string, Entry[]>()
+  let total = 0
+
+  for (const notebook of notebooks) {
+    for (const doc of notebook.docs) {
+      const versions = doc.versions || []
+      versions.forEach((version, index) => {
+        const entry: Entry = { doc, version, index, bytes: estimateBytes(version) }
+        total += entry.bytes
+        if (version.type === 'manual') {
+          const list = manualByDoc.get(doc.id) ?? []
+          list.push(entry)
+          manualByDoc.set(doc.id, list)
+        } else {
+          autoEntries.push(entry)
+        }
+      })
+    }
+  }
+
+  if (total <= VERSION_BUDGET_BYTES_TOTAL) return 0
+
+  // 自动版本按 createdAt 从旧到新排序，从最旧开始丢
+  autoEntries.sort((a, b) =>
+    new Date(a.version.createdAt || 0).getTime() - new Date(b.version.createdAt || 0).getTime(),
+  )
+
+  const dropped = new Set<DocVersion>()
+  for (const entry of autoEntries) {
+    if (total <= VERSION_BUDGET_BYTES_TOTAL) break
+    dropped.add(entry.version)
+    total -= entry.bytes
+  }
+
+  // 仍超预算才动手动版本：同样从最旧开始，但每篇保留最新 1 份
+  if (total > VERSION_BUDGET_BYTES_TOTAL) {
+    const manualFlat: Entry[] = []
+    for (const entries of manualByDoc.values()) {
+      // 每篇的手动版本按新→旧排，最新 1 份永不丢
+      entries.sort((a, b) =>
+        new Date(b.version.createdAt || 0).getTime() - new Date(a.version.createdAt || 0).getTime(),
+      )
+      manualFlat.push(...entries.slice(1))
+    }
+    manualFlat.sort((a, b) =>
+      new Date(a.version.createdAt || 0).getTime() - new Date(b.version.createdAt || 0).getTime(),
+    )
+    for (const entry of manualFlat) {
+      if (total <= VERSION_BUDGET_BYTES_TOTAL) break
+      dropped.add(entry.version)
+      total -= entry.bytes
+    }
+  }
+
+  if (dropped.size === 0) return 0
+  for (const notebook of notebooks) {
+    for (const doc of notebook.docs) {
+      if (doc.versions && doc.versions.some(v => dropped.has(v))) {
+        doc.versions = doc.versions.filter(v => !dropped.has(v))
+      }
+    }
+  }
+  return dropped.size
 }

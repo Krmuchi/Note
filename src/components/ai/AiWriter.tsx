@@ -6,6 +6,7 @@ import { INSTRUCTIONS_MAX_LENGTH, WRITING_LENGTHS, WRITING_STYLES, shouldOfferRe
 import { useAiWriter } from '@/hooks/useAiWriter';
 import { uiActions } from '@/hooks/useUIState';
 import { IconSparkle } from '@/components/common/Icon';
+import { AiOptionIcon } from './aiOptionIcon';
 
 /** 这些错误靠重试解决不了，必须给用户一条「去设置」的出路 */
 const SETTINGS_ERROR_CODES = new Set([
@@ -137,7 +138,7 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps): 
                       className={`style-option ${config.style === option.value ? 'active' : ''}`}
                       onClick={() => setConfig((prev) => ({ ...prev, style: option.value }))}
                     >
-                      <span className="style-icon">{option.icon}</span>
+                      <span className="style-icon"><AiOptionIcon name={option.icon} /></span>
                       <span className="style-label">{option.label}</span>
                       <span className="style-desc">{option.description}</span>
                     </button>
@@ -268,7 +269,17 @@ export default function AiWriter({ isOpen, onClose, onInsert }: AiWriterProps): 
               <div className="result-actions">
                 {isStreaming ? (
                   <button className="action-btn secondary" onClick={cancel}>
-                    ⏹ 停止生成
+                    {/* 停止符号：14px 实心方块，随按钮文字色（.action-btn 已是 flex + gap） */}
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+                    </svg>
+                    停止生成
                   </button>
                 ) : (
                   <>

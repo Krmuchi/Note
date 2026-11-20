@@ -133,23 +133,49 @@ function getSnapshot(): UIState {
 
 /* ---------------- 命令式读写（供事件处理器 / 非组件代码使用） ---------------- */
 
+/**
+ * 左菜单 → 视图的**成对同步**（唯一实现，uiActions 与启动回位共用）。
+ * 单写一侧会出现「点了回收站停在开始页」这类失配（MainContent 先判
+ * leftMenu 的 start/note/tags，再判 view）：
+ * - view=notebooks ⟹ leftMenu=notebooks（打开文档/文档库）
+ * - view=trash/favorite/recent ⟹ leftMenu 同名（这两个值同时是合法 LeftMenuType）
+ * - leftMenu=start/note/tags ⟹ view=notebooks（这三项有自己的渲染分支，view 取兜底值，
+ *   同时避免 footer 的回收站高亮在开始页上残留）
+ */
+function applyActiveLeftMenu(menu: LeftMenuType): void {
+  setState({
+    activeLeftMenu: menu,
+    activeView: menu === 'start' || menu === 'note' || menu === 'tags' ? 'notebooks' : menu,
+  })
+}
+
 export const uiActions = {
   /*
-   * 视图与左菜单是一对联动状态，两个 setter 都必须写全，否则会出现
-   * 「点了回收站停在开始页」这类单写一侧的失配（MainContent 先判
-   * leftMenu 的 start/note/tags，再判 view）：
-   * - view=notebooks ⟹ leftMenu=notebooks（打开文档/文档库）
-   * - view=trash/favorite/recent ⟹ leftMenu 同名（这两个值同时是合法 LeftMenuType）
-   * - leftMenu=start/note/tags ⟹ view=notebooks（这三项有自己的渲染分支，view 取兜底值，
-   *   同时避免 footer 的回收站高亮在开始页上残留）
+   * 视图与左菜单是一对联动状态，两个 setter 都必须写全（成对同步的规则见
+   * applyActiveLeftMenu 的说明）——单写一侧会出现「点了回收站停在开始页」这类失配。
    */
   setActiveView: (view: ViewType) =>
     setState({ activeView: view, activeLeftMenu: view }),
-  setActiveLeftMenu: (menu: LeftMenuType) =>
-    setState({
-      activeLeftMenu: menu,
-      activeView: menu === 'start' || menu === 'note' || menu === 'tags' ? 'notebooks' : menu,
-    }),
+  setActiveLeftMenu: applyActiveLeftMenu,
+  /*
+   * 启动回位（「重启不回上次文档」修复）：数据加载完成后，若 store 里仍有上次的
+   * 活动文档而界面却停在开始页（activeLeftMenu 的默认值 'start'），落回文档视图。
+   *
+   * 三重守卫：
+   * - hasActiveDoc：没有活动文档时开始页本身就是正确落点，不回位；
+   * - isFreshInstall：全新安装要弹新手引导，开始页是引导的背景（判定复用
+   *   utils/onboarding.shouldShowOnboarding），回位会让新用户一上来就面对空文档树；
+   * - 仅当 activeLeftMenu 仍是 'start' 才回位：小记/标签/回收站/收藏/最近是用户
+   *   明确停留过的视图，由持久化恢复，不覆盖。
+   *
+   * 走成对同步的 applyActiveLeftMenu，activeView / activeLeftMenu 一起写，
+   * 不会重演「只写一侧」的失配。
+   */
+  restoreLastSessionView: (hasActiveDoc: boolean, isFreshInstall = false) => {
+    if (!hasActiveDoc || isFreshInstall) return
+    if (state.activeLeftMenu !== 'start') return
+    applyActiveLeftMenu('notebooks')
+  },
   setShowQuickOpen: (v: boolean) => setState({ showQuickOpen: v }),
   setFontSize: (size: string) => setState({ fontSize: size }),
   setShowSearchPanel: (v: boolean) => setState({ showSearchPanel: v }),

@@ -228,7 +228,7 @@
 }
 
 .dropdown-arrow {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .sidebar-search-wrapper {
@@ -267,6 +267,7 @@
 
 /* 树过滤的清除出口（过滤词是独立状态，必须看得见、点得掉） */
 .sidebar-filter-clear {
+  position: relative;
   width: 24px;
   height: 24px;
   flex-shrink: 0;
@@ -277,6 +278,13 @@
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局），外扩到 32px 档 */
+.sidebar-filter-clear::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .sidebar-filter-clear:hover {
@@ -352,7 +360,7 @@
 }
 
 .search-shortcut {
-  font-size: 11px;
+  font-size: 12px;
   /* 对比度：硬编码 #999 在浅色底上约 2.8:1，改语义 token 跟随主题 */
   color: var(--text-tertiary);
   padding: 1px 4px;
@@ -504,6 +512,7 @@
 }
 
 .btn-add-notebook {
+  position: relative;
   width: 24px;
   height: 24px;
   border-radius: var(--radius-md);
@@ -517,6 +526,13 @@
   transition: all var(--transition-fast);
   flex-shrink: 0;
   opacity: 0;
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局），外扩到 32px 档 */
+.btn-add-notebook::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .section-header:hover .btn-add-notebook {

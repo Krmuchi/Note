@@ -15,9 +15,12 @@ vi.mock('@/services/storage', () => ({
   openDataDir: vi.fn(async () => ({ ok: true })),
   restoreLocalBackup: vi.fn(async () => ({ ok: true })),
 }))
-vi.mock('@/utils/clipboard', () => ({ copyToClipboard: vi.fn(async () => true) }))
+vi.mock('@/utils/clipboard', () => ({ copyToClipboard: vi.fn(async () => true), copyWithFeedback: vi.fn(async () => true) }))
 
 import LoadFailureDialog from '@/components/dialogs/LoadFailureDialog'
+import { loadAppStore } from '@/services/storage'
+import { copyWithFeedback } from '@/utils/clipboard'
+import { getUIState, uiActions } from '@/hooks/useUIState'
 import ConfirmDialog from '@/components/dialogs/ConfirmDialog'
 import SaveIndicator from '@/components/layout/SaveIndicator'
 import { useNotesStore } from '@/store'
@@ -65,6 +68,9 @@ beforeEach(() => {
     tags: [],
     searchHistory: [],
     quickNotes: [],
+    // 启动回位判定读 activeDocId：必须逐用例复位，否则上个用例的活动文档会泄漏进来
+    activeNotebookId: '',
+    activeDocId: '',
   })
 })
 
@@ -160,5 +166,83 @@ describe('saveNotes：loadFailed 拦截时给出明确提示', () => {
     } finally {
       unsubscribe()
     }
+  })
+})
+
+describe('LoadFailureDialog：复制诊断信息走统一封装（复制假成功修复）', () => {
+  it('点「复制诊断信息」调 copyWithFeedback（带定制成功文案），不再直调 copyToClipboard 无条件报成功', async () => {
+    render(<LoadFailureDialog message="数据文件损坏" />)
+    const mockedCopy = copyWithFeedback as unknown as ReturnType<typeof vi.fn>
+
+    fireEvent.click(screen.getByRole('button', { name: '复制诊断信息' }))
+
+    await vi.waitFor(() => expect(mockedCopy).toHaveBeenCalled())
+    const [text, successMsg] = mockedCopy.mock.calls[0] as [string, string]
+    expect(text).toContain('拾页 · 数据加载失败诊断')
+    expect(text).toContain('数据文件损坏')
+    expect(successMsg).toBe('诊断信息已复制')
+  })
+})
+
+describe('数据重新加载成功后的启动回位（重启不回上次文档）', () => {
+  const withDocData = (): void => {
+    ;(loadAppStore as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      data: {
+        notebooks: [
+          {
+            id: 'nb-test',
+            title: '我的知识库',
+            docs: [
+              {
+                id: 'doc-a',
+                title: '文档A',
+                content: '正文',
+                createdAt: '2026-01-01T00:00:00.000Z',
+                updatedAt: '2026-01-01T00:00:00.000Z',
+              },
+            ],
+          },
+        ],
+        trash: [],
+        tags: [],
+        searchHistory: [],
+      },
+    })
+  }
+
+  it('重试加载成功且有活动文档：落回文档视图（activeLeftMenu/activeView 成对同步）', async () => {
+    uiActions.setActiveLeftMenu('start')
+    withDocData()
+    render(<LoadFailureDialog message="数据文件损坏" />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '重试加载' }))
+    })
+
+    await vi.waitFor(() => {
+      expect(getUIState().activeLeftMenu).toBe('notebooks')
+    })
+    expect(getUIState().activeView).toBe('notebooks')
+  })
+
+  it('重试加载成功但没有活动文档：留在开始页（开始页就是正确落点）', async () => {
+    uiActions.setActiveLeftMenu('start')
+    // 显式给空数据：vi.fn 的 mockResolvedValue 会跨用例残留（mockRestore 不复位工厂实现）
+    ;(loadAppStore as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      data: { notebooks: [], trash: [], tags: [], searchHistory: [] },
+    })
+    render(<LoadFailureDialog message="数据文件损坏" />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '重试加载' }))
+    })
+
+    await vi.waitFor(() => {
+      expect(useNotesStore.getState().loadFailed).toBe(false)
+    })
+    expect(getUIState().activeLeftMenu).toBe('start')
+    expect(getUIState().activeView).toBe('notebooks')
   })
 })

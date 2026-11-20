@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { subscribeToast } from '@/services/toast'
+import type { ToastMessage } from '@/services/toast'
 
 /**
  * 设置面板里的诊断与更新（D3 / D5）。
@@ -128,5 +130,54 @@ describe('设置 · 崩溃记录（D5）', () => {
     await waitFor(() => expect(mockedClearCrash).toHaveBeenCalled())
     // 清空后那条摘要不再出现
     await waitFor(() => expect(screen.queryByText('渲染进程退出：crashed')).toBeNull())
+  })
+})
+
+describe('设置 · 复制反馈（复制假成功修复）', () => {
+  /** 强制走 execCommand 回退路径，复制结果可控（jsdom 默认两条路径都不可用） */
+  const stubCopy = (ok: boolean): void => {
+    document.execCommand = vi.fn(() => ok) as unknown as typeof document.execCommand
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+    Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true })
+  }
+
+  const captureToasts = (): { messages: ToastMessage[]; unsubscribe: () => void } => {
+    const messages: ToastMessage[] = []
+    const unsubscribe = subscribeToast((m) => {
+      messages.push(m)
+      return 'test-id'
+    })
+    return { messages, unsubscribe }
+  }
+
+  it('复制成功：提示「已复制数据目录路径」', async () => {
+    stubCopy(true)
+    const { messages, unsubscribe } = captureToasts()
+    try {
+      renderPanel()
+      const btn = await screen.findByRole('button', { name: '复制数据目录路径' })
+      await waitFor(() => expect(btn).toBeEnabled())
+      fireEvent.click(btn)
+      await waitFor(() =>
+        expect(messages.some((m) => m.type === 'success' && m.message === '已复制数据目录路径')).toBe(true),
+      )
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('复制失败：提示「复制失败」，不再假提示成功', async () => {
+    stubCopy(false)
+    const { messages, unsubscribe } = captureToasts()
+    try {
+      renderPanel()
+      fireEvent.click(await screen.findByRole('button', { name: '复制诊断信息' }))
+      await waitFor(() => expect(messages.length).toBeGreaterThan(0))
+      expect(messages.some((m) => m.type === 'error' && m.message.includes('复制失败'))).toBe(true)
+      // 旧实现会无条件弹这条成功文案 —— 关键回归断言
+      expect(messages.some((m) => m.message === '诊断信息已复制')).toBe(false)
+    } finally {
+      unsubscribe()
+    }
   })
 })

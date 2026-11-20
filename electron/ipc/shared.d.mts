@@ -21,6 +21,16 @@ export declare function assertExportPayload(
   options?: { allowDocs?: boolean },
 ): void
 
+/**
+ * 把版本快照从存储 payload 中剥离（正文与版本分离存储）。
+ * 返回 { store, versions }：store 各 doc.versions 为空数组可直接写盘，
+ * versions 为 { [docId]: DocVersion[] }。
+ */
+export declare function stripVersions<T extends object>(payload: T): {
+  store: T
+  versions: Record<string, unknown[]>
+}
+
 /** 文件名字符清洗（去掉 Windows 不允许的字符） */
 export declare function safeName(name?: string): string
 

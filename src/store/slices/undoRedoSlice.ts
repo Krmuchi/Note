@@ -12,6 +12,33 @@ interface DocHistory {
   future: DocSnapshot[]
 }
 
+/**
+ * 单篇文档撤销/重做栈的字节预算。
+ *
+ * 快照是完整正文副本：只按条数（200）裁剪时，一篇 200KB 的文档编辑 200 次
+ * 会常驻约 40MB（past + future 翻倍）。按 8MB/篇 裁剪，与版本快照的
+ * 单篇预算（docVersions.ts）同量级 —— 撤销深度到几 MB 正文已经远超实用回溯范围。
+ */
+export const UNDO_BUDGET_BYTES_PER_DOC = 8 * 1024 * 1024
+
+/** 估算一份快照的字节占用（UTF-8 上界：中文按 3 字节/字） */
+function snapshotBytes(snapshot: DocSnapshot): number {
+  return (snapshot.content?.length ?? 0) * 3 + (snapshot.title?.length ?? 0) * 3
+        + (snapshot.tags?.length ?? 0) * 32 + 64
+}
+
+/** 从最旧一侧裁剪到条数与字节双预算内（不会清空：至少保留最新 1 份） */
+function trimStackToBudget(stack: DocSnapshot[], limit: number): DocSnapshot[] {
+  let result = stack
+  if (result.length > limit) result = result.slice(result.length - limit)
+  let total = result.reduce((sum, s) => sum + snapshotBytes(s), 0)
+  while (total > UNDO_BUDGET_BYTES_PER_DOC && result.length > 1) {
+    total -= snapshotBytes(result[0])
+    result = result.slice(1)
+  }
+  return result
+}
+
 export interface UndoRedoSlice {
   history: Record<string, DocHistory>
   /**
@@ -50,9 +77,8 @@ export const createUndoRedoSlice: UndoRedoSliceCreator = (set, get) => ({
       }
       const h = state.history[docId]
       h.past.push(snapshot)
-      if (h.past.length > limit) {
-        h.past.splice(0, h.past.length - limit)
-      }
+      // 条数 + 字节双预算（字节预算防「200 份 × 大文档正文」常驻几十 MB）
+      h.past = trimStackToBudget(h.past, limit)
       h.future = []
     })
   },
@@ -73,7 +99,10 @@ export const createUndoRedoSlice: UndoRedoSliceCreator = (set, get) => ({
       if (!state.history[docId]) {
         state.history[docId] = { past: [], future: [] }
       }
-      state.history[docId].future.push(snapshot)
+      const h = state.history[docId]
+      h.future.push(snapshot)
+      // future 此前完全没有上限（旧实现连条数都不限）：连续重做再编辑会无界增长
+      h.future = trimStackToBudget(h.future, 200)
     })
   },
 

@@ -6,7 +6,50 @@ import { useNotesStore } from "@/store";
 import { exportHtmlDoc } from "@/services/storage";
 import { toast } from "@/components/common/Toast";
 import { confirmAction } from "@/hooks/useConfirmAction";
+import { IconComment, IconDocument, IconEdit, IconGlobe, IconInfo, IconLink, IconSettings } from "@/components/common/Icon";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
+
+/**
+ * 显隐 / 加锁图形：图标库里没有 eye 与 padlock，按 DocTree 的内联 svg 先例
+ * （24 viewBox、stroke 2、currentColor，装饰性 aria-hidden）。
+ * EyeIcon 的 slash 表示「隐藏」这个动作 —— 与原来的 🙈/👁️ 语义一致（图标＝当前可执行的动作）。
+ */
+const EyeIcon = ({ slash = false }: { slash?: boolean }): JSX.Element => (
+  <svg
+    viewBox="0 0 24 24"
+    width="16"
+    height="16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+    <circle cx="12" cy="12" r="3" />
+    {slash && <path d="M3 3l18 18" />}
+  </svg>
+);
+
+const LockIcon = (): JSX.Element => (
+  <svg
+    viewBox="0 0 24 24"
+    width="14"
+    height="14"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <rect x="4" y="11" width="16" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </svg>
+);
 
 /**
  * 分享面板组件属性接口
@@ -22,16 +65,6 @@ interface SharePanelProps {
   onDeleteLink: (linkId: string) => void;          // 删除分享链接回调
   onCopyLink: (url: string) => void;               // 复制链接回调
 }
-
-/**
- * 权限选项配置
- */
-const permissionOptions = [
-  { value: 'view', label: '查看', icon: '👁️' },
-  { value: 'comment', label: '评论', icon: '💬' },
-  { value: 'edit', label: '编辑', icon: '✏️' },
-  { value: 'manage', label: '管理', icon: '⚙️' },
-];
 
 /**
  * 有效期选项配置
@@ -60,6 +93,17 @@ export default function SharePanel({
 }: SharePanelProps): JSX.Element | null {
   // 弹窗焦点陷阱：Tab 在面板内循环，关闭后归还焦点（A2）
   const trapRef = useFocusTrap<HTMLDivElement>();
+  /*
+   * 权限选项配置（置于组件内）：图标是 <IconXxx /> 节点而非 emoji 字符 ——
+   * 单色线性图标要随主题/状态取 currentColor，只能在渲染期构造。
+   * 排序与文案保持原样（查看 / 评论 / 编辑 / 管理）。
+   */
+  const permissionOptions = [
+    { value: 'view', label: '查看', icon: <IconGlobe size={14} /> },
+    { value: 'comment', label: '评论', icon: <IconComment size={14} /> },
+    { value: 'edit', label: '编辑', icon: <IconEdit size={14} /> },
+    { value: 'manage', label: '管理', icon: <IconSettings size={14} /> },
+  ];
   const [selectedPermission, setSelectedPermission] = useState('view');
   // 密码保护用独立布尔态，而不是往 password 里塞空格占位 ——
   // 旧实现勾选即 setPassword(' ')，不输入就生成会得到一条「单空格密码」的链接
@@ -215,7 +259,7 @@ export default function SharePanel({
         <div className="share-panel-body">
           {/* 文档信息 */}
           <div className="share-doc-info">
-            <span className="share-doc-icon">📄</span>
+            <span className="share-doc-icon" aria-hidden="true"><IconDocument size={18} /></span>
             <span className="share-doc-title">{docTitle}</span>
           </div>
 
@@ -223,7 +267,7 @@ export default function SharePanel({
           <div className="share-section">
             <h4 className="share-section-title">新建分享链接</h4>
             <div className="share-local-hint">
-              <span className="hint-icon">ℹ️</span>
+              <span className="hint-icon" aria-hidden="true"><IconInfo size={14} /></span>
               <span className="hint-text">链接是本机标识，复制给别人打不开；要分享内容请用「导出 HTML」</span>
             </div>
             
@@ -277,8 +321,9 @@ export default function SharePanel({
                       className="share-password-toggle"
                       onClick={() => setShowPassword(!showPassword)}
                       title={showPassword ? '隐藏密码' : '显示密码'}
+                      aria-label={showPassword ? '隐藏密码' : '显示密码'}
                     >
-                      {showPassword ? '🙈' : '👁️'}
+                      <EyeIcon slash={showPassword} />
                     </button>
                   </div>
                 )}
@@ -312,7 +357,7 @@ export default function SharePanel({
             
             {shareLinks.length === 0 ? (
               <div className="share-empty">
-                <span className="share-empty-icon">🔗</span>
+                <span className="share-empty-icon" aria-hidden="true"><IconLink size={32} /></span>
                 <span className="share-empty-text">暂无分享链接</span>
               </div>
             ) : (
@@ -350,7 +395,11 @@ export default function SharePanel({
                     </div>
                     <div className="share-link-meta">
                       <span className="share-link-permission">{getPermissionLabel(link.permission)}</span>
-                      {link.password && <span className="share-link-password">🔒</span>}
+                      {link.password && (
+                        <span className="share-link-password" role="img" aria-label="已设置密码保护">
+                          <LockIcon />
+                        </span>
+                      )}
                       <span className={`share-link-expire ${getExpireStatusClass(link.expiresAt)}`}>
                         {isLinkExpired(link.expiresAt) ? '已过期' : getExpireDisplay(link.expiresAt)}
                       </span>

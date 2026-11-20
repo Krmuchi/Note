@@ -8,14 +8,14 @@ import { test, expect } from '@playwright/test';
  * 工具栏主题按钮）针对的是已非默认的 textarea 内核，2026-11-13 已更新。
  */
 
-test.describe('笔记应用核心功能', () => {
+test.describe('拾页核心功能', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('.app-shell')).toBeVisible();
   });
 
   test('应用正常加载', async ({ page }) => {
-    await expect(page).toHaveTitle(/笔记/);
+    await expect(page).toHaveTitle(/拾页/);
     await expect(page.locator('.main-sidebar')).toBeVisible();
   });
 

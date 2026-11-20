@@ -56,6 +56,63 @@ describe('errorLog 读写', () => {
   })
 })
 
+describe('errorLog 内存缓存（P2-2）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('连续写入只在磁盘原文变化时 JSON.parse，后续 append 零解析', () => {
+    // 先往磁盘塞一份"外部写入"的数据，保证首次 append 必须读一次盘
+    localStorage.setItem('error-logs', JSON.stringify([
+      { timestamp: '2026-01-01T00:00:00.000Z', message: '盘里的' },
+    ]))
+
+    const parseSpy = vi.spyOn(JSON, 'parse')
+    appendErrorLog({ source: 'window', message: 'a' })
+    const afterFirst = parseSpy.mock.calls.length
+
+    appendErrorLog({ source: 'window', message: 'b' })
+    appendErrorLog({ source: 'window', message: 'c' })
+    const afterAll = parseSpy.mock.calls.length
+    parseSpy.mockRestore()
+
+    // 首次至多解析一次（读盘），之后两条 append 走内存 → 次数不再增长
+    expect(afterFirst).toBeLessThanOrEqual(1)
+    expect(afterAll).toBe(afterFirst)
+
+    // 落盘仍是全量最新数据（旧数据 + 新 3 条）
+    expect(JSON.parse(localStorage.getItem('error-logs')!)).toHaveLength(4)
+    expect(readErrorLogs().map((l) => l.message)).toEqual(['盘里的', 'a', 'b', 'c'])
+  })
+
+  it('外部直接清空 localStorage 后读取为空（原文变化触发重读）', () => {
+    appendErrorLog({ source: 'render', message: 'x' })
+    expect(readErrorLogs()).toHaveLength(1)
+
+    localStorage.removeItem('error-logs')
+    expect(readErrorLogs()).toEqual([])
+  })
+
+  it('readErrorLogs 返回副本：改返回值不会污染后续读取', () => {
+    appendErrorLog({ source: 'render', message: 'x' })
+    const copy = readErrorLogs()
+    copy.pop()
+    expect(copy).toHaveLength(0)
+    expect(readErrorLogs()).toHaveLength(1)
+  })
+
+  it('缓存命中时不解析也能读到旧格式数据（首次读盘即归一化）', () => {
+    localStorage.setItem('error-logs', JSON.stringify([
+      { timestamp: '2026-01-01T00:00:00.000Z', error: '旧格式', stack: null },
+    ]))
+    const first = readErrorLogs()
+    expect(first).toHaveLength(1)
+    expect(first[0].message).toBe('旧格式')
+    // 第二次读走缓存，结果一致
+    expect(readErrorLogs()).toEqual(first)
+  })
+})
+
 describe('installGlobalErrorLogging', () => {
   beforeEach(() => {
     localStorage.clear()

@@ -1,6 +1,10 @@
-# 笔记（Notes）
+# 拾页（PickPage）
 
-[![CI](https://github.com/Krmuchi/Note/actions/workflows/ci.yml/badge.svg)](https://github.com/Krmuchi/Note/actions/workflows/ci.yml)
+[![CI](https://github.com/Krmuch/Note/actions/workflows/ci.yml/badge.svg)](https://github.com/Krmuch/Note/actions/workflows/ci.yml)
+
+<p align="center">
+  <img src="build/icon.png" alt="拾页（PickPage）应用图标" width="220">
+</p>
 
 > 本地优先的桌面笔记应用 —— 知识库 → 文档树 → Markdown 编辑。
 > Electron + React 打造，数据全部落在本地，开箱即用。

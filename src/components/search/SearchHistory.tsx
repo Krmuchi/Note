@@ -5,6 +5,29 @@
 import type { JSX } from 'react';
 import type { SearchHistory as SearchHistoryItem } from '@/types';
 
+/**
+ * 图钉图标：图标库里没有 pin，按 DocTree 的内联 svg 先例（24 viewBox / stroke 2 / currentColor）。
+ * 置顶 = 实心图钉、未置顶 = 描边图钉 —— 状态本身由按钮的 title/aria-label 承担，
+ * 不能只靠图形差异，否则读屏用户分辨不出这条是否已置顶。
+ */
+const PinIcon = ({ filled }: { filled?: boolean }): JSX.Element => (
+  <svg
+    viewBox="0 0 24 24"
+    width="14"
+    height="14"
+    fill={filled ? 'currentColor' : 'none'}
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+    <circle cx="12" cy="10" r="3" />
+  </svg>
+);
+
 interface SearchHistoryProps {
   searchHistory: SearchHistoryItem[];                                          // 历史记录
   activeIndex: number;                                                         // 键盘高亮下标
@@ -47,8 +70,9 @@ export default function SearchHistory({
               onTogglePin(history.id);
             }}
             title={history.pinned ? '取消置顶' : '置顶'}
+            aria-label={history.pinned ? '取消置顶' : '置顶'}
           >
-            {history.pinned ? '📌' : '📍'}
+            <PinIcon filled={history.pinned} />
           </button>
           <button 
             className="history-text"

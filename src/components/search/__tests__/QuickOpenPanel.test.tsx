@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import QuickOpenPanel from '@/components/search/QuickOpenPanel'
 import { useNotesStore } from '@/store'
 import { subscribeDocOpen, type DocOpenRequest } from '@/utils/docNavigation'
+import { pinyinCacheSize } from '@/utils/fuzzyMatch'
 import type { NoteDoc } from '@/types'
 
 /** 全局快速打开（N1）的交互：最近编辑 / 过滤 / 键盘选择 / 打开。 */
@@ -113,5 +114,33 @@ describe('QuickOpenPanel', () => {
     expect(windowKeyDown).not.toHaveBeenCalled()
 
     window.removeEventListener('keydown', windowKeyDown)
+  })
+
+  it('打开面板即在空闲期预构建拼音索引，首字母输入直接命中（S6 性能）', async () => {
+    // 换一组冷标题：断言"不等输入"就把拼音缓存建起来
+    useNotesStore.setState({
+      notebooks: [
+        {
+          id: 'nb-py',
+          title: 'NB',
+          docs: [
+            doc({ id: 'p1', title: '悬铃木梧桐' }),
+            doc({ id: 'p2', title: '云外青山' }),
+          ],
+        },
+      ],
+      activeNotebookId: 'nb-py',
+      activeDocId: 'p1',
+    })
+    const before = pinyinCacheSize()
+    render(<QuickOpenPanel isOpen onClose={vi.fn()} />)
+
+    // 没有任何输入：空闲预构建（动态加载引擎 + requestIdleCallback 分批）就该建缓存
+    await waitFor(() => expect(pinyinCacheSize()).toBeGreaterThan(before), { timeout: 3000 })
+
+    // 索引就绪后，拼音首字母同步命中
+    fireEvent.change(screen.getByLabelText('快速打开文档'), { target: { value: 'xlm' } })
+    expect(screen.getByText('悬铃木梧桐')).toBeInTheDocument()
+    expect(screen.getByText('找到 1 篇')).toBeInTheDocument()
   })
 })

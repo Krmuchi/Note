@@ -1,4 +1,4 @@
-import React, { useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
 /** 命令式句柄：供键盘导航等外部场景把指定项滚进可视区 */
 export interface VirtualScrollHandle {
@@ -43,6 +43,17 @@ export function VirtualScroll<T>({
   const containerRef = useRef<HTMLDivElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
 
+  /*
+   * scroll → setState 的 rAF 节流（P2-1）。
+   *
+   * 拖动滚动条时一帧内能派发几十个 scroll 事件，逐个 setScrollTop 会把
+   * 渲染窗口计算（slice + 绝对定位重排）放大几十倍。这里只把**最新** scrollTop
+   * 记进 pendingScrollTopRef；scrollRafRef 非 null 即表示本帧已排队，
+   * 后续事件只覆盖 ref 不再重复排队，rAF 回调执行时统一 setState 一次。
+   */
+  const scrollRafRef = useRef<number | null>(null)
+  const pendingScrollTopRef = useRef(0)
+
   const totalHeight = items.length * itemHeight
   const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan)
   const visibleCount = Math.ceil(containerHeight / itemHeight) + overscan * 2
@@ -56,12 +67,31 @@ export function VirtualScroll<T>({
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const el = e.currentTarget
-      setScrollTop(el.scrollTop)
+      // 只记最新值：同帧内的后续事件覆盖这里，不重复排队 rAF
+      pendingScrollTopRef.current = el.scrollTop
+      if (scrollRafRef.current === null) {
+        scrollRafRef.current = requestAnimationFrame(() => {
+          scrollRafRef.current = null
+          setScrollTop(pendingScrollTopRef.current)
+        })
+      }
+      // 触底回调仍逐事件触发：它不在渲染热路径上，且改节流会改变"何时加载下一批"的行为
       if (onScrollToBottom && el.scrollTop + el.clientHeight >= el.scrollHeight - 4) {
         onScrollToBottom()
       }
     },
     [onScrollToBottom],
+  )
+
+  // 卸载时撤掉挂起的 rAF，否则回调会在组件消失后 setState（对已卸载组件的无谓渲染）
+  useEffect(
+    () => () => {
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current)
+        scrollRafRef.current = null
+      }
+    },
+    [],
   )
 
   /*
@@ -87,6 +117,16 @@ export function VirtualScroll<T>({
 
       const maxScroll = Math.max(0, totalHeight - containerHeight)
       next = Math.max(0, Math.min(next, maxScroll))
+      /*
+       * 命令式滚动必须**同步**生效（键盘导航要立刻看到目标项），所以这里绕过
+       * rAF 节流直接 setScrollTop；同时撤掉挂起的 rAF —— 否则它回放的是
+       * 排队那一刻的旧 scrollTop，会把这次结果覆盖回旧位置。
+       */
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current)
+        scrollRafRef.current = null
+      }
+      pendingScrollTopRef.current = next
       el.scrollTop = next
       setScrollTop(next)
     },

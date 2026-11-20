@@ -4,6 +4,7 @@
  */
 import type { JSX } from 'react'
 import type { DocVersion } from '@/types'
+import { IconDocument, IconDownload, IconTag, IconUndo } from '@/components/common/Icon'
 
 interface VersionContentDetailProps {
   selectedVersion: DocVersion | null; // 当前选中的版本
@@ -11,6 +12,8 @@ interface VersionContentDetailProps {
   onAddTag: () => void;               // 打开添加标签弹窗
   onExport: () => void;               // 导出版本
   onRestore: () => void;              // 恢复此版本
+  /** 恢复进行中：恢复按钮视觉禁用（handler 层另有 guard 双保险） */
+  restoring?: boolean;
 }
 
 /**
@@ -22,11 +25,12 @@ export default function VersionContentDetail({
   onAddTag,
   onExport,
   onRestore,
+  restoring = false,
 }: VersionContentDetailProps): JSX.Element {
   if (!selectedVersion) {
     return (
       <div className="version-empty">
-        <span className="version-empty-icon">📋</span>
+        <span className="version-empty-icon"><IconDocument size={32} /></span>
         <span className="version-empty-text">选择一个版本查看详情</span>
       </div>
     );
@@ -46,21 +50,22 @@ export default function VersionContentDetail({
             onClick={onAddTag}
             title="添加标签"
           >
-            🏷️ 添加标签
+            <IconTag size={14} /> 添加标签
           </button>
           <button
             className="version-action-btn"
             onClick={onExport}
             title="导出版本"
           >
-            📥 导出
+            <IconDownload size={14} /> 导出
           </button>
           {!showDiff && (
             <button
               className="version-action-btn primary"
               onClick={onRestore}
+              disabled={restoring}
             >
-              ↩ 恢复此版本
+              <IconUndo size={14} /> 恢复此版本
             </button>
           )}
         </div>

@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { appendErrorLog } from './utils/errorLog'
+import { IconWarning } from './components/common/Icon'
 
 interface Props {
   children: ReactNode
@@ -101,7 +102,7 @@ class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="error-boundary" role="alert">
           <div className="error-boundary-card">
-            <div className="error-boundary-icon" aria-hidden="true">⚠️</div>
+            <div className="error-boundary-icon" aria-hidden="true"><IconWarning size={32} /></div>
             <h2 className="error-boundary-title">应用出错了</h2>
             <p className="error-boundary-message">
               {this.state.error?.message || '发生了未知错误，可尝试重试或重新加载应用。'}

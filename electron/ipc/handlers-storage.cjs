@@ -3,7 +3,7 @@
 
 const path = require("node:path");
 const fs = require("node:fs/promises");
-const { assertStorePayload, safeName, MAX_IMAGE_BYTES } = require("./shared.mjs");
+const { assertStorePayload, safeName, MAX_IMAGE_BYTES, MAX_STORE_BYTES, stripVersions } = require("./shared.mjs");
 
 /**
  * @param {object} deps
@@ -26,6 +26,55 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
   async function readStore() {
     await ensureStoreFile();
     return JSON.parse(await fs.readFile(getDataPath(), "utf-8"));
+  }
+
+  /* ---------------- 版本快照分离存储（notes-versions.json） ----------------
+   *
+   * 版本快照是每篇文档的全量正文副本，曾随 notes-data.json 全量写盘并把 save 的
+   * 50MB payload 上限顶爆（保存永久失败）。现在它们单独存放：
+   * notes-data.json 只有正文与结构，notes-versions.json 存 { [docId]: DocVersion[] }。
+   * load 时合并（对上层透明），save 时剥离（双保险：渲染层剥 IPC、主进程剥写盘）。
+   * 旧数据（版本内嵌在 notes-data.json）自动迁移：load 合并后以 map 为准，下次保存即分离。
+   */
+  const getVersionsPath = () => path.join(path.dirname(getDataPath()), "notes-versions.json");
+
+  async function readVersionsFile() {
+    try {
+      const raw = await fs.readFile(getVersionsPath(), "utf-8");
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      // 文件不存在/损坏都退化为空 map：版本是锦上添花，不能拖垮加载
+      return {};
+    }
+  }
+
+  async function writeVersionsFile(versionsMap) {
+    const versionsPath = getVersionsPath();
+    const tempPath = versionsPath + ".tmp";
+    const json = JSON.stringify(versionsMap);
+    try {
+      await fs.writeFile(tempPath, json, "utf-8");
+      await fs.rename(tempPath, versionsPath);
+    } catch (err) {
+      try { await fs.unlink(tempPath); } catch { /* tmp 可能不存在 */ }
+      throw err;
+    }
+  }
+
+  /** 加载时合并：versions 文件优先，旧数据内嵌的 versions 回填进 map（惰性迁移） */
+  function mergeVersions(data, versionsMap) {
+    for (const notebook of data.notebooks || []) {
+      for (const doc of notebook.docs || []) {
+        const fromFile = versionsMap[doc.id];
+        if (Array.isArray(fromFile) && fromFile.length > 0) {
+          doc.versions = fromFile;
+        } else if (Array.isArray(doc.versions) && doc.versions.length > 0) {
+          versionsMap[doc.id] = doc.versions;
+        }
+      }
+    }
+    return data;
   }
 
   let writeQueue = Promise.resolve();
@@ -100,7 +149,10 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
     return entries;
   }
 
-  /** 复制当前数据文件到备份目录（自定义前缀，用于"恢复前先备份"） */
+  /**
+   * 复制当前数据文件到备份目录（自定义前缀，用于"恢复前先备份"）。
+   * 版本快照文件成对备份（后缀 .versions，非 .json，listBackupFiles 不会把它当独立备份列出）。
+   */
   async function writeBackupCopy(prefix) {
     const backupDir = getBackupDir();
     await fs.mkdir(backupDir, { recursive: true });
@@ -108,6 +160,11 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
     const backupPath = path.join(backupDir, `${prefix}-${timestamp}.json`);
     const raw = await fs.readFile(getDataPath(), "utf-8");
     await fs.writeFile(backupPath, raw, "utf-8");
+    // 成对备份版本快照；没有 versions 文件（旧格式/尚未迁移）就跳过
+    try {
+      const rawVersions = await fs.readFile(getVersionsPath(), "utf-8");
+      await fs.writeFile(backupPath.replace(/\.json$/, ".versions"), rawVersions, "utf-8");
+    } catch { /* 无版本文件可备 */ }
     return backupPath;
   }
 
@@ -142,6 +199,9 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
     ipcMain.handle("notes:load", async () => {
       try {
         const data = await readStore();
+        // 合并分离存储的版本快照（旧数据内嵌的 versions 也会被回填进 map，惰性迁移）
+        const versionsMap = await readVersionsFile();
+        mergeVersions(data, versionsMap);
         return { ok: true, data };
       } catch (err) {
         console.error("notes:load failed", err);
@@ -164,7 +224,7 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
           },
         };
       } catch (err) {
-        return { ok: false, error: err && err.message ? String(err.message) : "读取应用信息失败" };
+        return { ok: false, error: err && err.message ? "读取应用信息失败：" + String(err.message) : "读取应用信息失败" };
       }
     });
 
@@ -176,7 +236,7 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
         if (message) return { ok: false, error: message };
         return { ok: true };
       } catch (err) {
-        return { ok: false, error: err && err.message ? String(err.message) : "打开数据目录失败" };
+        return { ok: false, error: err && err.message ? "打开数据目录失败：" + String(err.message) : "打开数据目录失败" };
       }
     });
 
@@ -192,14 +252,22 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
         await shell.openExternal(url);
         return { ok: true };
       } catch (err) {
-        return { ok: false, error: err && err.message ? String(err.message) : "打开链接失败" };
+        return { ok: false, error: err && err.message ? "打开链接失败：" + String(err.message) : "打开链接失败" };
       }
     });
 
     ipcMain.handle("notes:save", async (event, payload) => {
-      // 校验并序列化一次，写盘复用同一份 json
-      const json = assertStorePayload(payload);
-      const result = await enqueueWrite(payload, json);
+      // 版本快照剥离后写盘（正文与版本分离）：渲染层已剥离 IPC 载荷，
+      // 这里再剥一层是幂等保险 —— 旧渲染层/迁移中间态即使带了 versions，
+      // notes-data.json 也不会再被版本快照撑爆。
+      const { store, versions } = stripVersions(payload);
+      if (Object.keys(versions).length > 0) {
+        const merged = { ...(await readVersionsFile()), ...versions };
+        await writeVersionsFile(merged);
+      }
+      // 校验并序列化一次，写盘复用同一份 json（此时已是剥离版，50MB 上限只受正文约束）
+      const json = assertStorePayload(store);
+      const result = await enqueueWrite(store, json);
       // 备份是节流的（每分钟最多一次），成功后主动告知渲染端"上次备份时间"，
       // 失败只记日志不打扰用户（备份失败不影响保存本身）
       createBackup()
@@ -210,6 +278,35 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
         })
         .catch(err => console.warn('Backup failed:', err));
       return result;
+    });
+
+    // 版本快照独立通道（渲染层 saveAppStore 剥离后调用）。
+    // notes:save 已自带剥离兜底；这里是正式写入路径：{ [docId]: DocVersion[] } 全量替换。
+    ipcMain.handle("notes:versions:save", async (_event, versionsMap) => {
+      try {
+        if (!versionsMap || typeof versionsMap !== "object" || Array.isArray(versionsMap)) {
+          return { ok: false, error: "版本数据无效：应为对象" };
+        }
+        const json = JSON.stringify(versionsMap);
+        if (json.length > MAX_STORE_BYTES) {
+          return { ok: false, error: "版本数据过大：超过 " + MAX_STORE_BYTES / 1024 / 1024 + "MB 上限" };
+        }
+        await writeVersionsFile(versionsMap);
+        return { ok: true };
+      } catch (err) {
+        console.error("notes:versions:save failed", err);
+        return { ok: false, error: err && err.message ? "保存版本快照失败：" + String(err.message) : "保存版本快照失败" };
+      }
+    });
+
+    // 版本快照读取（渲染层 loadAppStore 合并用；主进程 notes:load 已合并，此通道供独立刷新）
+    ipcMain.handle("notes:versions:load", async () => {
+      try {
+        return { ok: true, data: await readVersionsFile() };
+      } catch (err) {
+        console.error("notes:versions:load failed", err);
+        return { ok: false, error: err && err.message ? "读取版本快照失败：" + String(err.message) : "读取版本快照失败" };
+      }
     });
 
     // 列出本地自动备份（供"一键恢复"入口使用）
@@ -224,7 +321,7 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
         return { ok: true, backups };
       } catch (err) {
         console.error("backup:list failed", err);
-        return { ok: false, error: err && err.message ? String(err.message) : "读取备份列表失败" };
+        return { ok: false, error: err && err.message ? "读取备份列表失败：" + String(err.message) : "读取备份列表失败" };
       }
     });
 
@@ -246,17 +343,30 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
         const parsed = JSON.parse(raw);
         // 复用保存通道的同一套结构/体积校验，避免用损坏备份覆盖有效数据
         const json = assertStorePayload(parsed);
+        // 成对恢复版本快照（.versions 同名后缀）：先只解析不落盘 ——
+        // 写入必须在 prerestore 备份之后，否则会把「恢复前」的版本快照覆盖掉，
+        // 那份快照就白留了。旧备份无此文件时版本内嵌在 json 里，
+        // 后续 load 的 mergeVersions 会惰性迁移，不需要在这里处理
+        let versionsToRestore = null;
+        try {
+          const rawVersions = await fs.readFile(target.replace(/\.json$/, ".versions"), "utf-8");
+          const parsedVersions = JSON.parse(rawVersions);
+          if (parsedVersions && typeof parsedVersions === "object" && !Array.isArray(parsedVersions)) {
+            versionsToRestore = parsedVersions; // 损坏的版本备份直接丢弃，不让它挡恢复
+          }
+        } catch { /* 无成对版本备份 */ }
 
         // 覆盖前留存当前数据：恢复错了还能回头
         lastBackupAt = 0; // 绕过 60s 节流，确保这份快照一定落盘
         await writeBackupCopy("prerestore");
         await pruneBackups();
 
+        if (versionsToRestore) await writeVersionsFile(versionsToRestore);
         await enqueueWrite(parsed, json);
         return { ok: true, restoredAt: new Date().toISOString() };
       } catch (err) {
         console.error("notes:restore-backup failed", err);
-        return { ok: false, error: err && err.message ? String(err.message) : "恢复备份失败" };
+        return { ok: false, error: err && err.message ? "恢复备份失败：" + String(err.message) : "恢复备份失败" };
       }
     });
 
@@ -338,7 +448,7 @@ function createStorageHandlers({ app, ipcMain, getDataPath, defaultData }) {
       const timestamp = new Date().toISOString().slice(0, 10);
       const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
         title: "导出全部数据备份",
-        defaultPath: `笔记备份-${timestamp}.json`,
+        defaultPath: `拾页备份-${timestamp}.json`,
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
       if (canceled || !filePath) return false;

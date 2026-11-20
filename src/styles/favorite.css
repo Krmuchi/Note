@@ -93,6 +93,7 @@
 }
 
 .favorite-item-remove {
+  position: relative;
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -106,6 +107,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* 触屏命中区：视觉尺寸不变，::after 是透明热区层（不参与布局），外扩到 32px 档 */
+.favorite-item-remove::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .favorite-item-remove:hover {

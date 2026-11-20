@@ -179,7 +179,9 @@ describe('设置 · 页签语义 / 可访问名 / IA（P2-14）', () => {
     await screen.findByText('界面缩放')
 
     const tabs = screen.getAllByRole('tab')
-    expect(tabs.map((t) => t.textContent)).toEqual(['⚙️通用', '📝编辑器', '🤖AI', '⌨️快捷键'])
+    // 图标是 <IconXxx /> 节点（组件图标契约：icon 字段禁 emoji），textContent 因此只剩文案
+    expect(tabs.map((t) => t.textContent)).toEqual(['通用', '编辑器', 'AI', '快捷键'])
+    expect(tabs.every((t) => t.querySelector('svg'))).toBe(true)
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
     expect(tabs[1]).toHaveAttribute('aria-selected', 'false')
 

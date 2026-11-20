@@ -42,3 +42,48 @@ describe('视图与左菜单同步（P0-1 回收站点了没反应）', () => {
     expect(getUIState().showQuickOpen).toBe(false)
   })
 });
+
+describe('启动回位（重启不回上次文档）：restoreLastSessionView', () => {
+  beforeEach(() => {
+    uiActions.reset()
+    uiActions.setActiveLeftMenu('start')
+  })
+
+  it('有活动文档且停在开始页：落到文档视图，activeLeftMenu/activeView 成对同步', () => {
+    uiActions.restoreLastSessionView(true, false)
+    expect(getUIState().activeLeftMenu).toBe('notebooks')
+    expect(getUIState().activeView).toBe('notebooks')
+  })
+
+  it('没有活动文档：保持开始页（开始页本身就是正确落点）', () => {
+    uiActions.restoreLastSessionView(false, false)
+    expect(getUIState().activeLeftMenu).toBe('start')
+    expect(getUIState().activeView).toBe('notebooks')
+  })
+
+  it('全新安装（将弹新手引导）不回位：开始页留给引导当背景', () => {
+    uiActions.restoreLastSessionView(true, true)
+    expect(getUIState().activeLeftMenu).toBe('start')
+  })
+
+  it('用户明确停留过的视图不覆盖：小记/回收站保持原样', () => {
+    uiActions.setActiveLeftMenu('note')
+    uiActions.restoreLastSessionView(true, false)
+    expect(getUIState().activeLeftMenu).toBe('note')
+    expect(getUIState().activeView).toBe('notebooks')
+
+    uiActions.setActiveView('trash')
+    uiActions.restoreLastSessionView(true, false)
+    expect(getUIState().activeLeftMenu).toBe('trash')
+    expect(getUIState().activeView).toBe('trash')
+  })
+
+  it('回位后用户又切回开始页：再次调用（如重试加载成功）才回位，日常视图不受影响', () => {
+    uiActions.restoreLastSessionView(true, false)
+    expect(getUIState().activeLeftMenu).toBe('notebooks')
+    // 用户手动回开始页后停在小记页
+    uiActions.setActiveLeftMenu('note')
+    uiActions.restoreLastSessionView(true, false)
+    expect(getUIState().activeLeftMenu).toBe('note')
+  })
+});
