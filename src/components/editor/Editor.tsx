@@ -1438,6 +1438,7 @@ ${text}` : text);
                     activeDoc={activeDoc}
                     updateDocContent={updateDocContent}
                     onEnter={() => richEditorRef.current?.focus()}
+                    fontSize={fontSize}
                   />
                   <RichEditor
                     ref={richEditorRef}

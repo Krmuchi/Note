@@ -25,3 +25,5 @@ AI-流式超时取消与草稿表单 / 验证-脚本跑旧产物与Electron入�
 - [2026-11-19] 手算测试边界名次时把「rank 150+k = w_{299-k}」的 k 按 50 算（得 w249），实际第 200 名（0 起）是 w250；生成式期望序对拍先过、手写断言后挂。教训：手算期望值与生成式期望分开写时，手算那两行要按公式逐一代入，别凭直觉。（perf-search 待记）
 - [2026-11-19] 用 read 行范围拼 old_string 做 edit 时，若替换块从中间截断，会**静默吞掉相邻断言**（测试更弱但仍绿）——收尾必须用 ESLint no-unused-vars 复核改过的测试文件；现象：测试全绿、但有 const x 未被使用。（ux-polish 待记）
 - [2026-11-20] 测试里调用会 fire-and-forget 写盘的 handler（如 notes:save 触发的备份副本）后，afterEach 删临时目录会与其竞态：慢负载下写入落到 rm 之后 → fs.rm 报 ENOTEMPTY（挂在 afterEach 而不是测试体，极易误判为逻辑回归）。修法双保险：测试内等写入落地（waitForBackup 轮询）+ rm 加 maxRetries/retryDelay。（lead 亲踩）
+- [2026-11-21] CSS/组件改动后跑 `vite preview` 冒烟测到的是**上一次构建的 dist/**，样式改动全都不生效（数值断言全显示旧值，极易误判为代码没改对）。改完必须先 `npm run build` 再起 preview。（lead 亲踩）
+- [2026-11-21] run_code 里 edit/write 的 new_string 用双引号 JS 字符串时，注释文本里的直引号 `"` 会截断字符串 → 整个程序词法失败、**0 处落盘**（不是部分成功）。中文注释一律用全角引号「」。（与既有 backticks 坑同族）

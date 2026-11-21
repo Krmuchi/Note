@@ -31,12 +31,19 @@ export interface EditorDocTitleProps {
   updateDocContent: (updates: Partial<NoteDoc>) => void
   /** 按下 Enter / 点击正文区域时把焦点交给编辑器 */
   onEnter?: () => void
+  /**
+   * 与正文同源的基准字号（12-20px 用户可调）。
+   * 文档标题的字号阶梯需要跟随它缩放（max(32px, 2.2 × 基准)），
+   * 否则正文调大后标题只剩 1.6 倍体量差 —— 「标题和正文区分不明显」的根源。
+   */
+  fontSize?: string
 }
 
 export const EditorDocTitle: React.FC<EditorDocTitleProps> = ({
   activeDoc,
   updateDocContent,
   onEnter,
+  fontSize,
 }) => {
   const ref = useRef<HTMLDivElement | null>(null)
   /** 进入编辑（focus）时的标题快照，Esc 用它还原，并写回 store */
@@ -200,6 +207,8 @@ export const EditorDocTitle: React.FC<EditorDocTitleProps> = ({
       aria-label="文档标题"
       spellCheck={false}
       data-placeholder="无标题"
+      /* 标题字号阶梯的缩放基准（CSS 里 max(32px, 2.2 × var(--doc-font-size))） */
+      style={{ '--doc-font-size': fontSize } as React.CSSProperties}
       onInput={(e) => {
         latestTextRef.current = (e.target as HTMLElement).textContent ?? ''
         scheduleCommit()
